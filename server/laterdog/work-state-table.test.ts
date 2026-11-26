@@ -89,9 +89,9 @@ const TABLE: Array<[string, Row, WorkKind]> = [
   ["waiting for a teammate's reply", { awaits: true }, "waiting-on-dog"],
   ["waiting for a reply while its own turn still runs", { awaits: true, turn: true }, "running"],
   ["a reply awaited while a computer job runs", { awaits: true, job: true }, "waiting-on-dog"],
-  ["work it sent with no reply wanted still runs", { sentNoReply: true }, "waiting-on-dog"],
-  ["sent work with no reply wanted, turn still running", { sentNoReply: true, turn: true }, "running"],
-  ["work sent with no reply wanted while a computer job runs", { sentNoReply: true, job: true }, "waiting-on-dog"],
+  ["an FYI waits as context without running a turn", { sentNoReply: true }, "idle"],
+  ["an FYI while its own turn still runs", { sentNoReply: true, turn: true }, "running"],
+  ["an FYI leaves its own computer job running", { sentNoReply: true, job: true }, "running"],
   ["a question for the person outranks everything", { needsYou: true, turn: true, job: true, awaits: true, usage: true }, "needs-you"],
   ["a question with a job still running", { needsYou: true, job: true }, "needs-you"],
   ["a usage hold outranks a reply awaited", { usage: true, awaits: true }, "waiting-for-usage"],
@@ -107,7 +107,7 @@ const HANDOFF: Array<[string, Row, boolean]> = [
   ["a teammate's reply is back but not yet handed to the dog", { handedBack: true }, true],
   ["the turn that takes the reply runs", { handedBack: true, turn: true }, false],
   ["the person stopped the dog while its teammate still works", { askerStopped: true }, false],
-  ["work it sent with no reply wanted still runs", { sentNoReply: true }, true],
+  ["an FYI has no reply to await", { sentNoReply: true }, false],
   ["work it sent with no reply wanted, while its own turn runs", { sentNoReply: true, turn: true }, false],
   ["nothing sent", {}, false],
 ];
@@ -134,9 +134,10 @@ describe("one work state per chat, from every fact the home knows", () => {
       const label = JSON.stringify(row);
       if (alive) expect(work.kind, label).not.toBe("idle");
       if (work.kind === "running") expect(alive, label).toBe(true);
-      const sent = row.awaits || row.sentNoReply;
+      const sent = row.awaits;
       if (work.kind === "waiting-on-dog") expect(sent && !row.turn, label).toBe(true);
-      if (row.sentNoReply && !row.turn && !row.needsYou && !row.usage) expect(work.kind, label).toBe("waiting-on-dog");
+      if (row.awaits && !row.turn && !row.needsYou && !row.usage) expect(work.kind, label).toBe("waiting-on-dog");
+      if (row.sentNoReply && !row.awaits && !alive && !row.needsYou && !row.usage) expect(work.kind, label).toBe("idle");
       expect(older.waitingForTeammates, label).toBe(Boolean(!row.turn && sent));
       if (work.kind === "waiting-on-dog") expect(older.waitingForTeammates && older.waitingOn!.length > 0, label).toBe(true);
       expect(Boolean(older.waitingOn?.length), label).toBe(Boolean(sent && !row.turn));
