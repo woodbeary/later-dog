@@ -329,7 +329,7 @@ export class ComputersClient {
   }
 
   async writeFile(id: string, path: string, bytes: Uint8Array, options: { signal?: AbortSignal } = {}): Promise<void> {
-    const response = await this.#send(filesPath(id, path), { method: "PUT", body: bytes, headers: { "content-type": "application/octet-stream" }, timeoutMs: 60_000, signal: options.signal });
+    const response = await this.#send(filesPath(id, path), { method: "PUT", body: Uint8Array.from(bytes), headers: { "content-type": "application/octet-stream" }, timeoutMs: 60_000, signal: options.signal });
     await response.body?.cancel().catch(() => {});
   }
 
