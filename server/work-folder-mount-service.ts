@@ -12,6 +12,7 @@ import { guestFolderDir } from "./laterdog/engine-folder-sync.ts";
 import { jobComputer } from "./computers.ts";
 import { DurableFolderRead } from "./laterdog/work-folder-durable-read.ts";
 import { syncComputerWorkFolder } from "./laterdog/engine-opener.ts";
+import { withOperationDeadline } from "./laterdog/work-folder-op-deadline.ts";
 
 async function main() {
   process.umask(0o077);
@@ -98,10 +99,10 @@ async function main() {
       const operation = JSON.parse(Buffer.concat(parts).toString("utf8")) as FsRequest;
       if (operation.op === "readlink") await permissions?.refresh();
       response.setHeader("content-type", "application/json");
-      response.end(JSON.stringify(await router.dispatch(operation)));
+      response.end(JSON.stringify(await withOperationDeadline(operation.op, router.dispatch(operation))));
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (!code || code === "EIO" || code === "MODULE_NOT_FOUND") {
+      if (!code || code === "EIO" || code === "ETIMEDOUT" || code === "MODULE_NOT_FOUND") {
         const detail = error instanceof Error ? error.message : "unknown";
         console.error("Working folder I/O failed", String(code ?? "unknown"), detail.replace(/Bearer [^ ]+|https?:\/\/[^ ]+/gi, "[remote]").slice(0, 240));
       }

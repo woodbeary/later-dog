@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeRestoreFailure, RESTORE_BACKOFF_MAX_MS, RESTORE_NOTES_KEPT, restoreBackoff, restoreUntilDone } from "../runtime/restore-until-done.mjs";
 import { parseManifest, restore, snapshot } from "../runtime/sync.mjs";
+import { HELD_SIGNALS, holdStopsWhileRestoring } from "../runtime/restore-signals.mjs";
+import { EventEmitter } from "node:events";
 
 vi.mock("cloudflare:workers", async () => await import("./fake-containers.ts"));
 vi.mock("@cloudflare/containers", async () => await import("./fake-containers.ts"));
@@ -95,4 +97,46 @@ describe("restoring a home until every file is back", () => {
     const { BOOT_PORT_TIMEOUT_MS } = await import("../src/host.ts");
     expect(BOOT_PORT_TIMEOUT_MS).toBeGreaterThanOrEqual(2 * OWNER_COLD_RESTORE_MEASURED_MS);
   });
+
+  it("holds a stop signal that arrives mid-restore, so a rollout or Worker deploy no longer throws away the restore", async () => {
+    const events = new EventEmitter();
+    const lines: string[] = [];
+    const held = holdStopsWhileRestoring({ events, log: (line: string) => lines.push(line), now: () => 42 });
+    for (const signal of HELD_SIGNALS) expect(events.listenerCount(signal)).toBe(1);
+    events.emit("SIGTERM", "SIGTERM");
+    expect(held.release()).toEqual([{ signal: "SIGTERM", at: 42 }]);
+    for (const signal of HELD_SIGNALS) expect(events.listenerCount(signal)).toBe(0);
+    expect(lines[0]).toMatch(/^SIGTERM arrived while restoring/);
+  });
+
+  it("never stops retrying on its own", async () => {
+    let calls = 0;
+    let clock = 0;
+    const restored = await restoreUntilDone(async () => {
+      calls += 1;
+      if (calls < 200) throw new Error("blob read failed: 503");
+      return { manifest: null, files: 0 };
+    }, { now: () => clock, wait: async (ms: number) => { clock += ms; } });
+    expect(restored.attempts).toBe(200);
+    expect(clock).toBeGreaterThan(60 * 60_000);
+  });
+
+  it("reads a damaged piece again instead of failing the whole restore attempt", async () => {
+    const source = folder();
+    for (let i = 0; i < 20; i++) writeFileSync(join(source, `${i}.json`), `{"chat":${i},"pad":"${"x".repeat(200)}"}`);
+    const store = memoryStore();
+    await snapshot(source, store, null, { scratch: folder() });
+    let damaged = 0;
+    const cutting = { ...store, async get(hash: string) {
+      const bytes = await store.get(hash);
+      if (damaged < 3) { damaged += 1; return bytes.subarray(0, Math.floor(bytes.length / 2)); }
+      return bytes;
+    } };
+    const target = folder();
+    const restored = await restore(target, cutting, null, { chunkRetryMs: 1 });
+    expect(restored.files).toBe(20);
+    expect(damaged).toBe(3);
+    for (let i = 0; i < 20; i++) expect(readFileSync(join(target, `${i}.json`), "utf8")).toBe(readFileSync(join(source, `${i}.json`), "utf8"));
+  });
 });
+
