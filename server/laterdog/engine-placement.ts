@@ -102,6 +102,15 @@ export function notePlacement(dataDir: string, line: string, now = new Date()): 
   } catch {}
 }
 
+export function recordEngineTurn(dataDir: string, driver: string, account: string, turn: { botId?: string; threadId: string; sourceMessageId?: string }, turnId: string, placement: "home" | "computer"): void {
+  if (process.env.LATERDOG_CLOUD_ROLE !== "home") return;
+  notePlacement(dataDir, "[engine-dispatch] " + JSON.stringify({ driver, account, botId: turn.botId, threadId: turn.threadId, messageId: turn.sourceMessageId, turnId, placement }));
+}
+
+export function acceptedEnginePlacement(process: unknown): "home" | "computer" {
+  return process instanceof EngineProcess && process.placement !== "home" ? "computer" : "home";
+}
+
 export { claudeProjectSlug };
 
 export function commandOnPath(command: string, path: string | undefined): string | null {

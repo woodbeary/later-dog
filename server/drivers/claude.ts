@@ -8,7 +8,7 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { engineOpener, notePlacement, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { acceptedEnginePlacement, engineOpener, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
@@ -1073,6 +1073,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       turn: {
         turnId: string;
         input: SendTurnInput;
+        dispatchRecorded?: boolean;
         retryAbort: AbortController;
         settled: boolean;
         sawStreamDelta: boolean;
@@ -1735,6 +1736,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             }
           }
           return;
+        }
+        if (session.turn && !session.turn.dispatchRecorded && (o.type === "assistant" || o.type === "stream_event" || o.type === "result")) {
+          session.turn.dispatchRecorded = true;
+          recordEngineTurn(DATA_DIR, DRIVER_KIND, instanceId, session.turn.input, session.turn.turnId, acceptedEnginePlacement(session.child));
         }
         if (session.turn?.continuationSilence && !(o.type === "system" && o.subtype === "init") && !(o.type === "user" && o.isReplay === true)) {
           clearTimeout(session.turn.continuationSilence);

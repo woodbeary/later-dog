@@ -62,7 +62,7 @@ import { prepareCodexShellGuard } from "../laterdog/codex-shell-guard.ts";
 import { codexPendingDispatch, type codexCheckpoint } from "../laterdog/codex-checkpoint.ts";
 import { verifiedCodexGuard } from "../laterdog/codex-computer-guard.ts";
 import { planCodexRemote } from "../laterdog/codex-placement.ts";
-import { DEFAULT_ENGINE_OPEN_BUDGET_MS, engineOpener, notePlacement, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { DEFAULT_ENGINE_OPEN_BUDGET_MS, acceptedEnginePlacement, engineOpener, notePlacement, recordEngineTurn, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { codexExternalAuthChannel, redactCodexExternalAuthFrame } from "../laterdog/codex-external-auth.ts";
 import { chatEngineEnvironment } from "../laterdog/chat-environment.ts";
 import { codexToolTouch } from "../laterdog/tool-touches.ts";
@@ -1804,6 +1804,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           approvalParams = approvalParams.fallback;
           await startTurn();
         }
+        recordEngineTurn(DATA_DIR, DRIVER_KIND, instanceId, turn, turnId, acceptedEnginePlacement(child));
         if (commitVolatile && !compacted) commitVolatile();
       } catch (e) {
         const failure = e instanceof Error ? e : { text: String(e) };

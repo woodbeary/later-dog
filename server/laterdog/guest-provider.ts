@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { DATA_DIR } from "../config.ts";
 import { newEventId } from "../contracts.ts";
 import type { DriverCreateInput, ProviderAdapter, ProviderInstance, RuntimeEventListener, SendTurnInput, TextGenerationOptions, TextGenerationUsage } from "../contracts.ts";
-import { engineOpener, notePlacement, remoteEngineChoice, spawnPlacedEngine } from "./engine-placement.ts";
+import { engineOpener, notePlacement, recordEngineTurn, remoteEngineChoice, spawnPlacedEngine } from "./engine-placement.ts";
 import { engineWaitEvent } from "./engine-waiting.ts";
 import { GuestProviderChannel } from "./guest-provider-channel.ts";
 import { guestProviderPlan } from "./guest-provider-plan.ts";
@@ -43,7 +43,7 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
       },
     });
     const channel = new GuestProviderChannel(proc, driver, instance.instanceId, turn.threadId, dataDir, prepared.turn, event => {
-      if (event.type === "turn.started") log(turn, "computer");
+      if (event.type === "turn.started" && event.turnId) recordEngineTurn(dataDir, driver, instance.instanceId, turn, event.turnId, "computer");
       for (const listener of listeners) listener(event);
     });
     state.channel = channel;
@@ -91,7 +91,11 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
   };
   const adapter = withMembers<ProviderAdapter>(local, {
     async sendTurn(turn) {
-      if (!remoteEngineChoice(dataDir, turn.botId ?? "").required) return local.sendTurn(turn);
+      if (!remoteEngineChoice(dataDir, turn.botId ?? "").required) {
+        const started = await local.sendTurn(turn);
+        recordEngineTurn(dataDir, driver, instance.instanceId, turn, started.turnId, "home");
+        return started;
+      }
       const previous = active.get(turn.threadId);
       if (previous?.channel?.finishing) await previous.channel.closed;
       if (active.has(turn.threadId)) throw new Error("A turn is already running in this chat.");
