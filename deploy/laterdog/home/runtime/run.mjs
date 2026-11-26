@@ -1,4 +1,5 @@
 import { folderExclusions, folderMounts, legacyWorkFolderScope, startWorkFolderMounts } from "./work-folder-mounts.mjs";
+import { projectPreviousCloudBackup } from "./previous-backup-compat.mjs";
 import { randomBytes } from "node:crypto";
 import { createArchiver, serveArchive } from "./archive.mjs";
 import { launcherOwnsNoFile } from "./archive-launcher.mjs";
@@ -70,7 +71,11 @@ async function main() {
   let manifest = null;
   let upgraded = null;
   if (store) {
-    const restored = await restoreWithRetries(store, dogOwner(), exclude, exactScope);
+    const restoreStore = placement?.mode === "folders" ? { ...store, async manifest() {
+      const current = await store.manifest();
+      return current && projectPreviousCloudBackup(current, placement);
+    } } : store;
+    const restored = await restoreWithRetries(restoreStore, dogOwner(), exclude, exactScope);
     manifest = restored.manifest;
     upgraded = upgradeFrom(manifest, APP);
     log(restored.manifest ? `restored ${restored.files} files` : "a new home: nothing to restore");
