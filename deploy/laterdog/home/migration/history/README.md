@@ -12,6 +12,8 @@ Configure `bindings` in the migration config with a remote `HISTORY_ADMIN` servi
 
 1. Run `main.mjs status migration.json` and compare the generation, revision and mode with the selected release.
 2. Run `main.mjs import migration.json`. It verifies immutable receipt payloads, loads every changed shard and streams a separate readback. A shard missing from the later source receives a verified empty replacement. Exact retries reuse receipts for the same immutable blob batch, shard load and checksum.
+A legacy database reconstructed by a previous rollback can contain shard-allocated rowids. Set `preserveAllocatedRowids: true` when capturing that database. The receiving directory reserves a fresh range above the imported maxima when each shard is sealed.
+
 3. Set `output` to a new local file and run `main.mjs compact migration.json`. Save the JSON receipt with the projected DB. This contains the original control rows, receipt references and the logical generation marker.
 
 The three short command names above use the full path to `deploy/laterdog/home/migration/history/main.mjs`. All path fields are relative to the containing configuration file unless absolute.

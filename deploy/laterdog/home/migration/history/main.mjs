@@ -53,7 +53,10 @@ async function remote() {
   return { api, close: () => proxy.dispose() };
 }
 let receipt;
-if (action === "capture") receipt = await capture(local("source"), data);
+if (action === "capture")
+  receipt = await capture(local("source"), data, {
+    portable: cfg.preserveAllocatedRowids === true,
+  });
 else if (action === "compact")
   receipt = await compact(
     local("source"),
