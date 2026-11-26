@@ -8,10 +8,19 @@ import { exportFrozen, publishCatalog } from "./transfer.mjs";
 
 process.umask(0o077);
 const repeatableAdmin = new Set(["status", "list", "shardStatus", "watermark", "commands", "barrier"]);
+function bounded(operation, ms = 180_000) {
+  let timer;
+  return Promise.race([
+    operation(),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Error("History service call timed out")), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 async function retrying(operation, attempts = 6) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await operation();
+      return await bounded(operation);
     } catch (error) {
       if (attempt >= attempts) throw error;
       await new Promise((done) => setTimeout(done, Math.min(8000, 500 * 2 ** attempt)));
@@ -51,7 +60,7 @@ async function remote() {
     admin: (q) =>
       repeatableAdmin.has(q.op)
         ? retrying(() => admin.admin(cfg.stable, args(q)))
-        : admin.admin(cfg.stable, args(q)),
+        : bounded(() => admin.admin(cfg.stable, args(q))),
     receiptBatch: (q) =>
       retrying(() => admin.receiptBatch(cfg.stable, cfg.generation, q)),
     async putReceiptPack(meta, body) {
@@ -71,7 +80,7 @@ async function remote() {
       );
     },
     importStream: (req, stream) =>
-      admin.importStream(cfg.stable, args(req), stream),
+      bounded(() => admin.importStream(cfg.stable, args(req), stream)),
     async page(req) {
       const { op, ...body } = req;
       if (op !== "page") throw Error("Invalid history page request");
