@@ -120,5 +120,23 @@ describe("restoring a home until every file is back", () => {
     expect(restored.attempts).toBe(200);
     expect(clock).toBeGreaterThan(60 * 60_000);
   });
+
+  it("reads a damaged piece again instead of failing the whole restore attempt", async () => {
+    const source = folder();
+    for (let i = 0; i < 20; i++) writeFileSync(join(source, `${i}.json`), `{"chat":${i},"pad":"${"x".repeat(200)}"}`);
+    const store = memoryStore();
+    await snapshot(source, store, null, { scratch: folder() });
+    let damaged = 0;
+    const cutting = { ...store, async get(hash: string) {
+      const bytes = await store.get(hash);
+      if (damaged < 3) { damaged += 1; return bytes.subarray(0, Math.floor(bytes.length / 2)); }
+      return bytes;
+    } };
+    const target = folder();
+    const restored = await restore(target, cutting, null, { chunkRetryMs: 1 });
+    expect(restored.files).toBe(20);
+    expect(damaged).toBe(3);
+    for (let i = 0; i < 20; i++) expect(readFileSync(join(target, `${i}.json`), "utf8")).toBe(readFileSync(join(source, `${i}.json`), "utf8"));
+  });
 });
 

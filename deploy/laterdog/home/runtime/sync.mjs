@@ -591,7 +591,9 @@ function waitUnlessStopped(ms, stop) {
 async function readChunk(store, hash, stop, { attempts, retryMs }) {
   for (let attempt = 1; ; attempt += 1) {
     try {
-      return await store.get(hash, { signal: stop });
+      const bytes = await store.get(hash, { signal: stop });
+      if (sha256(bytes) !== hash) throw new Error(`a piece arrived damaged (${bytes.length} bytes)`);
+      return bytes;
     } catch (error) {
       if (stop.aborted || attempt >= attempts) throw error;
       await waitUnlessStopped(attempt * retryMs, stop);
