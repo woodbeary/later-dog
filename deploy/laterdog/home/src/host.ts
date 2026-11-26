@@ -993,7 +993,7 @@ export class CloudHomeHost extends Container<Env> {
 CloudHomeHost.outboundHandlers = {
   state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; home?: string; devCode?: boolean }>) => {
     if (!(await authorizedState(request, context.params?.token))) return new Response("Unauthorized", { status: 401 });
-    const devCode = context.params?.devCode === true || devCodeOn(env.DEV_CODE) ? await handleDevCode(request, env.STATE) : null;
+    const devCode = context.params?.devCode === true || devCodeOn(env.DEV_CODE) ? await handleDevCode(request, env.STATE, env.HOME_HOST_SUFFIX === "-hometest.later.dog" ? context.params?.home : undefined) : null;
     return devCode ?? handleState(request, env.STATE, stateOwner(context));
   },
   email: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; accountId: string }>) =>
