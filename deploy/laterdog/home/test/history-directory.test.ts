@@ -113,7 +113,7 @@ describe("per-home history activation", () => {
       expect(
         open().recoveryPage("first", "messages.commandHead", undefined, 1),
       ).toEqual({
-        rows: [{ thread: "b", uncertain: 0, head: "20" }],
+        rows: [{ thread: "b", uncertain: 0, head: "20",cards:null }],
         next: "b",
       });
       dir.open("first", "a", "write");

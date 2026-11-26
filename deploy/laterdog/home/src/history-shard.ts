@@ -1,3 +1,4 @@
+import { historyUnansweredCardSql } from "../../../../shared/history-card-filter.ts";
 import {
   historyCommandHead,
   historyCommandPage,
@@ -73,13 +74,17 @@ export class HistoryShard extends DurableObject<{
     if (this.retired) throw Error("History shard was retired");
     return this.ctx.storage.sql;
   }
-  constructor(ctx: DurableObjectState, env: { DIRECTORY: DurableObjectNamespace<HistoryDirectory> }) {
+  constructor(
+    ctx: DurableObjectState,
+    env: { DIRECTORY: DurableObjectNamespace<HistoryDirectory> },
+  ) {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => {
       const [stable, generation] = JSON.parse(ctx.id.name ?? "null") ?? [];
       if (typeof stable !== "string" || typeof generation !== "string")
         throw Error("Missing physical history allocation");
-      this.retired = !(await env.DIRECTORY.getByName(stable).permitsPhysical(generation));
+      this.retired =
+        !(await env.DIRECTORY.getByName(stable).permitsPhysical(generation));
       if (!this.retired) initializeHistoryShard(this.sql);
     });
   }
@@ -462,8 +467,13 @@ export class HistoryShard extends DurableObject<{
       .exec<{
         version: number;
         recoverable: number;
+        cards: number;
         head: string | null;
-      }>("SELECT version,EXISTS(SELECT 1 FROM native_runs WHERE json_extract(json,'$.observation')='live' OR json_extract(json,'$.state') IN ('running','waiting','paused')) recoverable,(SELECT CAST(MAX(sequence) AS TEXT) FROM history_command_journal) head FROM history_config WHERE singleton=1")
+      }>(
+        "SELECT version,EXISTS(SELECT 1 FROM native_runs WHERE json_extract(json,'$.observation')='live' OR json_extract(json,'$.state') IN ('running','waiting','paused')) recoverable,EXISTS(SELECT 1 FROM messages WHERE " +
+          historyUnansweredCardSql +
+          ") cards,(SELECT CAST(MAX(sequence) AS TEXT) FROM history_command_journal) head FROM history_config WHERE singleton=1",
+      )
       .one();
   }
   fenceForRecovery(grant: Grant) {

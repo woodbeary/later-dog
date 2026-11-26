@@ -50,10 +50,7 @@ async function execute(
 ): Promise<Response> {
   const dir = directory(env, stable);
   const write = historyOperationWrites(query.operation);
-  const reports =
-    write &&
-    (query.operation.op.startsWith("native.") ||
-      ["messages.command", "messages.delete"].includes(query.operation.op));
+  const reports = write && query.operation.op !== "messages.leaf";
   const token = reports ? crypto.randomUUID() : null;
   const grant = await dir.open(
     query.generation,
@@ -93,11 +90,11 @@ type RestoreRequest = { jobId: string; generation: string } & (
     ))
 );
 export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
-  async eraseHome(stable:string, removalId:string) {
-    return directory(this.env,stable).eraseHome(stable,removalId);
+  async eraseHome(stable: string, removalId: string) {
+    return directory(this.env, stable).eraseHome(stable, removalId);
   }
-  async reopenHome(stable:string, removalId:string) {
-    return directory(this.env,stable).reopenHome(stable,removalId);
+  async reopenHome(stable: string, removalId: string) {
+    return directory(this.env, stable).reopenHome(stable, removalId);
   }
   async neverActivated(stable: string, generation: string) {
     return directory(this.env, stable).neverActivated(generation);
@@ -204,7 +201,13 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
           return new Response(null, { status: 405 });
         try {
           return Response.json(
-            await dir.writeReceipt(stable,receipt[1],receipt[2],request.body,false),
+            await dir.writeReceipt(
+              stable,
+              receipt[1],
+              receipt[2],
+              request.body,
+              false,
+            ),
             { status: 201 },
           );
         } catch (error) {
@@ -223,9 +226,7 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
         placement.mode !== "remote"
       )
         return new Response("History placement changed", { status: 409 });
-      return Response.json(
-        await dir.receipts(stable,batch,false),
-      );
+      return Response.json(await dir.receipts(stable, batch, false));
     }
     if (url.pathname === "/history/status" && request.method === "GET")
       return Response.json(await dir.status());
@@ -319,7 +320,7 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
       ? 64
       : 12;
     let threads: string[], next: string | null;
-    const recorded = new Map<string, string | null>();
+    const recorded = new Map<string, string | boolean | null>();
     if (query.threadIds) {
       if (!Array.isArray(query.threadIds)) throw Error("Invalid thread list");
       query.threadIds.forEach(requireThread);
@@ -330,19 +331,24 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
       next = ids.length > threads.length ? threads.at(-1)! : null;
     } else if (
       query.operation.op === "native.recover" ||
-      query.operation.op === "messages.commandHead"
+      query.operation.op === "messages.commandHead" ||
+      query.operation.op === "messages.hasCards"
     ) {
       const page = await dir.recoveryPage(
         query.generation,
         query.operation.op,
         query.after,
-        query.operation.op === "messages.commandHead" ? 128 : pageSize,
+        query.operation.op === "native.recover" ? pageSize : 128,
       );
       threads = page.rows.map((row) => row.thread);
       next = page.next;
       if (query.operation.op === "messages.commandHead")
         for (const row of page.rows)
           if (!row.uncertain) recorded.set(row.thread, row.head);
+      if (query.operation.op === "messages.hasCards")
+        for (const row of page.rows)
+          if (!row.uncertain && row.cards !== null)
+            recorded.set(row.thread, !!row.cards);
     } else
       ({ threads, next } = await dir.list(
         query.generation,
@@ -405,7 +411,12 @@ type Admin =
 
 export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
   async getReceipt(stable: string, generation: string, sha: string) {
-    return directory(this.env, stable).readReceipt(stable,generation,sha,true);
+    return directory(this.env, stable).readReceipt(
+      stable,
+      generation,
+      sha,
+      true,
+    );
   }
   async putReceipt(
     stable: string,
@@ -413,14 +424,24 @@ export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
     sha: string,
     body: ReadableStream<Uint8Array>,
   ) {
-    return directory(this.env, stable).writeReceipt(stable,generation,sha,body,true);
+    return directory(this.env, stable).writeReceipt(
+      stable,
+      generation,
+      sha,
+      body,
+      true,
+    );
   }
   async receiptBatch(
     stable: string,
     generation: string,
     req: Omit<ReceiptBatch, "generation">,
   ) {
-    return directory(this.env,stable).receipts(stable,{...req,generation},true);
+    return directory(this.env, stable).receipts(
+      stable,
+      { ...req, generation },
+      true,
+    );
   }
   async admin(stable: string, req: Admin) {
     const dir = directory(this.env, stable);

@@ -20,6 +20,9 @@ export function initializeHistoryShard(sql: HistorySql): void {
   sql.exec(
     "CREATE TABLE IF NOT EXISTS messages (thread_id TEXT NOT NULL,id TEXT NOT NULL,at INTEGER NOT NULL,role TEXT NOT NULL,kind TEXT NOT NULL,text TEXT,json TEXT NOT NULL,PRIMARY KEY(thread_id,id))",
   );
+  sql.exec(
+    "CREATE INDEX IF NOT EXISTS history_message_cards ON messages(thread_id) WHERE json_type(json,'$.card')='object'",
+  );
   sql.exec("CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id)");
   sql.exec(
     "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text,content='messages',content_rowid='rowid',tokenize='unicode61')",
