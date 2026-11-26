@@ -4,9 +4,11 @@ import { dirname } from "node:path";
 import { claudeCredentialsFile } from "./claude-keychain.ts";
 import { CLAUDE_REFRESH_MARGIN_MS, claudeRefreshGate, claudeTokenExpiry, type ClaudeRefreshGate } from "./claude-refresh-lock.ts";
 
-export const CLAUDE_RENEW_ARGS: readonly string[] = ["auth", "status", "--json"];
+import { CLAUDE_SIGN_IN_CHECK_ARGS, CLAUDE_SIGN_IN_CHECK_TIMEOUT_MS } from "./claude-sign-in-refresh.ts";
+
+export const CLAUDE_RENEW_ARGS: readonly string[] = CLAUDE_SIGN_IN_CHECK_ARGS;
 export const CLAUDE_RENEW_CHECK_MS = 60_000;
-export const CLAUDE_RENEW_RUN_MS = 60_000;
+export const CLAUDE_RENEW_RUN_MS = CLAUDE_SIGN_IN_CHECK_TIMEOUT_MS;
 export const CLAUDE_RENEW_RETRY_MS = 2 * 60_000;
 
 export interface ClaudeRenewal { command: string; env: Record<string, string> }
@@ -34,11 +36,14 @@ export function claudeRenewalFile(renewal: ClaudeRenewal): string {
 }
 
 export function runClaudeRenewal(renewal: ClaudeRenewal, timeoutMs = CLAUDE_RENEW_RUN_MS): Promise<boolean> {
+  const file = claudeRenewalFile(renewal);
+  const before = claudeTokenExpiry(file);
+  const renewed = () => { const after = claudeTokenExpiry(file); return after !== null && (before === null || after > before); };
   return new Promise((resolve) => {
     try {
       execFile(renewal.command, [...CLAUDE_RENEW_ARGS], {
-        env: renewal.env, cwd: dirname(claudeRenewalFile(renewal)), timeout: timeoutMs, maxBuffer: 256 * 1024, windowsHide: true,
-      }, (error) => resolve(!error));
+        env: renewal.env, cwd: dirname(file), timeout: timeoutMs, maxBuffer: 256 * 1024, windowsHide: true,
+      }, () => resolve(renewed()));
     } catch {
       resolve(false);
     }

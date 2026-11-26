@@ -370,12 +370,10 @@ describe("agents-proxy MCP surface", () => {
     const list = await rpc("tools/list");
     for (const tool of new Set(proposalCases.map(entry => entry.tool))) {
       const description = list.result.tools.find((entry: { name: string }) => entry.name === tool).description;
-      expect(description).toContain("a change to your own routines, skills, profile or model applies immediately");
-      expect(description).toContain("a change for another bot may wait for the person's confirmation");
+      expect(description).toContain("a change to your own routines, skills, profile or model applies at once with an Undo");
+      expect(description).toContain("on Full access so does a change for another dog; otherwise that may wait for the person");
       expect(description).toContain("Never claim success without an applied result");
-      expect(description).toContain("If applied, continue the requested work without another confirmation");
-      expect(description).toContain("Only a pending result requires ending the turn");
-      expect(description).toContain("does not elevate another bot's execution permissions");
+      expect(description).toContain("If applied, carry on without asking again; if pending, end the turn.");
     }
     const credential = list.result.tools.find((entry: { name: string }) => entry.name === "request_credential");
     expect(credential.description).toContain("after the user saves or declines");
@@ -489,6 +487,8 @@ describe("agents-proxy MCP surface", () => {
       "select_computer",
       "attach_file",
       "create_bot",
+      "delete_bot",
+      "restore_bot",
       "create_room",
       "manage_room",
       "request_credential",
@@ -622,7 +622,7 @@ describe("agents-proxy MCP surface", () => {
     expect(schedule.properties.every_day.type).toBe("boolean");
     expect(schedule.properties.all_day.type).toBe("boolean");
     expect(schedule.properties.never_ends.type).toBe("boolean");
-    expect(create.description).toContain("Only a pending result requires ending the turn");
+    expect(create.description).toContain("if pending, end the turn");
   });
 
   it("list_bots renders the roster and authenticates with the shared token", async () => {

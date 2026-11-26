@@ -137,6 +137,24 @@ describe("assigned working folders on guest computers", () => {
     expect(readFileSync(join(f.right, "dist", "report"), "utf8")).toBe("updated");
     expect(readlinkSync(join(f.right, "alias"))).toBe("dist/report");
   });
+  it("publishes a save cut off part way by the next checkout, so a restart during the save loses nothing", async () => {
+    const f = await fixture();
+    await publishInitialWorkFolder(f.src, f.store);
+    await f.syncA();
+    writeFileSync(join(f.left, "reply-turn.txt"), "made during the turn");
+    const reach = globalThis.fetch;
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      if ((options?.method ?? "GET") !== "GET") throw new Error("the home restarted");
+      return reach(url, options);
+    });
+    await expect(f.syncA()).rejects.toThrow();
+    vi.stubGlobal("fetch", reach);
+    await f.syncB();
+    expect(existsSync(join(f.right, "reply-turn.txt"))).toBe(false);
+    await f.syncA();
+    await f.syncB();
+    expect(readFileSync(join(f.right, "reply-turn.txt"), "utf8")).toBe("made during the turn");
+  });
   it("retains older read-only memory mirrors in durable storage and opens the current memory on first checkout", async () => {
     const f = await fixture();
     const data = join(f.dir, "data");

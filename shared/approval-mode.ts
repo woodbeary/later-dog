@@ -15,8 +15,7 @@ export function modelSwitchNeedsAsk(
   fromDriver: string | undefined,
   toDriver: string | undefined,
 ): boolean {
-  return !supportsApprovalMode(toDriver, mode) ||
-    ((mode === "full" || mode === "custom") && fromDriver !== toDriver);
+  return !supportsApprovalMode(toDriver, mode) || (mode === "custom" && fromDriver !== toDriver);
 }
 
 export function hasNativeAutoReview(driverKind: string | undefined): boolean {

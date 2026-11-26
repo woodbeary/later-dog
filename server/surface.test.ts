@@ -74,12 +74,12 @@ describe("surfacePrompt", () => {
 
   it.each(["local", "cloud"] as const)("requires observed results on the actual %s tools", (computer) => {
     const text = surfacePrompt({ computer, browser: false });
-    expect(text).toContain("verify its result before claiming success");
+    expect(text).toContain("check the result before you say it worked");
     expect(text).toContain("Announcing an action is not performing it");
     expect(text).toContain("never act on a different computer.");
-    expect(text).toContain("use later.dog's mounted computer tools first");
-    expect(text).toContain("Do not substitute the provider's own desktop");
-    expect(text).toContain("use the computer's browser when a search service is unavailable");
+    expect(text).toContain("use later.dog's mounted computer tools");
+    expect(text).toContain("never the engine's own desktop");
+    expect(text).toContain("If a search service is unavailable, research in the computer's browser");
   });
 
   it("chooses and starts configured targets through chat instead of requiring menu nudges", () => {
@@ -157,8 +157,8 @@ describe("surface parsing", () => {
 
 
 it("does not instruct use of a selected browser when no surface is mounted", () => {
-  expect(surfacePrompt({ computer: null, browser: false }, { canSelect: true })).not.toContain("For online research");
-  expect(surfacePrompt({ computer: null, browser: true })).toContain("For online research");
+  expect(surfacePrompt({ computer: null, browser: false }, { canSelect: true })).not.toContain("If a search service is unavailable");
+  expect(surfacePrompt({ computer: null, browser: true })).toContain("If a search service is unavailable");
 });
 
 describe("cloudPlaceRefusal", () => {

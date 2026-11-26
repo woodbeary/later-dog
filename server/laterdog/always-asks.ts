@@ -505,10 +505,14 @@ const RULES: Record<AlwaysAskId, Rule> = {
   "deletes-or-shares": ({ tool, input }) => callDeletesOrShares(tool, input),
 };
 
+export const FULL_ACCESS_STILL_ASKS: ReadonlySet<AlwaysAskId> = new Set<AlwaysAskId>(["pays"]);
+
 export function alwaysAsks(request: AlwaysAskRequest, guard: () => OwnerGuardContext): AlwaysAsk | null {
   const seen = seenOf(request);
   const guardFor = () => (seen.place === "mac" ? macGuard(seen.cwd) : guard());
+  const full = guard().fullAccess === true;
   for (const id of ALWAYS_ASK_IDS) {
+    if (full && !FULL_ACCESS_STILL_ASKS.has(id)) continue;
     const hit = RULES[id](seen, guardFor);
     if (hit) return found(id, typeof hit === "string" ? hit : undefined);
   }

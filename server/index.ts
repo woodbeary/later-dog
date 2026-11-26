@@ -151,6 +151,8 @@ import { createJobStop } from "./laterdog/stop-computer-jobs.ts";
 import { createJobWake } from "./laterdog/job-wake.ts";
 import { waitCapMs } from "./laterdog/run-wait.ts";
 import { HelperTurnBudget } from "./laterdog/turn-budget.ts";
+import { DECIDE_YOURSELF, REPLY_FIRST_HELD, TurnShape } from "./laterdog/turn-shape.ts";
+import { DogRestStore, findRest, purgeDue, REST_REFUSALS, restRefusal } from "./laterdog/dog-rest.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
@@ -433,7 +435,9 @@ import {
   supportsWorkspaceFiles,
   updateMemory,
   appendMemoryLog,
+  appendMemoryLogInBackground,
   memorySystemPrompt,
+  memoryTrimmed,
   memorySourceLabel,
   searchMemoryFiles,
   SESSION_SEARCH_SYSTEM_PROMPT,
@@ -456,7 +460,8 @@ import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, writeMem
 import { mountedFolderGate } from "./laterdog/mounted-folder-gate.ts";
 import {
   beginMemoryTurn,
-  endMemoryTurn,
+  beginMemoryTurnInBackground,
+  endMemoryTurnInBackground,
   flushAllMemoryJournals,
   journalMemoryWrite,
   type MemoryJournalEntry,
@@ -593,6 +598,7 @@ import { homeFloorDecision } from "./laterdog/disk-floor.ts";
 import { startSteadyFloor } from "./laterdog/steady-floor.ts";
 import { callerGone, holdForPerson } from "./laterdog/always-ask-hold.ts";
 import { ALWAYS_ASK_PATHS, alwaysAskHook, alwaysAsks, asksAsConnector, connectorAlwaysAsks, internalCallRequest, type AlwaysAsk, type AlwaysAskRequest } from "./laterdog/always-asks.ts";
+import { GUARDED_TOOLS } from "../shared/always-asks.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
 import { WebhookManager } from "./webhooks.ts";
@@ -764,6 +770,7 @@ import { createHomeActivityRoute } from "./routes/home-activity.ts";
 import { createDeskPrompts, createDeskVerifier, deskDogs, deskReplyFrom } from "./laterdog/desk-brain.ts";
 import { createDeskBrainRoute, recordDeskExchange } from "./laterdog/desk-exchange.ts";
 import { createTurnTiming } from "./laterdog/turn-timing.ts";
+import { createTurnPhases, earlySnapshot, type EarlySnapshot } from "./laterdog/turn-head-start.ts";
 import { instanceTouchedBy } from "./laterdog/snapshot-cache.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
 import { createNearbyPlacesRoute } from "./routes/nearby-places.ts";
@@ -923,6 +930,7 @@ import { retireMemberProjects } from "./laterdog/project-member-retirement.ts";
 import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
+import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
 const folderBootstrap = BOOT_CLOUD_SECRETS.LATERDOG_CLOUD_BOOTSTRAP_SECRET ?? process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
@@ -1026,6 +1034,7 @@ const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivit
   activity: () => withWaitingRuns(homeActivityFrom(routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false }, pickingUpAfterRestart || store.bots.some((bot) => botHasActiveTurn(bot.id))), limitHold.nextAt()),
 })) : null;
 const turnTiming = createTurnTiming({ log: (line) => console.log(line) });
+const turnPhases = createTurnPhases({ log: (line) => console.log(line) });
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
 const deskBrainRoute = deskVerify && deskPrompts ? createDeskBrainRoute({
@@ -1111,6 +1120,7 @@ function customDomainStatus() {
 const HELD_ACCOUNTS_FILE = join(DATA_DIR, "providers", "held-accounts.json");
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId), snapshotFile: join(DATA_DIR, "account-snapshots.json") });
 const supportsApprovalMode = createApprovalModeSupport(registry);
+claudeSignInRefresh.onChange((instanceId) => registry.forgetSnapshot(instanceId));
 registerEnginesBinDir();
 registerNativeBinDir();
 
@@ -1151,6 +1161,7 @@ function batteryAccounts(): BatteryAccount[] {
       eligible: instance.instanceId !== CLAUDE_API_INSTANCE && !managedDesktop.owns(instance.instanceId) && !policyModelRefusal(instance) &&
         (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key",
       ...(snapshot ? signedInReading(snapshot) : {}),
+      ...(claudeSignInRefresh.signedOut(instance.instanceId) ? { signedIn: false } : {}),
       ...(snapshot?.account?.email ? { email: snapshot.account.email } : {}),
       models: instance.models.options.map((option) => option.id), defaultModel: instance.models.default,
     };
@@ -4159,6 +4170,7 @@ function hookGuardContext(botId: string, threadId: string, cwd: string | undefin
 function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string | undefined): OwnerGuardContext {
   const task = store.taskByThread(bot.id, threadId);
   return {
+    fullAccess: !cloudGuestDriven(threadId) && approvalModeFor(store.projectBotForTask(bot.id, threadId) ?? bot) === "full",
     cwd: commandCwd ?? task?.cwd ?? bot.cwd,
     workspaceRoots: ownerWorkspaceRoots([task?.cwd, bot.cwd, workspaceDir(bot.id), join(TASK_WORKSPACES_DIR, bot.id)]),
   };
@@ -5866,6 +5878,48 @@ const turnUsage = new Map<string, { input: number; output: number; cachedInput?:
 const turnContext = new Map<string, { tokens?: number; window?: number }>();
 const liveContext = new LiveContext();
 const helperTurns = new HelperTurnBudget();
+const turnShape = new TurnShape();
+const DOG_SETUP_QUESTIONS_MS = 30 * 60_000;
+const dogRests = new DogRestStore(join(DATA_DIR, "dog-rests.json"));
+
+async function restDog(bot: BotRecord, by: string): Promise<void> {
+  const enabledRoutines = routines!.listRoutines().filter((routine) => routine.botId === bot.id && routine.enabled).map((routine) => routine.id);
+  const enabledWebhooks = webhooks.list().filter((webhook) => webhook.botId === bot.id && webhook.enabled).map((webhook) => webhook.id);
+  dogRests.put({ botId: bot.id, name: bot.name, at: Date.now(), by, hiddenBefore: bot.hidden === true, routines: enabledRoutines, webhooks: enabledWebhooks });
+  routines!.disableForBot(bot.id);
+  webhooks.disableForBot(bot.id);
+  await interruptAllDirectThreads(bot.id).catch(() => {});
+  const hidden = store.patchBot(bot.id, { hidden: true });
+  if (hidden) broadcast({ kind: "bot", bot: wireBot(hidden) });
+  console.log(`[dogs] ${by.slice(0, 8)} moved dog ${bot.id.slice(0, 8)} to Recently deleted`);
+}
+
+function restoreDog(botId: string): BotRecord | null {
+  const rest = dogRests.take(botId);
+  const bot = store.bot(botId);
+  if (!rest || !bot) return null;
+  const shown = store.patchBot(botId, { hidden: rest.hiddenBefore });
+  for (const id of rest.routines) routines!.update(id, { enabled: true });
+  for (const id of rest.webhooks) webhooks.update(id, { enabled: true });
+  if (shown) broadcast({ kind: "bot", bot: wireBot(shown) });
+  console.log(`[dogs] restored dog ${botId.slice(0, 8)} from Recently deleted`);
+  return shown;
+}
+
+async function purgeRestedDogs(now = Date.now()): Promise<void> {
+  for (const rest of purgeDue(dogRests.list(), now)) {
+    if (!store.bot(rest.botId)) { dogRests.take(rest.botId); continue; }
+    const result = await deleteBotWithLifecycle(rest.botId, true);
+    if (result.status === 200) {
+      dogRests.take(rest.botId);
+      console.log(`[dogs] deleted dog ${rest.botId.slice(0, 8)} for good after 30 days in Recently deleted`);
+    }
+  }
+}
+setInterval(() => void purgeRestedDogs().catch((error) => console.error(`[dogs] purge failed: ${(error as Error).message}`)), 60 * 60_000).unref();
+function conversationText(threadId: string, current: string): string {
+  return [...store.messagesTail(threadId, 40).messages.filter(isPersonText).slice(-12).map((message) => message.text ?? ""), current].join("\n");
+}
 
 const repeats = new RepeatDetector({ thresholds: [5, 10, 20], maxKeysPerThread: 256 });
 const sameAnswers = new SameAnswerLoop();
@@ -6218,15 +6272,14 @@ bus.subscribe((event: RuntimeEvent) => {
   else if (event.type === "turn.completed" && event.ok) accountBattery.recovered(event.providerInstanceId, turnStartedAt.get(event.threadId), model);
 });
 
-const memoryRowsByThread = new Map<string, MemoryJournalEntry[]>();
+const memoryRowsByThread = new Map<string, Promise<MemoryJournalEntry[]>>();
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.completed" || event.type === "session.exited") {
     runningTurnEngines.delete(event.threadId);
-    const rows = endMemoryTurn(event.threadId);
-    if (rows.length && (store.botByThread(event.threadId) || store.groupByThread(event.threadId))) {
-      memoryRowsByThread.set(event.threadId, rows);
-    } else memoryRowsByThread.delete(event.threadId);
+    const threadId = event.threadId;
+    memoryRowsByThread.set(threadId, endMemoryTurnInBackground(threadId).then((rows) =>
+      rows.length && (store.botByThread(threadId) || store.groupByThread(threadId)) ? rows : []));
   }
 });
 
@@ -6337,13 +6390,13 @@ bus.subscribe((event: RuntimeEvent) => {
     const room = store.groupByThread(event.threadId);
     if (room && !roomFeedsBot(room, bot)) return;
     if (CLOUD_HOME && (room || !cloudOwnerOnlyThread(event.threadId))) return;
-    appendMemoryLog(bot.id, line, {
+    void appendMemoryLogInBackground(bot.id, line, {
       source: memorySourceLabel({
         room,
         task: store.taskByThread(bot.id, event.threadId),
         threadId: event.threadId,
       }),
-    });
+    }).catch(() => {});
   } catch {}
 });
 const turnStartedAt = new Map<string, number>();
@@ -6413,6 +6466,7 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   }
   if (name === "Stop") return { ok: true };
   if (name === "PreToolUse") {
+    if (!GUARDED_TOOLS.includes(String(payload.tool_name ?? ""))) return { ok: true };
     const decision = preToolGuardDecision(threadId, {
       signal: () => CLOUD_HOME ? signalDecision(payload, () => liveSignalScene(threadId, PORT, cloudOwnerOnlyThread(threadId) && !cloudGuestDriven(threadId), () => { restartRequested = true; })) : null,
       homeDisk: () => CLOUD_HOME ? homeFloorDecision(payload, floorDisk ? floorDisk.reading() : diskUse(DATA_DIR), { computers: computersSelected() }) : null,
@@ -6464,9 +6518,10 @@ async function scheduleTurnDigest(input: {
   turnStartedAt.delete(input.threadId);
   const checkpoint = turnCheckpoints.get(input.threadId);
   turnCheckpoints.delete(input.threadId);
-  const memory = memoryRowsByThread.get(input.threadId) ?? [];
+  const memoryRows = memoryRowsByThread.get(input.threadId);
   memoryRowsByThread.delete(input.threadId);
   try {
+    const memory = await (memoryRows ?? []);
     if (!input.isCurrent()) return;
     const activities = store.activePath(input.threadId);
     const digest = buildTurnDigest({
@@ -7566,6 +7621,9 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   if (bot && !carryingOn) handoffs.onEvent(event);
 
   turnTiming.event(event);
+  if ((event.type === "content.delta" && event.streamKind === "assistant_text" && event.delta.trim()) ||
+    (event.type === "item.completed" && event.itemType === "assistant_text" && event.text.trim())) turnShape.replied(event.threadId);
+  if (event.type === "turn.completed") turnShape.end(event.threadId);
   if (event.turnId) liveTurnByThread.set(event.threadId, event.turnId);
   const requestOwner = bot ? directRequestOwners.get(event.threadId) : undefined;
   if (requestOwner && event.turnId && !requestOwner.turnId && event.type === "turn.started" &&
@@ -9068,6 +9126,7 @@ async function startTurn(
     throw Object.assign(new Error("this provider account is being updated — try again shortly"), { status: 409 });
   }
   turnTiming.asked(threadId, instance.driverKind);
+  turnPhases.begin(threadId);
   const model = bot.modelSelection.model;
   const chosenEffort = bot.modelSelection.effort;
   const variant = bot.modelSelection.variant;
@@ -9194,6 +9253,9 @@ async function startTurn(
   turnContext.delete(threadId);
 
   void (async () => {
+    let snapshotHead: EarlySnapshot<string> | null = null;
+    let memoryHead: Promise<void> | null = null;
+    if (mountedFolderLayout && remoteEngineChoice(DATA_DIR, bot.id).computer) void boat.engineComputer(bot.id).catch(() => {});
     try {
       if (logArchive && !await logArchive.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
         throw new DirectTurnSetupCancelled("turn stopped while saved logs were restored");
@@ -9213,10 +9275,12 @@ async function startTurn(
         }
         if (!readiness.ready) throw new Error(readiness.reason ?? "The cloud computer is not ready");
       }
+      turnPhases.mark(threadId, "saved logs");
       carrySessionAcross(bot.id, threadId, instance);
       await compactConversation({ bot, threadId, generation: dispatchClaimId, instance, model,
         excludedIds: new Set([userMessage.id, ...(opts?.excludeMessageIds ?? [])]), manual: opts?.compactOnly === true });
       if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped during context setup");
+      turnPhases.mark(threadId, "context");
       if (opts?.compactOnly) {
         clearDirectTurnDispatch(threadId, dispatchClaimId);
         revokeInternalCapabilityGeneration(threadId, dispatchClaimId);
@@ -9342,11 +9406,12 @@ async function startTurn(
         const custom = await withMcpSignIn(engineMcpServers(bot, await repositoriesForTurn()), mcpOAuth);
         if (Object.keys(custom).length) integrations.custom = custom;
       }
+      turnPhases.mark(threadId, "connections");
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
       if (worksInWorkspace) {
         await mountedFolderGate.require(workspaceDir(bot.id));
         ensureWorkspace(bot.id);
-        if (bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
+        if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       }
       const privateWorkspace = worksInWorkspace ? ensureTaskWorkspace(bot.id, threadId) : undefined;
       const skillInstructions = renderSkillInstructions(selectedSkills, {
@@ -9358,6 +9423,10 @@ async function startTurn(
           : null;
       const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, pinnedCwd);
       const checkpointCwd = cwd && (mountedFolderLayout || cwd !== privateWorkspace) ? cwd : undefined;
+      turnPhases.mark(threadId, "folders");
+      if (checkpointCwd) snapshotHead = earlySnapshot(
+        () => checkpoints.snapshot(bot.id, checkpointCwd, `turn ${threadId.slice(0, 8)}`, undefined, { pin: dispatchClaimId }),
+        () => void checkpoints.release(bot.id, checkpointCwd, dispatchClaimId));
       const cloudBackend = opts?.runOn === "cloud" || bot.cloudBackend !== "vps" ? "box" : "vps";
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
       const mountsLocalComputer = instance.adapter.capabilities.localComputerMcp === true;
@@ -9689,8 +9758,14 @@ async function startTurn(
       const crossRecallPrompt = integrations.agents && crossDogRecallAllowed(bot, threadId) ? CROSS_DOG_RECALL_PROMPT : "";
       const learnPrompt = skillAuthoring ? LEARN_PROMPT : "";
 
-      if (checkpointCwd) {
-        const before = await checkpoints.snapshot(bot.id, checkpointCwd, `turn ${threadId.slice(0, 8)}`, undefined, { pin: dispatchClaimId });
+      turnPhases.mark(threadId, "computer and prompt");
+      if (memoryHead) {
+        await memoryHead;
+        turnPhases.mark(threadId, "memory snapshot wait");
+      }
+      if (checkpointCwd && snapshotHead) {
+        const before = await snapshotHead.claim();
+        turnPhases.mark(threadId, "file snapshot wait");
         if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) {
           if (before) void checkpoints.release(bot.id, checkpointCwd, dispatchClaimId);
           throw new DirectTurnSetupCancelled("turn stopped during checkpoint");
@@ -9746,7 +9821,8 @@ async function startTurn(
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
-        ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model, role: { main: bot.id === store.mainBotId(), title: bot.title }, kit: homeKit({
+        ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model, role: { main: bot.id === store.mainBotId(), title: bot.title },
+          background: instance.adapter.capabilities.backgroundWork === true, conversation: conversationText(threadId, providerText), kit: homeKit({
           cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
           google: credentialPrompt.includes("gmail_search"),
         }) }),
@@ -9789,8 +9865,17 @@ async function startTurn(
       const recalled = recallsThisTurn(dispatchContext, instance.driverKind) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
         conversations: fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
+      }) : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
+        conversations: false,
+        userName: cfg.profile?.name?.trim() || "User",
       }) : "";
+      turnShape.begin(threadId, {
+        questions: threadId === bot.threadId && Date.now() - (bot.createdAt ?? 0) < DOG_SETUP_QUESTIONS_MS,
+        replyFirst: fromPerson && !fromLocalTool,
+        handOff: fromPerson && !fromLocalTool && instance.adapter.capabilities.backgroundWork === true && instance.driverKind === "claudeAgent",
+      });
       handoffs.dispatching(threadId, dispatchClaimId, dispatchContext.handoff);
+      turnPhases.mark(threadId, "tools and recall");
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: bot.id,
@@ -9827,6 +9912,7 @@ async function startTurn(
       }), () => !directTurnClaimExists(bot.id, dispatchClaimId, threadId), async () => {
         await instance.adapter.interruptTurn(threadId).catch(() => {});
       });
+      turnPhases.end(threadId, "engine start");
       if (dispatch.cancelled) {
         retireProviderTurn(dispatch.value.turnId);
         throw new DirectTurnSetupCancelled("turn stopped during provider setup");
@@ -9868,6 +9954,7 @@ async function startTurn(
         drainTakeoverResumes();
       }
     } catch (cause) {
+      snapshotHead?.abandon();
       let e = cause;
       const mayRecover = e instanceof TurnNotStartedError &&
         directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId);
@@ -9884,7 +9971,7 @@ async function startTurn(
       releaseTurnResources(resourceOwner);
       if (ownsLatestGeneration) {
         runningTurnEngines.delete(threadId);
-        endMemoryTurn(threadId);
+        void endMemoryTurnInBackground(threadId);
         clearTurnDigestState(threadId);
         releaseLocalVmThread(threadId);
         vpsThreadEnded(bot.id, threadId);
@@ -11632,7 +11719,7 @@ async function runGroupMemberTurn(
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomOwnerAnswers = ownerAnswersFor(readyBot.id, roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
-    ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, role: { main: readyBot.id === store.mainBotId(), title: readyBot.title }, kit: homeKit({
+    ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, role: { main: readyBot.id === store.mainBotId(), title: readyBot.title }, conversation: conversationText(threadId, ""), kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
     ...profileParts(cfg.profile),
@@ -15211,7 +15298,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/hook") {
         const body = await readInternalBody();
-        const answer = ingestEngineHook(internalCapability, body);
+        const hookName = body && typeof body === "object" ? (body as { event?: unknown }).event : undefined;
+        const guarded = hookName === "PreToolUse" ? ingestEngineHook(internalCapability, body) : null;
+        if (guarded?.hookSpecificOutput) return json(res, 200, guarded);
+        if (hookName === "PreToolUse") {
+          const threadId = internalCapability.threadId;
+          for (let waited = 0; waited < 600 && turnShape.awaitsReply(threadId, body); waited += 100) await new Promise((resolve) => setTimeout(resolve, 100));
+          const held = turnShape.beforeTool(threadId, body);
+          if (held) {
+            console.log(`[turn-shape] held chat=${threadId} tool=${String((body as { payload?: { tool_name?: unknown } }).payload?.tool_name ?? "")} why=${held.permissionDecisionReason === REPLY_FIRST_HELD ? "reply-first" : held.permissionDecisionReason === DECIDE_YOURSELF ? "question" : "hand-off"}`);
+            return json(res, 200, { ok: true, hookSpecificOutput: held });
+          }
+        }
+        if (hookName === "PostToolUse") turnShape.afterTool(internalCapability.threadId, body);
+        const answer = guarded ?? ingestEngineHook(internalCapability, body);
         const notice = answer.hookSpecificOutput ? null : helperTurns.fromHook(internalCapability.threadId, body, turnContext.get(internalCapability.threadId)?.tokens);
         return json(res, 200, notice ? { ...answer, hookSpecificOutput: notice } : answer);
       }
@@ -15984,6 +16084,29 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               : "End your turn after sending all work. These actual teammates will reply and resume you automatically. Do not poll or wait." } : { error: refused.join("; ") }),
           });
         }
+      }
+      if (method === "POST" && (path === "/api/internal/delete-bot" || path === "/api/internal/restore-bot")) {
+        const body = await readInternalBody();
+        const fromThreadId = internalCapability.threadId;
+        if (!connectorThread(internalSender.id, fromThreadId) || cloudGuestDriven(fromThreadId)) {
+          return json(res, 403, { error: "source conversation does not belong to sender" });
+        }
+        if (path === "/api/internal/restore-bot") {
+          const wanted = String(body.targetId ?? "").trim();
+          if (!wanted) return json(res, 200, { deleted: dogRests.list().map((rest) => ({ id: rest.botId, name: rest.name, at: rest.at })) });
+          const rest = findRest(dogRests.list(), wanted);
+          if (!rest) return json(res, 404, { error: "no dog by that name or id is in Recently deleted" });
+          const restored = restoreDog(rest.botId);
+          return restored ? json(res, 200, { ok: true, name: restored.name }) : json(res, 404, { error: "that dog was deleted for good" });
+        }
+        if (approvalModeFor(store.projectBotForTask(internalSender.id, fromThreadId) ?? internalSender) !== "full") {
+          return json(res, 403, { error: "deleting a dog needs Full access; the person can turn it on in Settings or delete the dog from the sidebar" });
+        }
+        const target = store.bot(String(body.targetId ?? "")) ?? null;
+        const refusal = restRefusal({ target, caller: internalSender.id, main: store.mainBotId(), resting: Boolean(target && dogRests.get(target.id)) });
+        if (refusal) return json(res, refusal === "missing" ? 404 : 409, { error: REST_REFUSALS[refusal] });
+        await restDog(target!, internalSender.id);
+        return json(res, 200, { ok: true, name: target!.name, restorable: true });
       }
       if (method === "POST" && path === "/api/internal/create-bot") {
         const body = await readInternalBody();

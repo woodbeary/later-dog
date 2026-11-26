@@ -11,6 +11,7 @@ const INCOMPLETE_LOG_MESSAGE =
   "Canonical event history is incomplete: later.dog could not write one or more events to disk. Live updates will continue.";
 
 const DELTA_MERGE_MS = 50;
+const SLOW_LISTENER_MS = 250;
 
 type TextDelta = Extract<RuntimeEvent, { type: "content.delta" }>;
 
@@ -21,6 +22,7 @@ function sameStream(a: TextDelta, b: TextDelta): boolean {
 
 export class EventBus {
   private listeners = new Set<RuntimeEventListener>();
+  private origins = new Map<RuntimeEventListener, string>();
   private unsubscribes = new Map<string, () => void>();
   private pendingLogWarnings = new Map<string, RuntimeEvent>();
   private pendingText = new Map<string, { event: TextDelta; timer: ReturnType<typeof setTimeout> }>();
@@ -120,17 +122,21 @@ export class EventBus {
 
   private deliver(event: RuntimeEvent) {
     for (const listener of Array.from(this.listeners)) {
+      const began = performance.now();
       try {
         listener(event);
       } catch (e) {
         console.error("bus: listener threw", e);
       }
+      const took = performance.now() - began;
+      if (took >= SLOW_LISTENER_MS) console.warn(`bus: ${event.type} held the server ${Math.round(took)} ms in the listener from ${this.origins.get(listener) ?? "unknown"}`);
     }
   }
 
   subscribe(listener: RuntimeEventListener): () => void {
     this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    this.origins.set(listener, new Error().stack?.split("\n")[2]?.trim().replace(/^at\s+/, "") ?? "unknown");
+    return () => { this.listeners.delete(listener); this.origins.delete(listener); };
   }
 
   detachAll() {
