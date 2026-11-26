@@ -403,7 +403,10 @@ describe("independent bot tasks through the isolated control surface", () => {
     const profile = (await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === botId);
     expect(profile.modelSelection.model).toBe(models[0]);
     expect((await api("POST", `/api/groups/${group.id}/interrupt`, {})).status).toBe(200);
-    await expect.poll(async () => (await botState(botId)).busy, { timeout: 10_000 }).toBe(false);
+    await expect.poll(async () => ({
+      direct: (await botState(botId)).busy,
+      group: (await api("GET", "/api/bots")).body.groups.find((item: { id: string }) => item.id === group.id)?.busyBotId,
+    }), { timeout: 10_000 }).toEqual({ direct: false, group: null });
     expect((await api("PATCH", `/api/bots/${botId}/tasks/${threadId}`, { modelSelection: selection, updateBotDefault: true })).status).toBe(200);
     expect((await botState(botId)).modelSelection).toEqual(selection);
     evidence.push({ groupDefaultPreservedUntilStop: true, groupId: group.id, selectedTaskId: threadId });
