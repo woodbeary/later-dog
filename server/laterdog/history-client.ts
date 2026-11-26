@@ -5,6 +5,7 @@ import { MessageChannel, receiveMessageOnPort, Worker } from "node:worker_thread
 import { BOOT_CLOUD_SECRETS } from "../cloud-secrets-boot.ts";
 import type { HistoryOperation } from "../../shared/history-shard-types.ts";
 import type { NativeRunList } from "../../shared/native-runs.ts";
+import { overviewHistory } from "./history-snapshot-cache.ts";
 import { HistoryLiveCache } from "./history-live-cache.ts";
 import { historyRequest } from "./history-request.ts";
 
@@ -92,11 +93,28 @@ export function historyExecute<T>(
   operation: HistoryOperation,
   requestId = randomUUID() as string,
 ): T {
+  if (
+    [
+      "messages.append",
+      "messages.update",
+      "messages.insert",
+      "messages.import",
+      "messages.batch",
+      "messages.command",
+      "messages.leaf",
+      "messages.delete",
+    ].includes(operation.op)
+  )
+    overviewHistory.invalidate(threadId);
   return liveCache.execute(
     threadId,
     operation,
     () => request<{ result: T }>("execute", { generation, threadId, operation, requestId }).result,
   );
+}
+export async function historyExecuteAsync<T>(threadId: string, operation: HistoryOperation): Promise<T> {
+  const { url, token } = endpoint();
+  return (await historyRequest<{ result: T }>(url, token, "execute", { generation, threadId, operation })).result;
 }
 type Page<T> = { items: { threadId: string; result: T }[]; next: string | null };
 export function historyMany<T>(
@@ -116,7 +134,7 @@ export function historyMany<T>(
   } while (after);
   return items;
 }
-export async function historyManyAsync<T>(threadIds: readonly string[] | undefined, operation: HistoryOperation) {
+async function manyPages<T>(threadIds: readonly string[] | undefined, operation: HistoryOperation) {
   const { url, token } = endpoint();
   const items: { threadId: string; result: T }[] = [];
   let after: string | null = null;
@@ -127,6 +145,30 @@ export async function historyManyAsync<T>(threadIds: readonly string[] | undefin
     after = page.next;
   } while (after);
   return items;
+}
+export async function historyManyAsync<T>(threadIds: readonly string[] | undefined, operation: HistoryOperation) {
+  if (!threadIds) return manyPages<T>(undefined, operation);
+  const ids = Array.from(new Set(threadIds)).sort(),
+    pages: Array<Array<{ threadId: string; result: T }>> = [];
+  const size = [
+    "messages.pending",
+    "messages.references",
+    "messages.latest",
+    "messages.recallStats",
+    "messages.hasCards",
+  ].includes(operation.op)
+    ? 64
+    : 12;
+  let next = 0;
+  async function batch() {
+    while (next < ids.length) {
+      const start = next;
+      next += size;
+      pages[start / size] = await manyPages<T>(ids.slice(start, start + size), operation);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, Math.ceil(ids.length / size)) }, batch));
+  return pages.flat();
 }
 export async function preloadHistoryActivity(threads: readonly string[]): Promise<void> {
   if (isRemoteHistory())

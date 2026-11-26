@@ -142,6 +142,8 @@ import { HOME_SERVER_LOG_DIR, installHomeServerLog } from "./laterdog/home-serve
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
+import { prepareHistoryTails, historyWindow } from "./laterdog/history-snapshots.ts";
+import type { HistoryTail } from "./laterdog/history-snapshot-cache.ts";
 import { historyManyAsync, isRemoteHistory, preloadHistoryActivity } from "./laterdog/history-client.ts";
 import { liveStepsFrom } from "./laterdog/live-step.ts";
 import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
@@ -5460,10 +5462,10 @@ function slimMessage(stored: Message): Message | Record<string, unknown> {
   return { ...rest, hasImage: true };
 }
 
-function messagePage(threadId: string, limit: number, before?: string | null, view: PageView = {}) {
+function messagePage(threadId: string, limit: number, before?: string | null, view: PageView = {}, prepared?:HistoryTail) {
   const slim = (message: Message) => slimMessage(view.brief ? briefStep(message) : message);
   if (!before) {
-    const tail = store.messagesTail(threadId, view.shown ? SHOWN_PAGE_ROW_CAP : limit);
+    const tail = prepared??store.messagesTail(threadId, view.shown ? SHOWN_PAGE_ROW_CAP : limit);
     const start = view.shown ? shownPageStart(tail.messages, tail.messages.length, limit) : 0;
     return { messages: tail.messages.slice(start).map(slim), hasMore: start > 0 || tail.hasMore, activeLeafId: tail.activeLeafId };
   }
@@ -11128,7 +11130,7 @@ function endFullAccessAll(): void {
   const threadIds = new Set<string>();
   for (const bot of store.bots) for (const threadId of [bot.threadId, ...(bot.tasks ?? []).map((task) => task.threadId)]) threadIds.add(threadId);
   for (const group of store.groups) for (const threadId of [group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)]) threadIds.add(threadId);
-  const candidates=isRemoteHistory()?(await historyManyAsync<boolean>([...threadIds],{op:"messages.hasCards"})).filter(entry=>entry.result).map(entry=>entry.threadId):threadIds;
+  const candidates=isRemoteHistory()?(await historyManyAsync<boolean>(undefined,{op:"messages.hasCards"})).filter(entry=>entry.result&&threadIds.has(entry.threadId)).map(entry=>entry.threadId):threadIds;
   const stale=dismissStalePeerCards(approvalBus,candidates);
   if(stale)console.log(`peer approvals: dismissed ${stale} card(s) left by a previous run`);
   const staleMac = macApprovals.dismissStale(candidates);
@@ -16827,19 +16829,25 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const limit = snapshotPageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const shownBots = store.bots.filter((bot) => visible.bot(bot.id));
-      await preloadHistoryActivity([...shownBots.flatMap(bot=>[bot.threadId,...store.tasks(bot.id).map(task=>task.threadId)]),...store.groups.filter(group=>visible.group(group.id)).map(group=>group.threadId)]);
+
       const queued = publicBotQueuedMessages();
       const preview = pageViewOf(url.searchParams);
+      const groups=store.groups.filter(group=>visible.group(group.id));
+      recoverHistoryCommands();
+      const [prepared]=await Promise.all([
+        prepareHistoryTails([...shownBots,...groups].map(item=>item.threadId),preview.shown?SHOWN_PAGE_ROW_CAP:limit),
+        preloadHistoryActivity([...shownBots.flatMap(bot=>[bot.threadId,...store.tasks(bot.id).map(task=>task.threadId)]),...groups.map(group=>group.threadId)])
+      ]);
       return json(res, 200, {
         bots: shownBots.map((bot) => memberBot({
           ...wireBot(bot),
           tasks: store.tasks(bot.id).map((task) => wireTask(task, bot.modelSelection)),
-          ...messagePage(bot.threadId, limit, undefined, preview),
+          ...messagePage(bot.threadId, limit, undefined, preview,prepared(bot.threadId)),
         }, visible)),
         botQueuedMessages: visible.everything ? queued : Object.fromEntries(Object.entries(queued).filter(([threadId]) => visible.thread(threadId))),
         sections: visible.sections(store.sections),
-        groups: store.groups.filter((g) => visible.group(g.id)).map((g) => {
-          const room = { ...publicGroupState(g), ...messagePage(g.threadId, limit, undefined, preview) };
+        groups: groups.map((g) => {
+          const room = { ...publicGroupState(g), ...messagePage(g.threadId, limit, undefined, preview,prepared(g.threadId)) };
           return visible.everything ? room : memberGroup(room);
         }),
         computerControl: Object.fromEntries(
@@ -16862,6 +16870,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const before = url.searchParams.get("before");
       const around = url.searchParams.get("around");
       if (before && around) return json(res, 400, { error: "before and around cannot be combined" });
+      if(isRemoteHistory()){
+        recoverHistoryCommands();
+        const view=pageViewOf(url.searchParams),size=limit??DEFAULT_PAGE;
+        const window=await historyWindow(threadId,!around&&view.shown?SHOWN_PAGE_ROW_CAP:size,before,around);
+        if(!window)return json(res,404,{error:"no such message"});
+        const start=!around&&view.shown?shownPageStart(window.messages,window.messages.length,size):0;
+        return json(res,200,{...window,messages:window.messages.slice(start).map(m=>slimMessage(!around&&view.brief?briefStep(m):m)),hasMore:start>0||window.hasMore});
+      }
       if (around) {
         const window = messageWindow(threadId, around, limit ?? DEFAULT_PAGE);
         if (!window) return json(res, 404, { error: "no such message" });
