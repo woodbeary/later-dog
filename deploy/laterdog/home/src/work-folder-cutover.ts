@@ -1,3 +1,4 @@
+import { WorkFolderReverse, type ReverseRequest } from "./work-folder-reverse.ts";
 import freezeProgram from "./work-folder-freeze.program.txt";
 import saveProgram from "./work-folder-frozen-save.program.txt";
 import { hex, sha256, sha256Stream } from "./encoding.ts";
@@ -52,6 +53,8 @@ interface Hooks {
   disk: () => Container | undefined;
   storage: DurableObjectStorage;
   idle: () => Promise<boolean>;
+  cold?: () => boolean;
+  stop?: () => void;
   schedule: () => Promise<unknown>;
   retire: (originalDisk: boolean) => Promise<unknown>;
   physicalId: string;
@@ -100,12 +103,22 @@ export function cutoverMutable(request: Request): boolean {
 export class WorkFolderCutover {
   private hold: Hold | null = null;
   private queued: Promise<unknown> = Promise.resolve();
-  constructor(private readonly hooks: Hooks) {}
+  private readonly reverse;
+  constructor(private readonly hooks: Hooks) {
+    this.reverse = new WorkFolderReverse({ ...hooks, cold: hooks.cold ?? (() => !hooks.disk()?.running), stop: hooks.stop ?? (() => { throw Error("Mounted home cannot be stopped"); }) });
+  }
+  reverseControl(stable: string, machine: string, lease: string, request: ReverseRequest) {
+    return this.serialized(() => {
+      if (this.hold) throw Error("Original disk migration is active");
+      return this.reverse.request(stable, machine, lease, request);
+    });
+  }
   async load() {
     this.hold = (await this.hooks.storage.get<Hold>(holding)) ?? null;
+    await this.reverse.load();
   }
   closed() {
-    return this.hold !== null;
+    return this.hold !== null || this.reverse.closed();
   }
   private serialized<T>(action: () => Promise<T>): Promise<T> {
     const next = this.queued.then(action, action);
@@ -133,6 +146,12 @@ export class WorkFolderCutover {
       const h = this.hold;
       if (!authenticated())
         return new Response("Retired home writer", { status: 401 });
+      if (this.reverse.closed()) {
+        const path = new URL(request.url).pathname;
+        const saving = request.method === "PUT" && (path === "/manifest.json" || path === "/archive/index.json" || path.startsWith("/archive/blobs/") || path.startsWith("/restore-points/"));
+        if (!this.reverse.permitsFinalSave() || !saving)
+          return new Response("Mounted home writes are held", { status: 423 });
+      }
       if (!h)
         return request.headers.has("x-laterdog-frozen-save")
           ? new Response("Expired frozen save", { status: 409 })
@@ -184,6 +203,7 @@ export class WorkFolderCutover {
     lease: string,
     r: CutoverRequest,
   ) {
+    if (this.reverse.closed()) throw Error("Mounted home migration is active");
     if (!digest.test(lease)) throw Error("Invalid cutover authorization");
     const prefix = homePrefix(stable) + "work-folders/";
     const permit = await jsonObject<{
@@ -247,6 +267,7 @@ export class WorkFolderCutover {
       );
     }
     return this.serialized(async () => {
+      if (this.reverse.closed()) throw Error("Mounted home migration is active");
       let h = this.hold;
       if (
         h &&
@@ -611,6 +632,7 @@ export class WorkFolderCutover {
   }
   async recover() {
     return this.serialized(async () => {
+      await this.reverse.recover();
       const h = this.hold;
       if (!h) return;
       if (h.phase === "committed") return;

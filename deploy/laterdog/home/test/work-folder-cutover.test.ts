@@ -92,6 +92,10 @@ function fixture() {
       delete: async (k: string) => state.delete(k),
     } as unknown as DurableObjectStorage,
     idle: async () => idle,
+    cold: () => !disk.running,
+    stop: () => {
+      disk.running = false;
+    },
     schedule: async () => {},
     retire: async () => {
       retired = true;
@@ -200,6 +204,10 @@ function fixture() {
   return {
     ctl,
     put,
+    reverse: (
+      request: import("../src/work-folder-reverse.ts").ReverseRequest,
+    ) => service.reverseControl(stable, machine, lease, request),
+    closed: () => service.closed(),
     publish,
     restored,
     manifest,
@@ -322,5 +330,117 @@ describe("original home working folder cutover", () => {
     await begin;
     expect(h.source()).toBe("held");
     await h.ctl("abort");
+  });
+});
+
+describe("mounted home reverse publication", () => {
+  function mounted() {
+    const h = fixture(),
+      original = JSON.stringify(h.placement),
+      previous = sha(original);
+    h.map.set(
+      h.prefix + "work-folders/cutover-enrollment",
+      JSON.stringify({
+        v: 1,
+        machineId: machine,
+        lease,
+        retired: true,
+        retiredRevision: previous,
+      }),
+    );
+    h.map.set(
+      h.prefix + "work-folders/reverse-enrollment",
+      JSON.stringify({
+        v: 1,
+        machineId: machine,
+        lease,
+        previous,
+        expiresAt: Date.now() + 3600_000,
+      }),
+    );
+    h.map.set(h.prefix + "work-folders/placement", original);
+    h.map.set(h.prefix + "work-folders/placements/" + previous, original);
+    h.map.set(h.prefix + "manifest.json", h.manifest);
+    const raw = JSON.stringify({
+        version: 1,
+        entries: [],
+        edited: "after forward",
+      }),
+      baselineManifest = sha(raw);
+    const proof = JSON.stringify({
+        v: 1,
+        mode: "legacy",
+        baselineManifest,
+        layoutSha256: sha(workFolderLayoutRecord(h.placement.layout)),
+        scopes: [],
+      }),
+      verification = sha(proof);
+    const placement = {
+      ...h.placement,
+      mode: "legacy" as const,
+      previous,
+      baselineManifest,
+      verification,
+    };
+    h.map.set(h.prefix + "work-folders/verification/" + verification, proof);
+    h.map.set(
+      h.prefix + "work-folders/registry",
+      JSON.stringify({ page: null, fence: verification }),
+    );
+    h.map.set(
+      h.prefix + "work-folders/legacy-manifests/" + baselineManifest,
+      raw,
+    );
+    h.map.set(h.prefix + "work-folders/legacy-seals/" + baselineManifest, "1");
+    return {
+      h,
+      raw,
+      project: {
+        op: "project" as const,
+        source: h.baseline,
+        etag: '"' + h.baseline + '"',
+        placement,
+      },
+      publish: {
+        op: "publish" as const,
+        placement,
+        precondition: { "if-match": '"' + previous + '"' },
+      },
+    };
+  }
+  it("preserves the projected post-switch edit through lost publication and a reconstructed owner", async () => {
+    const { h, project, publish, raw } = mounted();
+    expect((await h.reverse({ op: "begin" })).phase).toBe("held");
+    expect(h.closed()).toBe(true);
+    expect((await h.put("delayed mounted save")).status).toBe(401);
+    await expect(
+      h.reverse({ ...project, source: "9".repeat(64) }),
+    ).rejects.toThrow("changed");
+    expect((await h.reverse(project)).phase).toBe("projected");
+    expect(h.map.get(h.prefix + "manifest.json")).toBe(raw);
+    await expect(h.reverse({ op: "abort" })).rejects.toThrow("publication");
+    h.interrupt("after");
+    await expect(h.reverse(publish)).rejects.toThrow("Dropped");
+    await h.restart();
+    expect(h.closed()).toBe(true);
+    await h.recover();
+    expect((await h.reverse(publish)).phase).toBe("committed");
+    expect((await h.reverse({ op: "finish" })).phase).toBe("finished");
+    expect(h.closed()).toBe(false);
+    expect((await h.reverse({ op: "finish" })).phase).toBe("finished");
+  });
+  it("expires an uncommitted reverse hold after restart and never interrupts a busy home", async () => {
+    vi.useFakeTimers();
+    const busy = mounted().h;
+    busy.setBusy();
+    await expect(busy.reverse({ op: "begin" })).rejects.toThrow("busy");
+    expect(busy.closed()).toBe(false);
+    const { h } = mounted();
+    await h.reverse({ op: "begin" });
+    await h.restart();
+    vi.advanceTimersByTime(91_000);
+    await h.recover();
+    expect(h.closed()).toBe(false);
+    expect(h.map.get(h.prefix + "manifest.json")).toBe(h.manifest);
   });
 });
