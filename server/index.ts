@@ -453,6 +453,7 @@ import {
   type RecallDog,
 } from "./laterdog/cross-dog-recall.ts";
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
+import { mountedFolderGate } from "./laterdog/mounted-folder-gate.ts";
 import {
   beginMemoryTurn,
   endMemoryTurn,
@@ -9349,6 +9350,7 @@ async function startTurn(
       }
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
       if (worksInWorkspace) {
+        await mountedFolderGate.require(workspaceDir(bot.id));
         ensureWorkspace(bot.id);
         if (bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
       }
@@ -11608,6 +11610,7 @@ async function runGroupMemberTurn(
   const text = `${roomContext}\n\n(Reply to the conversation above as ${bot.name}.)${cardContinuation ? `\n\n${cardContinuation}` : ""}${coordinationReminder}${liveRosterBlock}`;
 
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
+  if (worksInWorkspace) await mountedFolderGate.require(workspaceDir(bot.id));
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
   const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, workspace && cloudGuestOpened(threadId)
