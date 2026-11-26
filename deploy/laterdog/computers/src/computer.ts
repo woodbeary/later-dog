@@ -424,6 +424,7 @@ export class DogComputer extends DurableObject<Env> {
         const started = Date.now();
         let snapshot: ContainerSnapshot;
         try {
+          await this.flushWorkFolders();
           snapshot = await container.snapshotContainer({ name: `${record.id}-g${record.generation}` });
         } catch (error) {
           const restored = this.update((r) => {
@@ -1285,6 +1286,28 @@ export class DogComputer extends DurableObject<Env> {
       this.markActive();
       if (Date.now() - this.lastPublished > MINUTE) await this.publish();
     }
+  }
+
+  private async flushWorkFolders(): Promise<void> {
+    const script = 'set -eu; d=/home/dog/.laterdog-engine/work-folders; if test -d "$d" && compgen -G "$d/*/grant.json" >/dev/null; then exec node "$d/helper.mjs" flush-all; fi';
+    const child = await this.container().exec(["bash", "-c", script], {env:DOG_ENV,user:DOG,cwd:DOG_HOME});
+    const stdout = collect(child.stdout as ReadableStream<Uint8Array> | null, 1024);
+    let activeAt = Date.now();
+    const progress = (child.stderr as ReadableStream<Uint8Array> | null)?.pipeThrough(new TransformStream<Uint8Array,Uint8Array>({transform(chunk,controller){activeAt=Date.now();controller.enqueue(chunk);}}));
+    const stderr = collect(progress, 4096);
+    const exit = child.exitCode;
+    const stallMs = 3 * MINUTE;
+    let code: number | undefined;
+    while (code === undefined) {
+      const left = activeAt + stallMs - Date.now();
+      if (left <= 0) {
+        try {child.kill(9);} catch {}
+        throw new Error("The assigned working folder stopped making progress before sleep");
+      }
+      code = await within(exit,left);
+    }
+    await Promise.all([stdout.settle(2_000),stderr.settle(2_000)]);
+    if (code !== 0) throw new Error("The assigned working folder could not be committed to durable storage");
   }
 
   private async run(argv: string[], options: RunOptions): Promise<RunResult> {

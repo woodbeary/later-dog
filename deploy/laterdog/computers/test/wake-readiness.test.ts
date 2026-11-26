@@ -159,3 +159,18 @@ describe("a desktop link for a computer that is still starting", () => {
     expect(link.status).toBe(409);
   });
 });
+
+describe("working folders before computer sleep",()=>{
+  it("leaves the computer running if its assigned folder cannot checkpoint and snapshots after a successful retry",async()=>{
+    const w=await world();
+    const id=await created(w),container=w.containers.get(id)!;
+    let refuse=true;
+    container.reply=cmd=>cmd.some(arg=>arg.includes("helper.mjs")&&arg.includes("flush-all"))?{exitCode:refuse?1:0}:undefined;
+    const refused=await w.fetch(apiRequest("POST",`/v1/computers/${id}/sleep`,OWNER_KEY));
+    expect(refused.status).toBe(502);expect(container.running).toBe(true);expect(container.snapshots).toBe(0);
+    refuse=false;
+    const slept=await w.fetch(apiRequest("POST",`/v1/computers/${id}/sleep`,OWNER_KEY));
+    expect(slept.status).toBe(200);expect(container.running).toBe(false);expect(container.snapshots).toBe(1);
+    expect(container.execs.filter(e=>e.cmd.some(arg=>arg.includes("helper.mjs")&&arg.includes("flush-all")))).toHaveLength(2);
+  });
+});

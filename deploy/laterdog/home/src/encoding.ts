@@ -25,8 +25,9 @@ export function randomToken(byteLength: number): string {
 }
 
 export async function sha256Stream(body: ReadableStream<Uint8Array>): Promise<string> {
-  if (crypto.DigestStream) {
-    const digest = new crypto.DigestStream("SHA-256");
+  const { DigestStream } = crypto as Crypto & { DigestStream?: new (algorithm: string) => WritableStream<Uint8Array> & { digest: Promise<ArrayBuffer> } };
+  if (DigestStream) {
+    const digest = new DigestStream("SHA-256");
     await body.pipeTo(digest);
     return hex(new Uint8Array(await digest.digest));
   }

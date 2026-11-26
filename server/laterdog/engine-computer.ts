@@ -1,5 +1,6 @@
 import { guestCliPreparation } from "./guest-cli-runtime.ts";
-import { createHash } from "node:crypto";
+import { GUEST_FOLDER_HELPER } from "./engine-folder-process.ts";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { dirname, join } from "node:path";
@@ -43,8 +44,44 @@ export function engineScripts(provider = false): EngineScripts {
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
 export interface EngineBox {
+  computerId?: string;
   exec(command: string, timeoutMs: number): Promise<{ exitCode: number | null; stdout: string; stderr: string }>;
   write(path: string, bytes: Uint8Array): Promise<unknown>;
+}
+
+let bundledFolderHelper: Buffer | undefined;
+export async function prepareEngineFolderTools(box: EngineBox, folders: readonly { path: string }[] = []): Promise<void> {
+  if (folders.length) {
+    const script = "import os,sys,pwd,stat; from pathlib import Path\n" +
+      "user=pwd.getpwnam('dog')\n" +
+      "for path in map(Path,sys.argv[1:]):\n" +
+      " for parent in [*reversed(path.parents),path]:\n" +
+      "  try: s=parent.lstat()\n" +
+      "  except FileNotFoundError:\n" +
+      "   try: parent.mkdir(mode=0o700);os.chown(parent,user.pw_uid,user.pw_gid)\n" +
+      "   except FileExistsError: pass\n" +
+      "   s=parent.lstat()\n" +
+      "  if not stat.S_ISDIR(s.st_mode): raise ValueError('Working folder path is not a physical directory')";
+    const made = await box.exec("sudo -n python3 -c " + quote(script) + " " + folders.map(folder=>quote(folder.path)).join(" "), ENGINE_STEP_BUDGET_MS);
+    if (made.exitCode !== 0) throw new Error("The assigned guest working folder could not be safely prepared");
+  }
+  if (!bundledFolderHelper) {
+    const source = join(SERVER_ROOT, "laterdog", "engine-folder-cli.ts");
+    const built = existsSync(source) ? join(SERVER_ROOT, "..", "dist-server", "laterdog", "engine-folder-cli.js") : join(SERVER_ROOT, "laterdog", "engine-folder-cli.js");
+    bundledFolderHelper = existsSync(built) ? readFileSync(built) : Buffer.from(createRequire(import.meta.url)("esbuild").buildSync({entryPoints:[source],write:false,bundle:true,platform:"node",target:"node24",format:"esm"}).outputFiles[0].contents);
+  }
+  const checksum = createHash("sha256").update(bundledFolderHelper).digest("hex");
+  const dir = dirname(GUEST_FOLDER_HELPER);
+  const ready = await box.exec(`umask 077; mkdir -p ${quote(dir)} && test -f ${quote(GUEST_FOLDER_HELPER)} && test "$(sha256sum ${quote(GUEST_FOLDER_HELPER)} | cut -d' ' -f1)" = ${quote(checksum)}`, ENGINE_STEP_BUDGET_MS);
+  if (ready.exitCode === 0) return;
+  const tmp = `${dir}/install-${randomUUID()}.mjs`;
+  await box.write(tmp, bundledFolderHelper);
+  const installed = await box.exec(`set -e; trap 'rm -f ${tmp}' EXIT; test "$(sha256sum ${quote(tmp)} | cut -d' ' -f1)" = ${quote(checksum)}; chmod 600 ${quote(tmp)}; mv -f ${quote(tmp)} ${quote(GUEST_FOLDER_HELPER)}`, ENGINE_STEP_BUDGET_MS);
+  if (installed.exitCode !== 0) throw new Error("Could not install the guest working folder synchronizer");
+}
+
+export function guestWorkFolderCommand(action:"hydrate"|"checkpoint", path:string) {
+  return `exec node ${quote(GUEST_FOLDER_HELPER)} ${action} ${quote(path)}`;
 }
 
 export const ENGINE_STEP_BUDGET_MS = 60_000;
@@ -64,7 +101,8 @@ export function prepareScript(plan: ClaudeRemotePlan, relay: EngineScripts): str
   const expectedVersion = quote(codex ? `codex-cli ${plan.cli.version}` : `${plan.cli.version} (Claude Code)`);
   const checked = `test -x ${cli} && actual=$( ${cli} --version 2>/dev/null ) && test "$actual" = ${expectedVersion}`;
   const repair = codex ? "false" : `node ${quote(`${cliDir}/node_modules/@anthropic-ai/claude-code/install.cjs`)} >/dev/null && engine_ready`;
-  const dirs = [...plan.mkdirs, `${REMOTE_ENGINE_BASE}/run`, `${REMOTE_ENGINE_BASE}/state`, `${REMOTE_ENGINE_BASE}/locks`];
+  const managed = plan.launch.workFolders ?? [];
+  const dirs = [...plan.mkdirs.filter(path => !managed.some(folder => path === folder.path || path.startsWith(folder.path + "/"))), `${REMOTE_ENGINE_BASE}/run`, `${REMOTE_ENGINE_BASE}/state`, `${REMOTE_ENGINE_BASE}/locks`];
   const prepare = plan.guestRuntime?.kind === "node" ? "command -v node >/dev/null"
     : plan.guestRuntime?.kind === "acp" ? "bash -e -c " + quote(guestCliPreparation(plan.guestRuntime.cli))
     : `engine_ready() { ${checked}; }
