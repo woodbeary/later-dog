@@ -45,7 +45,7 @@ import {
 export const HOME_PORT = 8080;
 const RECORD_KEY = "home";
 const SLOW_SETUP_MS = 3 * 60_000;
-export const BOOT_PORT_TIMEOUT_MS = 3 * 60_000;
+export const BOOT_PORT_TIMEOUT_MS = 20 * 60_000;
 export const PAIR_WAKE_WAIT_MS = 15_000;
 const BUSY_MEMORY_MS = 10_000;
 const STARTED_KEY = "started-included-key";
