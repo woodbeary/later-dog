@@ -7,7 +7,8 @@ import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { getPlatformProxy } from "wrangler";
 
-const [dir, guardFile] = process.argv.slice(2), policy = JSON.parse(await readFile(join(dir,"policy.json")));
+const [dir, guardFile, profile = "queue"] = process.argv.slice(2), policy = JSON.parse(await readFile(join(dir,"policy.json")));
+if (!["queue", "parallel"].includes(profile)) throw new Error("Unknown private coordinator");
 const accepted = JSON.parse(await readFile(join(dir,"started.json")));
 const options = {timeout:30000,cwd:fileURLToPath(new URL("../../",import.meta.url)),env:{...process.env,PATH:dirname(process.execPath)+":"+process.env.PATH}};
 if (!policy.fixture) {
@@ -21,11 +22,11 @@ async function revision(file) {
   if(versions.length!==1||versions[0].percentage!==100)throw new Error("Ambiguous deployed version");
   return versions[0].version_id;
 }
-const queueVersion=JSON.parse(await readFile(join(dir,"queue-version.json"))).versions[0].version_id;
-async function guard() {if(await revision("worker.json")!==accepted.workerVersion||await revision("queue-worker.json")!==queueVersion)throw new Error("Courier or queue deployment changed")}
+const queueVersion=JSON.parse(await readFile(join(dir,profile+"-version.json"))).versions[0].version_id;
+async function guard() {if(await revision("worker.json")!==accepted.workerVersion||await revision(profile+"-worker.json")!==queueVersion)throw new Error("Courier or queue deployment changed")}
 await guard();
 const jobs=(await readFile(join(dir,"jobs.jsonl"),"utf8")).trim().split("\n").map(l=>JSON.parse(l));
-const expected=new Map(jobs.map(j=>[j.id,j])), proxy=await getPlatformProxy({configPath:join(dir,"queue-local.json"),persist:false,envFiles:[],remoteBindings:true});
+const expected=new Map(jobs.map(j=>[j.id,j])), proxy=await getPlatformProxy({configPath:join(dir,profile+"-local.json"),persist:false,envFiles:[],remoteBindings:true});
 const db=new DatabaseSync(join(dir,"readback.sqlite"));db.exec("PRAGMA busy_timeout=15000; PRAGMA journal_mode=WAL");
 const done=db.prepare("SELECT 1 FROM result WHERE catalog=? AND action='verify' AND id=?"),finish=db.prepare("INSERT OR IGNORE INTO result VALUES(?,?,?,?,?)");
 const completeIds=new Set();
@@ -71,6 +72,6 @@ try {
  const result=db.prepare("SELECT sum(n) AS objects,sum(size) AS bytes FROM result WHERE catalog=? AND action='verify'").get(policy.catalog);
  if(result.objects!==policy.objects)throw new Error("Incomplete immutable readback");
  const receipt={at:Date.now(),...policy,...result,workerVersion:accepted.workerVersion,workerEtag:accepted.workerEtag,queueVersion,allowedWrites:["blobs","manifests","summaries"],catalogSha256:policy.catalog,verified:true};
- await writeFile(join(dir,"queue-complete.json"),JSON.stringify(receipt),{mode:0o600});
+ await writeFile(join(dir,profile+"-complete.json"),JSON.stringify(receipt),{mode:0o600});
  console.log(JSON.stringify(receipt));
 }finally{db.close();await proxy.dispose()}
