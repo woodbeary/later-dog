@@ -60,3 +60,13 @@ For a verified folder package already present in a private R2 tenant, `preload/p
 Deploy the generated private Worker with full Wrangler and capture its single live revision using `wrangler deployments status --config <worker.json> --json` in `version.json`. Run `preload/run.mjs <directory> inspect` first. It verifies that the compiled catalog, declared source/target and live Cloudflare version/bindings agree while leaving the destination untouched. Qualify a separate private test tenant first using the same executable.
 
 For a guarded production preload, use `node migration/preload/run.mjs <directory> run <private-guard-file> <concurrency>`. The fresh guard must match the exact tenant, source, account and catalog. `started.json` is durable acknowledgment of the first authorized batch. A SQLite journal records each immutable batch, and `complete.json` follows independent full readback. A later `check` performs full verification again. These objects become visible to a folder only after a separate, verified head and placement publication. Aborting a preload leaves ordinary live data and placement intact.
+
+To check the detached disk from the Mac, run the following commands from the home package. The release specification identifies the Cloudflare account, candidate Worker version, container application, source commit, target image, bucket, stable home and exact baseline manifest. The private local configuration binds the candidate’s named `RestoreOperator` as `OPS` and the tenant’s bucket as `STATE`.
+
+```sh
+node migration/candidate/operator.mjs start "$SPEC" "$BINDINGS" "$PLANS/candidate.json"
+node migration/candidate/operator.mjs inspect "$SPEC" "$BINDINGS" "$PLANS/candidate.json"
+node migration/candidate/operator.mjs seal "$SPEC" "$BINDINGS" "$PLANS/candidate.json" "$LEASE"
+```
+
+For sealing, bind the original home’s private `WorkFolderMigrationApi` as `SOURCE`. The private lease file names the original account, machine, service and lease. The operator checks the physical instance, image build, folder counts and bytes, coordinator restore, and the current frozen source boot. It records the actual restore response and returns the immutable candidate checksum used by publication.

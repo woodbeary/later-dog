@@ -65,6 +65,7 @@ child.unref();fs.closeSync(fd);
 
 export class RestoreDisk extends DurableObject {
   monitoring = false;
+  starting = Promise.resolve();
   observe() {
     if (this.monitoring || !this.ctx.container?.running) return;
     this.monitoring = true;
@@ -83,14 +84,23 @@ export class RestoreDisk extends DurableObject {
     }
     await this.ctx.storage.setAlarm(Date.now() + 30_000);
   }
-  async start(runId) {
+  start(runId) {
+    const outcome = this.starting.then(() => this.prepare(runId));
+    this.starting = outcome.catch(() => {});
+    return outcome;
+  }
+  async prepare(runId) {
     const disk = this.ctx.container, run = await permit(this.env, runId);
     if (this.ctx.id.toString() !== this.env.DISKS.idFromName(this.env.TENANT).toString()) throw Error("Unexpected candidate disk");
     const previous = await this.ctx.storage.get("run");
-    if (disk.running && previous && previous !== runId) {
+    if (disk.running && previous) {
       const state = await this.status();
-      if (state.run !== previous || !["verified", "failed"].includes(state.state)) throw Error("Earlier candidate still using the disk");
+      if (previous !== runId && (state.run !== previous || !["verified", "failed"].includes(state.state))) throw Error("Earlier candidate still using the disk");
+      if (previous === runId && state.run === runId && state.state !== "failed") {
+        return { id: this.ctx.id.toString(), run: runId, image: (await disk.inspect())?.image };
+      }
     }
+    await this.ctx.storage.put("run", runId);
     await disk.interceptOutboundHttp("restore.r2", this.ctx.exports.CandidateReader({ props: { run, id: this.ctx.id.toString() } }));
     if (!disk.running) disk.start({ image: disk.images.base, enableInternet: false, entrypoint: ["/bin/sh", "-c", "exec /bin/sleep infinity"] });
     await disk.setInactivityTimeout(60 * 60_000);
@@ -99,7 +109,6 @@ export class RestoreDisk extends DurableObject {
     await this.ctx.storage.setAlarm(Date.now() + 30_000);
     const proc = await disk.exec(["node", "-e", launch, diskProgram, coordinatorProgram, runId, this.ctx.id.toString()], { user: "root", stderr: "ignore" });
     if ((await proc.output()).exitCode !== 0) throw Error("Could not start the restore check");
-    await this.ctx.storage.put("run", runId);
     return { id: this.ctx.id.toString(), run: runId, image: (await disk.inspect())?.image };
   }
   async status() {
