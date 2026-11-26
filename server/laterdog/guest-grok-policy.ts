@@ -11,6 +11,7 @@ export function guestGrokPolicy(cli: string, environment: Record<string, string>
   const binary = args[0];
   if (!binary || basename(binary) !== "grok" || !(args.length === 1 || (args.length === 2 && args[1]!.startsWith("--agent-profile=")) || (args.length === 3 && args[1] === "--agent-profile"))) unsupported();
   const env = { ...process.env, ...environment };
+  if (env.GROK_SANDBOX) unsupported();
   const profile = grokInheritedProfile(cli, env, cwd || userHome(env));
   if (!profile) return { binary };
   const fields = new Set(["name", "description", "toolConfig", "tools", "disallowedTools", "discoverSkills", "injectDefaultTools", "model"]);
