@@ -37,6 +37,8 @@ const nodeSchema = z.object({
   orderAt: z.number().optional(),
   urgent: z.boolean().optional(),
   reply: z.enum(["none", "result"]).optional(),
+  contextOnly: z.boolean().optional(),
+  contextAt: z.number().optional(),
   replacedBy: z.string().optional(),
   results: turnResultsSchema.optional(),
 });
@@ -108,7 +110,13 @@ export class RoomHandoffs {
       const ids = new Map(saved.map(n => [n.id, n]));
       if (ids.size !== saved.length || saved.some(n => !ids.has(n.rootId) || ids.get(n.rootId)?.parentId ||
         (n.parentId && (!ids.has(n.parentId) || ids.get(n.parentId)?.rootId !== n.rootId)))) throw new Error("Invalid room handoff tree");
-      for (const n of saved) this.nodes.set(n.id, readEnd(n));
+      for (const n of saved) {
+        if (n.parentId && !awaitsReply(n) && n.status === "queued" && n.startedAt === undefined) {
+          n.contextOnly = true; n.status = "completed"; n.reported = true;
+          n.result = "Saved for the next turn as context.";
+        }
+        this.nodes.set(n.id, readEnd(n));
+      }
       givenBeforeUpdate(this.nodes);
       if (hooks.longWork) this.restartPending = saved.some(n => !terminal(n));
       else {
@@ -287,9 +295,9 @@ export class RoomHandoffs {
     if (reply === "result" && path.some(n => n.botId === target.botId && (!n.groupId || !target.groupId || n.groupId === target.groupId))) {
       throw new Error("Cannot assign work back to an ancestor; results return automatically. To tell it something, send with reply \"none\".");
     }
-    const existing = this.children(parent.id).findLast(n => n.botId === target.botId && n.groupId === target.groupId && n.text === text);
+    const existing = this.children(parent.id).findLast(n => n.botId === target.botId && n.groupId === target.groupId && n.text === text && (n.reply ?? "result") === reply);
     if (existing && !(rework && terminal(existing))) return { node: existing, duplicate: true };
-    if (!rework && this.children(parent.id).some(n => n.kind === kind &&
+    if (reply === "result" && !rework && this.children(parent.id).some(n => awaitsReply(n) && n.kind === kind &&
       n.groupId === target.groupId && n.botId === target.botId && n.status === "completed")) {
       throw new Error("This agent already completed your assignment. Do not send acknowledgements or approvals as new work. Finish with your decision; results return automatically. Only use rework=true for concrete additional work.");
     }
@@ -301,7 +309,7 @@ export class RoomHandoffs {
     if (root.executions >= this.limits.executions) throw new Error(this.limitRefusal(`reached its limit of ${this.runsLimit()}`));
     if (!(!fresh && this.longTree(root.id)) && !this.budget.hasRunway(root)) throw new Error(this.budget.refusal(root));
     if (this.nodes.size >= 1000) {
-      const open = new Set([...this.nodes.values()].filter(n => !terminal(n)).map(n => n.rootId));
+      const open = new Set([...this.nodes.values()].filter(n => !terminal(n) || (n.contextOnly && n.contextAt === undefined)).map(n => n.rootId));
       const oldRoots = [...this.nodes.values()].filter(n => !n.parentId && terminal(n) && !open.has(n.id)).sort((a, b) => a.createdAt - b.createdAt);
       for (const old of oldRoots) {
         if (this.nodes.size < 800) break;
@@ -314,6 +322,10 @@ export class RoomHandoffs {
     const node: RoomHandoff = { ...target, id: randomUUID(), rootId: parent.rootId, parentId: parent.id,
       key, text, createdAt: this.now(), status: "queued", result: "", reported: false, executions: 0, approvalGranted,
       kind, ...(target.groupId && requestBatchKey ? { requestBatchKey } : {}), ...(lender ? { lender } : {}), ...(reply === "none" ? { reply } : {}) };
+    if (reply === "none") {
+      node.contextOnly = true; node.status = "completed"; node.reported = true;
+      node.result = "Saved for the next turn as context.";
+    }
     if (urgent) {
       node.urgent = true;
       const ahead = this.waitingFor(target.botId, target.threadId).filter(n => this.senderOf(n) === source.botId);
@@ -338,6 +350,21 @@ export class RoomHandoffs {
 
   senderOf(n: RoomHandoff): string | undefined {
     return n.parentId ? this.nodes.get(n.parentId)?.botId : undefined;
+  }
+
+  pendingContext(botId: string, threadId: string): RoomHandoff[] {
+    return [...this.nodes.values()].filter(n => n.contextOnly && n.contextAt === undefined && n.botId === botId && n.threadId === threadId)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  contextSaved(ids: readonly string[]): void {
+    const nodes = ids.flatMap(id => {
+      const node = this.nodes.get(id);
+      return node?.contextOnly && node.contextAt === undefined ? [node] : [];
+    });
+    if (!nodes.length) return;
+    for (const node of nodes) node.contextAt = this.now();
+    this.save();
   }
 
   waitingFor(botId: string, threadId?: string): RoomHandoff[] {

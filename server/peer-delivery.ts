@@ -1,7 +1,7 @@
 
 import { clip } from "./peer-roster.ts";
 
-export type PeerDeliveryOutcome = "queued" | "injected" | "failed";
+export type PeerDeliveryOutcome = "queued" | "injected" | "saved" | "failed";
 
 export interface PeerDeliveryReceipt {
   botId: string;
