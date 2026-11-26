@@ -317,8 +317,6 @@ export class CloudHomeHost extends Container<Env> {
       LATERDOG_STATE_URL: `http://${STATE_HOST}`,
       LATERDOG_STATE_TOKEN: record.stateToken,
       LATERDOG_HISTORY_URL: `http://${STATE_HOST}/history`,
-      LATERDOG_HISTORY_TOKEN: hex(await hmacSha256(record.stateToken,"laterdog history v1")),
-      LATERDOG_HISTORY_RESTORE_TOKEN: hex(await hmacSha256(record.stateToken,"laterdog history restore v1")),
       ...(record.emailToken ? { LATERDOG_CLOUD_EMAIL_URL: `http://${EMAIL_HOST}/send`, LATERDOG_CLOUD_EMAIL_TOKEN: record.emailToken } : {}),
       ...(record.googleToken ? { LATERDOG_CLOUD_GOOGLE_URL: `http://${GOOGLE_HOST}`, LATERDOG_CLOUD_GOOGLE_TOKEN: record.googleToken } : {}),
       ...(record.includedKey ? { LATERDOG_INCLUDED_KEY: record.includedKey, LATERDOG_INCLUDED_API: this.env.INCLUDED_API } : {}),

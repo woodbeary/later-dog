@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
-import { bootHistory, historyExclusion, verifyHistoryControl } from "../runtime/history.mjs";
+import { rootHistorySecrets, bootHistory, historyExclusion, verifyHistoryControl } from "../runtime/history.mjs";
 
 it("selects the authorized generation before restore and excludes only retired databases from the active snapshot", async () => {
   const request = async (_url: string, init: RequestInit) => {
@@ -64,4 +64,14 @@ it("requires the scoped saved compact database or the exact verified original wh
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+it("derives separate conversation and restore credentials inside the compatible home runtime", () => {
+  const env={LATERDOG_HISTORY_URL:"http://state.r2/history",LATERDOG_STATE_URL:"http://state.r2",LATERDOG_STATE_TOKEN:"root-only"};
+  const secrets=rootHistorySecrets(env);
+  expect(secrets.LATERDOG_HISTORY_TOKEN).toMatch(/^[a-f0-9]{64}$/);
+  expect(secrets.LATERDOG_HISTORY_RESTORE_TOKEN).not.toBe(secrets.LATERDOG_HISTORY_TOKEN);
+  expect(rootHistorySecrets({})).toEqual({});
+  expect(()=>rootHistorySecrets({...env,LATERDOG_HISTORY_URL:"https://example.org/history"})).toThrow();
 });

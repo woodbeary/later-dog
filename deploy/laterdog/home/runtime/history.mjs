@@ -1,6 +1,15 @@
+import { createHmac } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { join, resolve } from "node:path";
+
+export function rootHistorySecrets(env) {
+  if (!env.LATERDOG_HISTORY_URL) return {};
+  const expected = new URL("/history",env.LATERDOG_STATE_URL).href;
+  if (env.LATERDOG_HISTORY_URL !== expected || !env.LATERDOG_STATE_TOKEN) throw Error("History service does not match the home store");
+  const token = purpose => createHmac("sha256",env.LATERDOG_STATE_TOKEN).update(purpose).digest("hex");
+  return { LATERDOG_HISTORY_TOKEN: token("laterdog history v1"), LATERDOG_HISTORY_RESTORE_TOKEN: token("laterdog history restore v1") };
+}
 
 export async function bootHistory(env, request = fetch) {
   const url = env.LATERDOG_HISTORY_URL,
