@@ -158,6 +158,31 @@ it("runs a turn on the computer with home-held tools, hooks and authority, and r
   expect(w.launches()).toHaveLength(1);
 }, 60_000);
 
+it("keeps a progressing checkpoint open beyond its original reply deadline and times out after progress stops", async () => {
+  const w = world();
+  const launch = w.plan().launch;
+  const link = new EventEmitter() as EngineLink;
+  let request = 0;
+  link.send = line => { request = JSON.parse(line).id; };
+  link.close = () => link.emit("close", "fixture ended");
+  const session = new RemoteSession(link, launch);
+  link.emit("line", JSON.stringify({ type: "ready" }));
+  await Promise.resolve();
+  vi.useFakeTimers();
+  try {
+    const interval = 10 * 60_000;
+    const ack = session.checkpoint();
+    await vi.advanceTimersByTimeAsync(interval - 1);
+    session.checkpointProgressAt = Date.now();
+    await vi.advanceTimersByTimeAsync(2);
+    link.emit("line", JSON.stringify({ type: "reply", id: request, body: { saved: true } }));
+    await expect(ack).resolves.toEqual({ saved: true });
+    const expired = expect(session.checkpoint()).rejects.toThrow("did not answer checkpoint_request");
+    await vi.advanceTimersByTimeAsync(interval);
+    await expired;
+  } finally { vi.useRealTimers(); link.close(); }
+});
+
 it("limits an unacknowledged upload to one window and cancels before dispatch when its connection drops", async () => {
   const w = world();
   const launch = w.plan(true).launch;
