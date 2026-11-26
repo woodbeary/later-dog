@@ -1,3 +1,4 @@
+import { releaseGuestProject } from "./engine-folder-release.ts";
 import {
   existsSync,
   mkdtempSync,
@@ -297,4 +298,37 @@ describe("assigned working folders on guest computers", () => {
     await expect(f.syncB()).rejects.toThrow("checksum");
     expect(readFileSync(join(f.right, "out"), "utf8")).toBe("old");
   });
+});
+
+it("preserves a member’s final local edit before releasing only their guest checkout", async () => {
+  const f = await fixture();
+  const guest = join(f.dir, "Shared");
+  const grant = await f.grant("cmp_member", "project-" + folderHash(guest));
+  const store = new FolderStore(grant, () => {});
+  writeFileSync(join(f.src, "notes"), "before");
+  await publishInitialWorkFolder(f.src, store);
+  await syncFolder({ path: guest, grant }, f.state, undefined, undefined, f.dir);
+  writeFileSync(join(guest, "notes"), "final unsaved member edit");
+  await expect(
+    releaseGuestProject(
+      guest,
+      f.state,
+      grant.baseUrl,
+      grant.guestId,
+      () => {
+        throw new Error("open process");
+      },
+      f.dir,
+    ),
+  ).rejects.toThrow("open process");
+  expect(readFileSync(join(guest, "notes"), "utf8")).toBe("final unsaved member edit");
+  const old = await store.head();
+  await releaseGuestProject(guest, f.state, grant.baseUrl, grant.guestId, () => {}, f.dir);
+  expect(existsSync(guest)).toBe(false);
+  expect((await store.head())?.state).toBe("live");
+  expect((await store.head())?.revision).not.toBe(old?.revision);
+  const restored = join(f.dir, "other-computer");
+  await syncFolder({ path: restored, grant }, join(f.dir, "separate-state"), undefined, undefined, f.dir);
+  expect(readFileSync(join(restored, "notes"), "utf8")).toBe("final unsaved member edit");
+  await releaseGuestProject(guest, f.state, grant.baseUrl, grant.guestId, () => {}, f.dir);
 });

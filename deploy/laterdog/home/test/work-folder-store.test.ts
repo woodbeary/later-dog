@@ -1,3 +1,4 @@
+import { projectAccessAuthority, projectAccessPath } from "../../../../shared/work-folder-project-access.ts";
 import { signPreviousBackup } from "../runtime/previous-backup-signature.mjs";
 import { describe, expect, it } from "vitest";
 import { workFolderLayoutRecord } from "../../../../shared/work-folder-layout.ts";
@@ -40,6 +41,71 @@ function fixture() {
 }
 
 describe("a cloud work folder", () => {
+  it("limits live project changes to the owner and applies revocation to existing guest tokens", async () => {
+    const f = fixture(),
+      project = "/data/shared",
+      verification = "1".repeat(64);
+    const placement = {
+      v: 1,
+      mode: "folders",
+      previous: null,
+      baselineManifest: "0".repeat(64),
+      verification,
+      layout: { dogs: [], tasks: {}, projects: [{ path: project, owner: "dog_A", members: [] }] },
+    };
+    await f.bucket.put("homes/" + f.stable + "/work-folders/placement", JSON.stringify(placement), {
+      onlyIf: { etagDoesNotMatch: "*" },
+    });
+    const id = "project-" + hex(await sha256(project));
+    const base = workFolderBaseUrl(f.origin, "dog_A", id),
+      owner = await workFolderAuthority(f.bootstrap, "dog_A", id);
+    const admin = await projectAccessAuthority(f.bootstrap);
+    const access = (token: string, data?: unknown, method = data === undefined ? "GET" : "PUT") =>
+      handleWorkFolder(
+        new Request(f.origin + projectAccessPath, {
+          method,
+          headers: { authorization: "Bearer " + token },
+          ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+        }),
+        f.bucket,
+        f.stable,
+        f.origin,
+        f.bootstrap,
+      );
+    const binding = { subject: "room:work", path: project, members: ["dog_B"] };
+    const update = { verification, revision: null, access: { inherited: [], bindings: [binding] } };
+    const grant = () => f.call("grant", "POST", { guestId: "cmp_member", granteeBotId: "dog_B" }, owner, 1000, base);
+    expect((await grant()).status).toBe(403);
+    expect((await access(owner, update)).status).toBe(403);
+    expect(
+      (
+        await access(admin, {
+          ...update,
+          access: { ...update.access, bindings: [{ ...binding, path: "/data/.laterdog" }] },
+        })
+      ).status,
+    ).toBe(400);
+    expect((await access(admin, update)).status).toBe(200);
+    expect((await access(admin, update)).status).toBe(409);
+    const issued = await (await grant()).json();
+    expect(issued.guestId).toBe("cmp_member");
+    expect((await access(issued.accessToken, update)).status).toBe(403);
+    const { revision } = await (await access(admin)).json();
+    const removal = { ...update, revision, access: { inherited: [], bindings: [] } };
+    expect((await access(admin, removal)).status).toBe(409);
+    const { operation } = await (await access(admin, removal, "POST")).json();
+    expect((await grant()).status).toBe(403);
+    expect((await f.call("refresh", "POST", undefined, issued.refreshToken, 1001, base)).status).toBe(200);
+    expect((await access(admin, { verification, operation })).status).toBe(200);
+    expect((await f.call("head", "GET", undefined, issued.accessToken, 1001, base)).status).toBe(401);
+    expect((await f.call("refresh", "POST", undefined, issued.refreshToken, 1001, base)).status).toBe(401);
+    expect((await grant()).status).toBe(403);
+    const renewed = await (await access(admin)).json();
+    expect((await access(admin, { ...update, revision: renewed.revision })).status).toBe(200);
+    const replacement = await (await grant()).json();
+    expect(replacement.refreshToken).not.toBe(issued.refreshToken);
+    expect((await f.call("refresh", "POST", undefined, issued.refreshToken, 1001, base)).status).toBe(401);
+  });
   it("creates a durable directory for a new task, retries without overwriting it and permits an explicit recreation", async () => {
     const f = fixture();
     const make = () => f.call("mkdir", "POST", { mode: 0o750 });

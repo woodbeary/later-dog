@@ -42,6 +42,7 @@ export type ImportSkipReason =
 export interface ImportSkip { part: string; reason: ImportSkipReason }
 
 export interface PackageImportDeps {
+  onPrepared?: (undo:()=>void)=>void;
   store: Store;
   routines: Pick<RoutineManager, "create" | "remove"> & Partial<Pick<RoutineManager, "stampInstalledPackage">>;
   skills: {
@@ -233,6 +234,18 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
   let group: GroupRecord | undefined;
   let section: string | undefined;
   let notes = 0;
+  function undoImport() {
+    for (const routine of createdRoutines) deps.routines.remove(routine.id);
+    for (const created of createdGroups) store.deleteGroup(created.id);
+    for (const bot of importedBots) store.deleteBot(bot.id);
+    deps.presets?.remove(createdPresets);
+    if (createdServers.length) {
+      const next: Record<string, unknown> = { ...deps.mcp.servers() };
+      for (const serverName of createdServers) delete next[serverName];
+      deps.mcp.persist(next);
+    }
+    if (section && store.sections.includes(section)) store.changeEmptySection(section, null);
+  }
   try {
     const selection = deps.defaultSelection();
     const existingSections = new Set(
@@ -446,15 +459,20 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
       presets = [...registered.added, ...registered.existing];
     } else for (const preset of pkg?.presets ?? []) skipped.push({ part: `presets[${preset.key}]`, reason: "presets_not_supported_yet" });
 
-    if (!pkg && options.mode === "project" && importedBots.length > 0) {
+    if (options.mode === "project" && importedBots.length > 0 && (!pkg || options.cwd)) {
       const roomName = options.room?.trim() || name;
-      group = store.createGroup(roomName, importedBots.map((bot) => bot.id), false, section);
-      createdGroups.push(group);
+      const members = importedBots.map(bot => bot.id);
+      group = createdGroups.find(room => (!options.room || room.name === roomName) && room.memberIds.length === members.length && members.every(id => room.memberIds.includes(id)));
+      if (!group) {
+        group = store.createGroup(roomName, members, false, section);
+        createdGroups.push(group);
+      }
       if (options.cwd) {
         group = store.patchGroup(group.id, { cwd: options.cwd }) ?? group;
       }
     }
 
+    deps.onPrepared?.(undoImport);
     const referenced = new Set((pkg?.agents ?? []).flatMap((agent) => agent.skills ?? []));
     const bots = importedBots.map((bot) => store.bot(bot.id)!);
     for (const bot of bots) deps.broadcast?.({ kind: "bot", bot });
@@ -477,16 +495,7 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
       ...(presets ? { presets } : {}),
     };
   } catch (error) {
-    for (const routine of createdRoutines) deps.routines.remove(routine.id);
-    for (const created of createdGroups) store.deleteGroup(created.id);
-    for (const bot of importedBots) store.deleteBot(bot.id);
-    deps.presets?.remove(createdPresets);
-    if (createdServers.length) {
-      const next: Record<string, unknown> = { ...deps.mcp.servers() };
-      for (const serverName of createdServers) delete next[serverName];
-      deps.mcp.persist(next);
-    }
-    if (section && store.sections.includes(section)) store.changeEmptySection(section, null);
+    undoImport();
     throw error;
   }
 }

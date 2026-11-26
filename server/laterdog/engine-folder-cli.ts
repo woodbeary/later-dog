@@ -1,3 +1,4 @@
+import { projectDependents, releaseGuestProject } from "./engine-folder-release.ts";
 import { spawn } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -41,6 +42,12 @@ async function runLocked(path: string, state: string, input: string): Promise<vo
 
 async function main() {
   const [, , action, path, state = ENGINE_FOLDER_STATE] = process.argv;
+  if (action === "release-member" && path) {
+    const expected = JSON.parse(Buffer.from(process.argv[5] ?? "", "base64url").toString("utf8")) as { uri:string; guest:string };
+    for (const binding of projectDependents(path,state)) await runLocked(binding.path,state,JSON.stringify(binding));
+    await runLocked(path,state,JSON.stringify({release:expected}));
+    return;
+  }
   if (action === "retire-empty" && path) {
     try {
       if (!await retireEmptyGuestFolder(path, state)) throw new Error("Missing working folder head");
@@ -80,6 +87,11 @@ async function main() {
     const file = join(guestFolderDir(path, state), "grant.json");
     if (!input && (!existsSync(file) || !lstatSync(path, { throwIfNoEntry: false }) && await retireEmptyGuestFolder(path, state, true))) return;
     const payload = input ? JSON.parse(input) : undefined;
+    if (payload?.release) {
+      await releaseGuestProject(path,state,payload.release.uri,payload.release.guest);
+      process.stdout.write(JSON.stringify({released:true})+"\n");
+      return;
+    }
     const binding: EngineWorkFolder = input
       ? {
           path,

@@ -569,6 +569,22 @@ export async function jobComputer(botId: string): Promise<JobComputer> {
   } };
 }
 
+export async function previousProjectComputer(botId: string, id: string): Promise<RunBox | null> {
+  const client = ownClient();
+  const original = await client.get(id);
+  if (!original) return null;
+  if (original.name !== ownName(botId)) throw new Error("The shared project belongs to a different cloud computer.");
+  const ready = original.state === "running" ? original : await waitRunning(client, id, ENGINE_BOOT_BUDGET_MS);
+  if (ready?.id !== id || ready.name !== original.name)
+    throw new Error("The original project computer could not be opened.");
+  return {
+    computerId: id,
+    exec: (command, timeoutMs) => runOwn(client, id, command, { timeoutMs }),
+    write: (path, data) => client.writeFile(id, path, data),
+    read: (path) => client.readFile(id, path),
+  };
+}
+
 export async function engineComputer(botId: string, signal?: AbortSignal): Promise<{ box: RunBox; stream: () => ReturnType<ComputersClient["process"]> }> {
   if (!computersSelected()) throw new Error("Cloud computers are not configured.");
   const client = ownClient();

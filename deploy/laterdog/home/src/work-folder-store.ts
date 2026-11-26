@@ -1,3 +1,5 @@
+import { membershipFor, projectAccessAuthority, projectAccessPath } from "../../../../shared/work-folder-project-access.ts";
+import { changeProjectAccess, retainedProjectAccess } from "./work-folder-project-access.ts";
 import { registerFolder } from "./work-folder-registry.ts";
 import { eligibleSharedFolder, readWorkFolderPlacement } from "./work-folder-placement.ts";
 import { compareWorkFolderPaths, safeWorkFolderLink, safeWorkFolderPath, validWorkFolderScope, workFolderAuthority, workFolderBaseUrl, WORK_FOLDER_ACCESS_MS, WORK_FOLDER_BLOB_BYTES, WORK_FOLDER_PAGE_SIZE, WORK_FOLDER_ROUTE, type WorkFolderHead, type WorkFolderPageInfo } from "../../../../shared/work-folder-store.ts";
@@ -178,12 +180,35 @@ async function sameToken(a: string, b: string): Promise<boolean> {
   return diff === 0;
 }
 
-interface GuestAccess { generation: string; active: boolean; grantee: string }
+interface GuestAccess {
+  generation: string;
+  active: boolean;
+  grantee: string;
+  membership?: string;
+}
 
-async function allowedGrantee(scope: Scope, grantee: string): Promise<boolean> {
-  if (grantee === scope.owner) return true;
+async function membershipEpoch(scope: Scope, grantee: string, issuing = false): Promise<string | null> {
+  if (grantee === scope.owner) return "baseline";
   const layout = await readWorkFolderPlacement(scope.bucket, scope.stable);
-  return layout?.mode === "folders" && await eligibleSharedFolder(layout.layout, scope.owner, scope.folderId, grantee);
+  if (layout?.mode !== "folders") return null;
+  if (!scope.folderId.startsWith("project-"))
+    return (await eligibleSharedFolder(layout.layout, scope.owner, scope.folderId, grantee)) ? "baseline" : null;
+  const retained = await retainedProjectAccess(scope.bucket, scope.stable, layout);
+  const effective = membershipFor(layout.layout, retained.access);
+  for (const project of effective.projects) {
+    if (
+      project.owner === scope.owner &&
+      project.members.includes(grantee) &&
+      project.path !== "/data" &&
+      !project.path.startsWith("/data/.") &&
+      scope.folderId === "project-" + (await digest(project.path))
+    ) {
+      const member = JSON.stringify([project.path, grantee]);
+      if (issuing && retained.pending?.losses.includes(member)) return null;
+      return retained.epochs[member] ?? "baseline";
+    }
+  }
+  return null;
 }
 async function issued(scope: Scope, guest: string, generation: string) {
   const expiresAt = scope.now + WORK_FOLDER_ACCESS_MS;
@@ -199,7 +224,7 @@ async function guest(scope: Scope, token: string, refresh: boolean): Promise<{ g
   const signature = fields.pop()!, expected = hex(await hmacSha256(scope.authority, fields.join(".")));
   if (!validHash(signature) || !(await sameToken(signature, expected))) return null;
   const grant = await jsonRecord<GuestAccess>(scope.bucket, scope.prefix + "grants/" + fields[1]);
-  return grant?.value.active && grant.value.generation === fields[2] && await allowedGrantee(scope, grant.value.grantee) ? { guestId: fields[1]!, generation: fields[2]! } : null;
+  return grant?.value.active && grant.value.generation === fields[2] && await membershipEpoch(scope, grant.value.grantee) === (grant.value.membership ?? "baseline") ? { guestId: fields[1]!, generation: fields[2]! } : null;
 }
 
 async function grant(scope: Scope, request: Request, revoke: boolean): Promise<Response> {
@@ -207,15 +232,21 @@ async function grant(scope: Scope, request: Request, revoke: boolean): Promise<R
   if (!(exact(value, ["guestId"]) || exact(value, ["guestId", "granteeBotId"])) || typeof value.guestId !== "string" || !guestPattern.test(value.guestId)) return invalid("Invalid assigned guest");
   const grantee = value.granteeBotId ?? scope.owner;
   if (typeof grantee !== "string" || !validWorkFolderScope(grantee, scope.folderId)) return invalid("Invalid guest owner");
-  if (!revoke && !await allowedGrantee(scope, grantee)) return json({ error: "forbidden" }, 403);
+  const membership = revoke ? "baseline" : await membershipEpoch(scope,grantee,true);
+  if (!membership) return json({ error: "forbidden" }, 403);
   const key = scope.prefix + "grants/" + value.guestId;
   for (let n = 0; n < 4; n++) {
     const old = await jsonRecord<GuestAccess>(scope.bucket, key);
+    if (old?.value.active && old.value.grantee !== grantee && (!revoke || value.granteeBotId)) return json({error:"guest_already_assigned"},409);
     if (revoke && !old?.value.active) return new Response(null, { status: 204 });
-    if (!revoke && old?.value.active) return old.value.grantee === grantee ? json(await issued(scope, value.guestId, old.value.generation)) : json({ error: "guest_already_assigned" }, 409);
-    const next = { generation: randomToken(16), active: !revoke, grantee };
+    if (!revoke && old?.value.active && (old.value.membership ?? "baseline") === membership) return json(await issued(scope, value.guestId, old.value.generation));
+    const next = { generation: randomToken(16), active: !revoke, grantee, membership };
     const wrote = await scope.bucket.put(key, JSON.stringify(next), { onlyIf: old ? { etagMatches: old.etag } : { etagDoesNotMatch: "*" } });
-    if (wrote) return revoke ? new Response(null, { status: 204 }) : json(await issued(scope, value.guestId, next.generation));
+    if (wrote) {
+      if (revoke) return new Response(null,{status:204});
+      if (await membershipEpoch(scope,grantee,true)!==membership) return json({error:"forbidden"},403);
+      return json(await issued(scope,value.guestId,next.generation));
+    }
   }
   return json({ error: "grant_changed" }, 409);
 }
@@ -306,6 +337,16 @@ async function migrateBatch(scope: Scope, request: Request): Promise<Response> {
 export async function handleWorkFolder(request: Request, bucket: WorkFolderBucket, stableId: string, origin: string, bootstrap: string, now = Date.now()): Promise<Response> {
   const url = new URL(request.url);
   if (url.origin !== origin || !url.pathname.startsWith(WORK_FOLDER_ROUTE)) return absent();
+  if (url.pathname === projectAccessPath) {
+    const token = request.headers.get("authorization")?.slice(7);
+    if (!token || !request.headers.get("authorization")?.startsWith("Bearer ") || !await sameToken(token, await projectAccessAuthority(bootstrap))) return json({ error: "forbidden" }, 403);
+    try {
+      const placement = await readWorkFolderPlacement(bucket, stableId);
+      return await changeProjectAccess(bucket, stableId, placement, request.method, ["PUT", "POST", "DELETE"].includes(request.method) ? parse(await payload(request, 16 * 1024 * 1024)) : null);
+    } catch (error) {
+      return json({ error: "project_access_unavailable" }, error instanceof FolderError ? error.status : 503);
+    }
+  }
   const [botId, folderId, route, id, ...rest] = url.pathname.slice(WORK_FOLDER_ROUTE.length).split("/");
   if (!botId || !folderId || !validWorkFolderScope(botId, folderId) || rest.length || !route) return absent();
   const scope: Scope = { stable: stableId, owner: botId, folderId, prefix: homePrefix(stableId) + "work-folders/v1/" + botId + "/" + folderId + "/", baseUrl: workFolderBaseUrl(origin, botId, folderId), authority: await workFolderAuthority(bootstrap, botId, folderId), bucket, now };
@@ -334,6 +375,20 @@ export async function handleWorkFolder(request: Request, bucket: WorkFolderBucke
       const entries = await page({ v: 1, kind: "entries", entries: [] });
       const manifest = await page({ v: 1, kind: "root", mode: data.mode, entries });
       return commit(scope, new Request(request.url, { method: "POST", body: JSON.stringify({ parent: head?.value.revision ?? null, manifest }) }));
+    }
+    if (route === "grantees" && id && request.method === "GET") {
+      if (!owner || !scope.folderId.startsWith("project-") || !validWorkFolderScope(id,scope.folderId)) return json({error:"forbidden"},403);
+      if (!scope.bucket.list) return json({error:"guest_registry_unavailable"},503);
+      const prefix=scope.prefix+"grants/";
+      const cursor=url.searchParams.get("cursor") ?? undefined;
+      const page=await scope.bucket.list({prefix,cursor,limit:64});
+      const guests=(await Promise.all(page.objects.map(async row=>{
+        const guestId=row.key.slice(prefix.length);
+        if (!row.key.startsWith(prefix) || !guestPattern.test(guestId)) return null;
+        const grant=await jsonRecord<GuestAccess>(scope.bucket,row.key);
+        return grant?.value.grantee===id ? guestId : null;
+      }))).filter(Boolean);
+      return json({guests,...(page.truncated ? {cursor:page.cursor} : {})});
     }
     if (route === "grant" || route === "revoke") return !id && request.method === "POST" && owner ? await grant(scope, request, route === "revoke") : json({ error: "forbidden" }, 403);
     if ((route === "fence" || route === "unfence") && !id) return owner && request.method === "POST" ? await folderFence(scope, request, route === "unfence") : json({ error: "forbidden" }, 403);

@@ -124,8 +124,8 @@ export class ComputerJobs implements ComputerJobLedger {
     return all.filter((job) => !job.end);
   }
 
-  hasActiveWork(): boolean {
-    for (const job of this.#jobs.values()) if (!job.end) return true;
+  hasActiveWork(botId?:string): boolean {
+    for (const job of this.#jobs.values()) if (!job.end && (!botId || job.botId === botId)) return true;
     return false;
   }
 
