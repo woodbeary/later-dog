@@ -565,7 +565,7 @@ async function readChunk(store, hash, stop, { attempts, retryMs }) {
 
 async function alreadyRestored(path, entry) {
   const existing = await lstat(path).catch(() => null);
-  return existing?.isFile() === true && existing.size === entry.size && Math.trunc(existing.mtimeMs) === Math.trunc(entry.mtimeMs);
+  return existing?.isFile() === true && existing.size === entry.size && Math.round(existing.mtimeMs) === Math.trunc(entry.mtimeMs);
 }
 
 async function download(entry, store, staging, stop, retries) {
