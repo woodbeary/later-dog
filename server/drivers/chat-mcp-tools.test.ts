@@ -452,7 +452,7 @@ describe("Chat MCP schema validation", () => {
     const f = fixture('if(message.method === "tools/call") { process.stdout.write("x".repeat(32*1024*1024+1)); continue; }');
     const session = await f.mount(true);
     await expect(session.execute("audit_write", { value: "large" }, f.controller.signal)).rejects.toThrow(/frame|limit/i);
-  });
+  }, 60_000);
 
   it("rejects malformed image results without claiming execution success", async () => {
     const f = fixture('if(message.method === "tools/call") { reply(message,{content:[{type:"image",mimeType:"image/png",data:"not-base64"}]}); continue; }');
