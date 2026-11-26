@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { chmod, lchown, lstat, mkdir, open, readdir, readFile, readlink, rename, rm, stat, statfs, symlink, utimes } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, chmod, lchown, lstat, mkdir, open, readdir, readFile, readlink, rename, rm, stat, statfs, symlink, utimes } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 
@@ -319,6 +320,8 @@ export async function memoryAvailable() {
 async function usableFolder(folder) {
   try {
     await mkdir(folder, { recursive: true, mode: 0o700 });
+    if (((await stat(folder)).mode & 0o222) === 0) return false;
+    await access(folder, constants.W_OK | constants.X_OK);
     for (const name of await readdir(folder)) if (COPY_NAME.test(name)) await rm(join(folder, name), { force: true });
     return true;
   } catch {
