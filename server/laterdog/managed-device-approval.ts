@@ -5,7 +5,7 @@ import type { SyncRunFolder } from "./computer-runs.ts";
 import { shellQuote } from "./laterdog-cloud.ts";
 
 export function managedDeviceApproval(
-  folders: { resolve(botId: string, path: string): FolderScope | null; sync: SyncRunFolder } | null,
+  folders: { path?(botId: string, cwd: string): string; resolve(botId: string, path: string): FolderScope | null; sync: SyncRunFolder } | null,
   placed: (botId: string) => boolean,
   getComputer: (botId: string) => Promise<JobComputer>,
 ) {
@@ -24,11 +24,12 @@ export function managedDeviceApproval(
     },
     async runCheck(command: string, cwd: string | undefined, wait: DeviceApprovalWait) {
       if (!wait.computerId) return runDeviceCheck(command, cwd);
-      const scope = cwd && folders?.resolve(wait.botId, cwd);
-      if (!scope || !folders || !cwd) return false;
+      const resolved = cwd && (folders?.path?.(wait.botId,cwd) ?? cwd);
+      const scope = resolved && folders?.resolve(wait.botId, resolved);
+      if (!scope || !folders || !resolved) return false;
       const box = await assigned(wait);
       await folders.sync(box, wait.botId, scope, "hydrate");
-      const cd = `scope=$(cd -P -- ${shellQuote(scope.path)} && pwd -P) && cd -P -- ${shellQuote(cwd)} && case "$PWD" in "$scope"|"$scope"/*) ;; *) exit 1;; esac`;
+      const cd = `scope=$(cd -P -- ${shellQuote(scope.path)} && pwd -P) && cd -P -- ${shellQuote(resolved)} && case "$PWD" in "$scope"|"$scope"/*) ;; *) exit 1;; esac`;
       try { return (await box.exec(`${cd} && bash -lc ${shellQuote(command)}`, DEVICE_APPROVAL_CHECK_TIMEOUT_MS)).exitCode === 0; }
       finally { await folders.sync(box, wait.botId, scope, "checkpoint"); }
     },

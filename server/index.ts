@@ -14354,6 +14354,7 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   ...(Number(process.env.LATERDOG_COMPUTER_RUN_WAIT_MS) > 0 ? { windowMs: Number(process.env.LATERDOG_COMPUTER_RUN_WAIT_MS) } : {}),
   computer: boat.heavyRunBox,
   managedScope: assignedJobFolders?.resolve,
+  managedPath: assignedJobFolders?.path,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   maxWaitMs: (threadId) => waitCapMs(runningTurnEngines.get(threadId)?.driverKind, mcpCallTimeoutMinutes(cfg)),
   personWrote: (_botId, threadId, since) => store.activePath(threadId).some((message) => message.role === "user" && message.at >= since),
