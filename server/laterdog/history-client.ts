@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { MessageChannel, receiveMessageOnPort, Worker } from "node:worker_threads";
 import { BOOT_CLOUD_SECRETS } from "../cloud-secrets-boot.ts";
 import type { HistoryOperation } from "../../shared/history-shard-types.ts";
+import { HistoryLiveCache } from "./history-live-cache.ts";
 import { historyRequest } from "./history-request.ts";
 
 const mode = process.env.LATERDOG_HISTORY_MODE;
@@ -11,6 +12,7 @@ const generation = process.env.LATERDOG_HISTORY_GENERATION;
 const url = process.env.LATERDOG_HISTORY_URL;
 const token = BOOT_CLOUD_SECRETS.LATERDOG_HISTORY_TOKEN;
 let worker: Worker | undefined;
+const liveCache = new HistoryLiveCache();
 export function isRemoteHistory() {
   if (mode && !["legacy", "dual", "remote"].includes(mode))
     throw Error("Conversation history is unavailable in this placement");
@@ -89,7 +91,11 @@ export function historyExecute<T>(
   operation: HistoryOperation,
   requestId = randomUUID() as string,
 ): T {
-  return request<{ result: T }>("execute", { generation, threadId, operation, requestId }).result;
+  return liveCache.execute(
+    threadId,
+    operation,
+    () => request<{ result: T }>("execute", { generation, threadId, operation, requestId }).result,
+  );
 }
 type Page<T> = { items: { threadId: string; result: T }[]; next: string | null };
 export function historyMany<T>(
@@ -98,6 +104,7 @@ export function historyMany<T>(
   requestId: string = randomUUID(),
 ): { threadId: string; result: T }[] {
   if (threadIds?.length === 0) return [];
+  if (["native.recover", "native.prune", "messages.delete"].includes(operation.op)) liveCache.invalidate(threadIds);
   const items: { threadId: string; result: T }[] = [];
   let after: string | null = null;
   do {
