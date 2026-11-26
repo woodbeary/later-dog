@@ -11,6 +11,7 @@ import { DurableFolderRead } from "./laterdog/work-folder-durable-read.ts";
 import { syncComputerWorkFolder } from "./laterdog/engine-opener.ts";
 
 async function main() {
+  process.umask(0o077);
   const env = process.env;
   const socket = env.LATERDOG_WORK_FOLDER_SOCKET;
   const checkpoint = env.LATERDOG_WORK_FOLDER_CHECKPOINT_SOCKET;
@@ -102,4 +103,4 @@ async function main() {
   process.once("SIGTERM", () => { void stop().catch(error => { console.error("Work folder shutdown failed", error.message); process.exitCode = 1; }); });
 }
 
-void main().catch(error => { console.error("Work folder mount service failed", error.message); process.exitCode = 1; });
+void main().catch(error => { console.error("Work folder mount service failed", error.message); process.exit(1); });

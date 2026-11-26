@@ -39,11 +39,26 @@ load at the start of every session — keep this file short and curated.
 Longer notes belong in memory/<topic>.md files, read on demand.
 `;
 
+export function mountedWorkspaceUnavailable(error: unknown): boolean {
+  if (process.env.LATERDOG_CLOUD_ROLE !== "home" || !process.env.LATERDOG_WORK_FOLDER_LAYOUT) return false;
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return typeof code === "string" && /^E[A-Z0-9]+$/.test(code) && !["ENOENT", "ENOTDIR", "EINVAL"].includes(code);
+}
+
+export function checkWorkspaceRead(error: unknown): void {
+  if (mountedWorkspaceUnavailable(error)) throw error;
+}
+
+export function workspacePathExists(path: string): boolean {
+  if (process.env.LATERDOG_CLOUD_ROLE !== "home" || !process.env.LATERDOG_WORK_FOLDER_LAYOUT) return existsSync(path);
+  return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
+}
+
 export function ensureWorkspace(botId: string): string {
   const dir = join(WORKSPACES_DIR, botId);
   mkdirSync(join(dir, "memory"), { recursive: true, mode: 0o700 });
   const memoryFile = join(dir, "MEMORY.md");
-  if (!existsSync(memoryFile)) writeFileAtomic(memoryFile, MEMORY_SEED, { mode: 0o600 });
+  if (!workspacePathExists(memoryFile)) writeFileAtomic(memoryFile, MEMORY_SEED, { mode: 0o600 });
   return dir;
 }
 
@@ -76,7 +91,8 @@ function memoryFolderEntries(dir: string): string[] {
 function regularFile(path: string): boolean {
   try {
     return lstatSync(path).isFile();
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return false;
   }
 }
@@ -110,7 +126,8 @@ export function loadMemory(botId: string, opts: { now?: Date } = {}): { text: st
   let raw: string;
   try {
     raw = readMemoryText(join(workspaceDir(botId), "MEMORY.md"));
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return null;
   }
   if (!raw.trim() || raw === MEMORY_SEED) return null;
@@ -136,7 +153,8 @@ export function readMemoryFile(botId: string) {
   let raw: string;
   try {
     raw = readMemoryText(join(workspaceDir(botId), "MEMORY.md"));
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return { text: "", truncated: false };
   }
   if (!raw.trim() || raw === MEMORY_SEED) return { text: "", truncated: false };
@@ -168,7 +186,8 @@ function memoryFilesOnDisk(botId: string): Array<{ path: string; mtimeMs: number
     try {
       const stat = memoryEntryStat(join(dir, relativePath));
       return stat.isFile() ? [{ path: relativePath, mtimeMs: stat.mtimeMs, bytes: stat.size }] : [];
-    } catch {
+    } catch (error) {
+      checkWorkspaceRead(error);
       return [];
     }
   });
@@ -394,7 +413,7 @@ export function appendMemoryLog(botId: string, text: string, opts: MemoryUpdateO
   let current = "";
   try {
     current = readMemoryText(path);
-  } catch {}
+  } catch (error) { checkWorkspaceRead(error); }
   writeFileAtomic(path, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${line}\n`, { mode: 0o600 });
   const relativePath = `memory/${MEMORY_LOG_DIR}/${file}`;
   indexWrittenMemoryFile(botId, relativePath);
@@ -413,7 +432,8 @@ export function listMemoryLogs(botId: string): string[] {
   try {
     const dir = join(workspaceDir(botId), "memory", MEMORY_LOG_DIR);
     return memoryFolderEntries(dir).filter((name) => LOG_FILE_NAME.test(name) && (!regularMemoryFilesOnly || regularFile(join(dir, name)))).sort();
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return [];
   }
 }
@@ -422,7 +442,8 @@ export function readMemoryLog(botId: string, name: string): string | null {
   if (!LOG_FILE_NAME.test(name)) return null;
   try {
     return readMemoryText(join(workspaceDir(botId), "memory", MEMORY_LOG_DIR, name));
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return null;
   }
 }
@@ -437,7 +458,8 @@ export function listMemoryTopics(botId: string): Array<{ name: string; bytes: nu
   let entries: string[];
   try {
     entries = memoryFolderEntries(join(workspaceDir(botId), "memory"));
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return [];
   }
   return entries
@@ -446,7 +468,8 @@ export function listMemoryTopics(botId: string): Array<{ name: string; bytes: nu
       try {
         const stat = memoryEntryStat(join(workspaceDir(botId), "memory", name));
         return stat.isFile() ? [{ name, bytes: stat.size }] : [];
-      } catch {
+      } catch (error) {
+        checkWorkspaceRead(error);
         return [];
       }
     })
@@ -464,7 +487,8 @@ export function readRecallMemoryFile(botId: string, file: string): string | null
   if (!isRecallMemoryFile(file)) return null;
   try {
     return redactSecretsInText(readMemoryText(join(workspaceDir(botId), file)));
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return null;
   }
 }
@@ -473,7 +497,8 @@ export function readMemoryTopic(botId: string, name: string): string | null {
   if (!isMemoryTopicName(name)) return null;
   try {
     return readMemoryText(join(workspaceDir(botId), "memory", name));
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return null;
   }
 }

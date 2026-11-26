@@ -21,7 +21,7 @@ import {
 import { upkeepEnabled, type MemoryUpkeep } from "../memory-upkeep.ts";
 import { dismissLearned, keepLearned, listLearnedFacts, listPendingLearned, removeLearned } from "../profile-learned.ts";
 import { importIntoAboutMe, MAX_IMPORT_CHARS } from "../laterdog/profile-import.ts";
-import { memoryDate } from "../workspace.ts";
+import { memoryDate, mountedWorkspaceUnavailable } from "../workspace.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
 export interface BotMemoryRouteDeps {
@@ -34,6 +34,7 @@ export interface BotMemoryRouteDeps {
 
 export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
   function replyMemoryError(res: ServerResponse, error: unknown) {
+    if (mountedWorkspaceUnavailable(error)) return json(res, 503, { error: "The working folder is temporarily unavailable. Try again.", code: "unavailable" });
     if (!(error instanceof MemoryStoreError)) throw error;
     if (error.code === "conflict") {
       return json(res, error.status, { error: error.message, code: error.code, currentHash: error.currentHash, current: error.current });
