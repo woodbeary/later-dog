@@ -8,6 +8,11 @@ const absoluteDirectory = z.string().refine(path => path.startsWith("/") && path
 export const workFolderLayoutSchema = z.object({
   dogs: z.array(identifier),
   tasks: z.record(identifier, z.array(identifier)),
+  loose: z.object({
+    owner: identifier,
+    members: z.array(identifier),
+    names: z.array(z.string().min(1).refine(name => !name.startsWith(".") && !name.includes("/") && !name.includes("\0"))),
+  }).strict().optional(),
   projects: z.array(z.object({ path: absoluteDirectory, owner: identifier, members: z.array(identifier) }).strict()),
 }).strict();
 
