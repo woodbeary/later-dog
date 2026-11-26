@@ -1,4 +1,4 @@
-import { folderExclusions, folderMounts, startWorkFolderMounts } from "./work-folder-mounts.mjs";
+import { folderExclusions, folderMounts, legacyWorkFolderScope, startWorkFolderMounts } from "./work-folder-mounts.mjs";
 import { randomBytes } from "node:crypto";
 import { createArchiver, serveArchive } from "./archive.mjs";
 import { launcherOwnsNoFile } from "./archive-launcher.mjs";
@@ -45,11 +45,11 @@ function dogOwner() {
   throw new Error("the dog user is missing from this image");
 }
 
-async function restoreWithRetries(store, owner, exclude) {
+async function restoreWithRetries(store, owner, exclude, exactScope) {
   const finished = new Set();
   for (let attempt = 1; ; attempt += 1) {
     try {
-      return await restore(DATA, store, owner, { finished, exclude });
+      return await restore(DATA, store, owner, { finished, exclude, exactScope });
     } catch (error) {
       if (attempt >= RESTORE_ATTEMPTS) throw error;
       log(`restore attempt ${attempt} failed: ${error.message}${error.cause?.message ? ` (${error.cause.message})` : ""}; ${finished.size} file(s) already back, trying again`);
@@ -66,10 +66,11 @@ async function main() {
   const mounts = folderMounts(DATA, placement);
   const capabilities = { workFolders: mounts.length > 0 };
   const exclude = mounts.length ? folderExclusions(mounts) : undefined;
+  const exactScope = legacyWorkFolderScope(DATA, placement);
   let manifest = null;
   let upgraded = null;
   if (store) {
-    const restored = await restoreWithRetries(store, dogOwner(), exclude);
+    const restored = await restoreWithRetries(store, dogOwner(), exclude, exactScope);
     manifest = restored.manifest;
     upgraded = upgradeFrom(manifest, APP);
     log(restored.manifest ? `restored ${restored.files} files` : "a new home: nothing to restore");
@@ -108,7 +109,10 @@ async function main() {
   const folderMount = await startWorkFolderMounts({ home: DATA, placement, mounts, owner: dogOwner(), server: SERVER_DIR,
     onLost: () => { log("Work folder transport stopped; restarting the coordinator."); if (child) child.kill("SIGTERM"); else process.exit(1); },
   });
-  if (folderMount) environment.LATERDOG_WORK_FOLDER_LAYOUT = folderMount.file;
+  if (folderMount) {
+    environment.LATERDOG_WORK_FOLDER_LAYOUT = folderMount.file;
+    environment.LATERDOG_WORK_FOLDER_CHECKPOINT_SOCKET = folderMount.checkpoint;
+  }
   let reloading = false;
   let running = null;
   let saves = 0;
@@ -122,7 +126,7 @@ async function main() {
     running = restorePoints.keep()
       .then(() => {
         void saveStatus.started({ final });
-        return snapshot(DATA, store, manifest, { scratch: SCRATCH, memoryScratch: MEMORY_SCRATCH, onCopy: (copy) => void saveStatus.copying(copy), exclude, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter });
+        return snapshot(DATA, store, manifest, { scratch: SCRATCH, memoryScratch: MEMORY_SCRATCH, onCopy: (copy) => void saveStatus.copying(copy), exclude, exactScope, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter });
       })
       .then(async (result) => {
         void saveStatus.finished(result);

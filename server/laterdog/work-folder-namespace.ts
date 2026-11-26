@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeFileAtomic } from "../atomic.ts";
-import type { WorkFolderLayout } from "../../shared/work-folder-layout.ts";
+import { workFolderLayoutSchema, type WorkFolderLayout } from "../../shared/work-folder-layout.ts";
 import { safeWorkFolderPath, validWorkFolderScope } from "../../shared/work-folder-store.ts";
 import { projectFolderId, type FolderScope } from "./work-folder-locations.ts";
 
@@ -26,18 +26,38 @@ export class WorkFolderNamespace {
   readonly projects: Map<string, FolderScope>;
   readonly stateFile: string;
   readonly loose?: FolderScope;
-  constructor(readonly layout: WorkFolderLayout, readonly dataDir: string, looseDirectory: string) {
+  readonly dataDir: string;
+  private readonly initial: WorkFolderLayout;
+  constructor(layout: WorkFolderLayout, dataDir: string, looseDirectory: string) {
+    this.dataDir = dataDir;
     this.stateFile = join(dataDir, "work-folder-names.json");
-    const saved: {dogs: string[]; tasks: Record<string, string[]>} = existsSync(this.stateFile)
-      ? JSON.parse(readFileSync(this.stateFile, "utf8")) : layout;
-    if (!Array.isArray(saved.dogs) || !saved.tasks || typeof saved.tasks !== "object") throw new Error("Invalid working folder names");
-    this.dogs = new Set(saved.dogs);
-    this.tasks = new Map(Object.entries(saved.tasks).map(([dog, threads]) => [dog, new Set(threads)]));
+    this.initial = layout;
+    this.dogs = new Set();
+    this.tasks = new Map();
+    this.reload();
     this.projects = new Map(layout.projects.map(project => {
       const id = projectFolderId(project.path);
       return [id, { id, owner: project.owner, path: project.path }];
     }));
     if (layout.loose) this.loose = { owner: layout.loose.owner, id: "loose", path: looseDirectory };
+  }
+  reload(): void {
+    let fd: number | undefined;
+    let saved: Pick<WorkFolderLayout, "dogs" | "tasks"> = this.initial;
+    try {
+      fd = openSync(this.stateFile, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const info = fstatSync(fd);
+      if (!info.isFile() || info.size > 16 * 1024 * 1024) throw folderError("EINVAL");
+      saved = workFolderLayoutSchema.pick({ dogs: true, tasks: true }).parse(JSON.parse(readFileSync(fd, "utf8")));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+    this.dogs.clear();
+    this.tasks.clear();
+    for (const dog of saved.dogs) this.dogs.add(dog);
+    for (const [owner, threads] of Object.entries(saved.tasks)) this.tasks.set(owner, new Set(threads));
   }
   list(path: string): string[] | null {
     if (!path) return ["dogs", "tasks", ...this.projects.keys(), ...(this.loose ? ["loose"] : [])];
@@ -99,6 +119,6 @@ export class WorkFolderNamespace {
     }
   }
   private persist(): void {
-    writeFileAtomic(this.stateFile, JSON.stringify({ dogs: [...this.dogs], tasks: Object.fromEntries([...this.tasks].map(([dog, threads]) => [dog, [...threads]])) }), { mode: 0o600 });
+    writeFileAtomic(this.stateFile, JSON.stringify({ dogs: [...this.dogs], tasks: Object.fromEntries([...this.tasks].map(([dog, threads]) => [dog, [...threads]])) }), { mode: 0o644 });
   }
 }

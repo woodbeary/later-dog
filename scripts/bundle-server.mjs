@@ -54,7 +54,7 @@ const ENTRY_POINTS = [
   "mcp-remote-proxy.ts",
   "harness-mcp-proxy.ts",
   "drivers/agents-proxy.ts",
-  "laterdog/work-folder-mount-service.ts",
+  "work-folder-mount-service.ts",
   "laterdog/engine-folder-cli.ts",
   "laterdog/engine-relay.ts",
   "laterdog/engine-proxy.ts",

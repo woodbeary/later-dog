@@ -7,24 +7,45 @@ import type { FsReply, FsRequest, GuestFolderAccess } from "./work-folder-guest-
 import type { FolderScope } from "./work-folder-locations.ts";
 import { directoryAttr, folderError, WorkFolderNamespace } from "./work-folder-namespace.ts";
 
-type Channel = { scope: FolderScope; access: Promise<GuestFolderAccess>; handles: number; active: number; timer?: NodeJS.Timeout; dirty: number; saved: number; saving?: Promise<void> };
+type Channel = { scope: FolderScope; access: Promise<GuestFolderAccess>; handles: number; writers: number; active: number; timer?: NodeJS.Timeout; dirty: number; saved: number; saving?: Promise<void> };
 type ColdCursor = { view: DurableFolderRead; leaf: Awaited<ReturnType<DurableFolderRead["lookup"]>> };
-type Cursor = ColdCursor | { names: string[]; path: string } | { remote: string; channel: Channel; path: string };
+type Cursor = ColdCursor | { names: string[]; path: string } | { remote: string; channel: Channel; path: string; writable: boolean };
 const changed = new Set(["write", "mkdir", "create", "unlink", "rmdir", "rename", "link", "symlink", "setattr"]);
 
 export class WorkFolderMountRouter {
   private channels = new Map<string, Channel>();
   private handles = new Map<string, Cursor>();
+  private mutations = 0;
+  private checkpointing = false;
+  private reloading = false;
+  private operations = 0;
+  private readonly names: WorkFolderNamespace;
+  private readonly open: (scope: FolderScope) => Promise<GuestFolderAccess>;
+  private readonly remove: (scope: FolderScope) => Promise<void>;
+  private readonly uid: number;
+  private readonly gid: number;
+  private readonly report: (message: string) => void;
+  private readonly coldView?: (scope: FolderScope) => Promise<DurableFolderRead | null>;
+  private readonly projectedLink?: (scope: FolderScope, inside: string, target: string) => string | null;
   constructor(
-    private names: WorkFolderNamespace,
-    private open: (scope: FolderScope) => Promise<GuestFolderAccess>,
-    private remove: (scope: FolderScope) => Promise<void>,
-    private uid: number,
-    private gid: number,
-    private report: (message: string) => void,
-    private coldView?: (scope: FolderScope) => Promise<DurableFolderRead | null>,
-    private projectedLink?: (scope: FolderScope, inside: string, target: string) => string | null,
-  ) {}
+    names: WorkFolderMountRouter["names"],
+    open: WorkFolderMountRouter["open"],
+    remove: WorkFolderMountRouter["remove"],
+    uid: WorkFolderMountRouter["uid"],
+    gid: WorkFolderMountRouter["gid"],
+    report: WorkFolderMountRouter["report"],
+    coldView?: WorkFolderMountRouter["coldView"],
+    projectedLink?: WorkFolderMountRouter["projectedLink"],
+  ) {
+    this.names = names;
+    this.open = open;
+    this.remove = remove;
+    this.uid = uid;
+    this.gid = gid;
+    this.report = report;
+    this.coldView = coldView;
+    this.projectedLink = projectedLink;
+  }
   private attr(path: string) { return directoryAttr(this.names.resolve(path)?.scope.path ?? path, this.uid, this.gid); }
   private readlink(scope: FolderScope, path: string, target: string, local?: string | null): FsReply {
     const projected = this.projectedLink?.(scope, path, target);
@@ -48,7 +69,7 @@ export class WorkFolderMountRouter {
   private getChannel(scope: FolderScope): Channel {
     let channel = this.channels.get(scope.path);
     if (!channel) {
-      const next: Channel = { scope, handles: 0, active: 0, dirty: 0, saved: 0, access: this.open(scope) };
+      const next: Channel = { scope, handles: 0, writers: 0, active: 0, dirty: 0, saved: 0, access: this.open(scope) };
       this.channels.set(scope.path, next);
       void next.access.catch(() => { if (this.channels.get(scope.path) === next) this.channels.delete(scope.path); });
       channel = next;
@@ -58,11 +79,16 @@ export class WorkFolderMountRouter {
     return channel;
   }
   private async save(channel: Channel): Promise<void> {
-    if (channel.saving) return channel.saving;
-    if (channel.saved === channel.dirty) return;
-    const generation = channel.dirty;
-    channel.saving = channel.access.then(access => access.checkpoint()).then(() => { channel.saved = generation; }).finally(() => { delete channel.saving; });
-    return channel.saving;
+    const target = channel.dirty;
+    while (channel.saved < target) {
+      if (!channel.saving) {
+        const generation = channel.dirty;
+        channel.saving = channel.access.then(access => access.checkpoint())
+          .then(() => { channel.saved = generation; })
+          .finally(() => { delete channel.saving; });
+      }
+      await channel.saving;
+    }
   }
   private idle(channel: Channel): void {
     if (channel.active || channel.timer) return;
@@ -90,7 +116,33 @@ export class WorkFolderMountRouter {
     if (Array.isArray(reply.entries)) reply.entries = reply.entries.map(e => ({ ...e, ino: remap(String(e.ino)) }));
     return reply;
   }
+  async checkpoint(): Promise<void> {
+    if (this.reloading || this.checkpointing || this.mutations || [...this.channels.values()].some(channel => channel.writers)) throw folderError("EBUSY");
+    this.checkpointing = true;
+    try {
+      await Promise.all([...this.channels.values()].map(channel => this.save(channel)));
+    } finally { this.checkpointing = false; }
+  }
+  async reload(): Promise<void> {
+    if (this.checkpointing || this.reloading || this.operations || this.handles.size) throw folderError("EBUSY");
+    this.reloading = true;
+    try {
+      await this.close();
+      this.names.reload();
+    } finally { this.reloading = false; }
+  }
   async dispatch(request: FsRequest): Promise<FsReply> {
+    const writing = changed.has(request.op) || request.op === "open" && Boolean(Number(request.flags) & (3 | 512));
+    if (this.reloading || writing && this.checkpointing) throw folderError("EBUSY");
+    if (writing) this.mutations++;
+    this.operations++;
+    try { return await this.operate(request); }
+    finally {
+      this.operations--;
+      if (writing) this.mutations--;
+    }
+  }
+  private async operate(request: FsRequest): Promise<FsReply> {
     if (request.root !== "work-folders" || typeof request.path !== "string" || (request.path && !safeWorkFolderPath(request.path))) throw folderError("EINVAL");
     const cursor = request.handle ? this.handles.get(request.handle) : undefined;
     if (request.handle && !cursor) throw folderError("EBADF");
@@ -175,14 +227,19 @@ export class WorkFolderMountRouter {
       if (changed.has(request.op) || (request.op === "open" && (Number(request.flags) & 512))) channel.dirty++;
       if (reply.handle) {
         const id = randomUUID();
-        this.handles.set(id, { remote: reply.handle, channel, path: inside });
+        const writable = request.op === "create" || request.op === "open" && Boolean(Number(request.flags) & 3);
+        this.handles.set(id, { remote: reply.handle, channel, path: inside, writable });
+        if (writable) channel.writers++;
         channel.handles++;
         reply.handle = id;
       }
       if (request.op === "fsync") await this.save(channel);
       return this.guestAttrs(reply, scope, inside);
     } finally {
-      if (handle && (request.op === "release" || request.op === "releasedir") && this.handles.delete(request.handle!)) channel.handles--;
+      if (handle && (request.op === "release" || request.op === "releasedir") && this.handles.delete(request.handle!)) {
+        channel.handles--;
+        if (handle.writable) channel.writers--;
+      }
       channel.active--;
       this.idle(channel);
     }

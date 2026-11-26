@@ -9,6 +9,7 @@ const exec = promisify(execFile);
 const runtime = "/run/laterdog-work-folders";
 const tree = join(runtime, "tree");
 const socket = join(runtime, "mount.sock");
+const checkpoint = join(runtime, "checkpoint.sock");
 const binary = "/app/cloud/bin/laterdog-work-folder-mount";
 
 export function folderMounts(home, placement) {
@@ -34,6 +35,21 @@ export function folderMounts(home, placement) {
   }
   if (new Set(mounts.map(mount => mount.path)).size !== mounts.length) throw new Error("Overlapping work folder mounts");
   return mounts;
+}
+
+export function legacyWorkFolderScope(home, placement) {
+  if (!placement || placement.mode !== "legacy") return undefined;
+  const mounts = folderMounts(home, { ...placement, mode: "folders" });
+  const visible = new Map(mounts.filter(mount => !mount.path.startsWith(".")).map(mount => [mount.path, mount.directory ? mount.source : "loose"]));
+  return path => {
+    const [top, kind, dog, thread] = path.split("/");
+    if (top === ".laterdog") {
+      if (kind === "workspaces" && dog) return top + "/" + kind + "/" + dog;
+      if (kind === "task-workspaces" && dog && thread) return [top, kind, dog, thread].join("/");
+      return null;
+    }
+    return visible.get(top) ?? null;
+  };
 }
 
 export function folderExclusions(mounts) {
@@ -82,8 +98,8 @@ export async function startWorkFolderMounts({ home, placement, mounts, owner, se
   const file = join(runtime, "placement.json");
   await writeFile(file, JSON.stringify(placement), { mode: 0o644 });
   await chmod(file, 0o644);
-  const env = { ...process.env, LATERDOG_HOME: join(home, ".laterdog"), LATERDOG_WORK_FOLDER_LAYOUT: file, LATERDOG_WORK_FOLDER_SOCKET: socket, LATERDOG_WORK_FOLDER_UID: String(owner.uid), LATERDOG_WORK_FOLDER_GID: String(owner.gid) };
-  const service = await ready(process.execPath, [join(server, "laterdog", "work-folder-mount-service.js")], { env });
+  const env = { ...process.env, LATERDOG_HOME: join(home, ".laterdog"), LATERDOG_WORK_FOLDER_LAYOUT: file, LATERDOG_WORK_FOLDER_SOCKET: socket, LATERDOG_WORK_FOLDER_CHECKPOINT_SOCKET: checkpoint, LATERDOG_WORK_FOLDER_UID: String(owner.uid), LATERDOG_WORK_FOLDER_GID: String(owner.gid) };
+  const service = await ready(process.execPath, [join(server, "work-folder-mount-service.js")], { env });
   const children = [service];
   const mounted = [];
   let stopping = false;
@@ -126,7 +142,7 @@ export async function startWorkFolderMounts({ home, placement, mounts, owner, se
       await exec("mount", ["--bind", join(tree, mount.source), path]);
       mounted.push(path);
     }
-    return { file, stop };
+    return { file, checkpoint, stop };
   } catch (error) {
     await stop().catch(() => {});
     throw error;

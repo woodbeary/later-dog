@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, chmod, lchown, lstat, mkdir, open, readdir, readFile, readlink, rename, rm, stat, statfs, symlink, utimes } from "node:fs/promises";
+import { access, chmod, lchown, link, lstat, mkdir, open, readdir, readFile, readlink, rename, rm, stat, statfs, symlink, utimes } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 
@@ -211,36 +211,50 @@ async function inspectedTogether(paths, inspect) {
   return all;
 }
 
-async function walk(root, directory, found, inspect, exclude) {
+async function walk(root, directory, found, inspect, { exclude, exactScope, links }) {
   let names;
   try {
     names = await readdir(directory);
-  } catch {
+  } catch (error) {
+    if (exactScope?.(relative(root, directory))) throw error;
     return;
   }
-  const kept = names.sort().filter((name) => !skipped(name, "dir") && !skippedPath(relative(root, join(directory, name))) && !exclude?.(relative(root, join(directory, name))));
+  const kept = names.sort().filter(name => {
+    const path = relative(root, join(directory, name));
+    return !exclude?.(path) && (exactScope?.(path) || !skipped(name, "dir") && !skippedPath(path));
+  });
   const listed = await inspectedTogether(kept.map((name) => join(directory, name)), inspect);
   for (const [index, name] of kept.entries()) {
-    if (!listed[index]) continue;
-    const { info, target } = listed[index];
-    if (!info.isDirectory() && skipped(name)) continue;
     const path = join(directory, name);
+    const scope = exactScope?.(relative(root, path));
+    if (!listed[index]) {
+      if (scope) throw new Error("Unable to verify a rolled back working folder entry");
+      continue;
+    }
+    const { info, target } = listed[index];
+    if (!scope && !info.isDirectory() && skipped(name)) continue;
     const entry = { path: relative(root, path), mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
     if (info.isDirectory()) {
-      if (heldLock(name, "dir")) continue;
+      if (!scope && heldLock(name, "dir")) continue;
       found.push({ ...entry, type: "dir" });
-      await walk(root, path, found, inspect, exclude);
+      await walk(root, path, found, inspect, { exclude, exactScope, links });
     } else if (info.isSymbolicLink()) {
       found.push({ ...entry, type: "link", target });
     } else if (info.isFile()) {
+      if (scope && info.nlink > 1) {
+        const key = JSON.stringify([scope, info.dev, info.ino]);
+        const other = links.get(key);
+        if (other) entry.hardlink = other;
+        else links.set(key, entry.path);
+      }
       found.push({ ...entry, type: "file", size: info.size });
     }
   }
 }
 
-export async function scan(root, { inspect = lstat, exclude } = {}) {
+export async function scan(root, { inspect = lstat, exclude, exactScope } = {}) {
   const found = [];
-  await walk(root, root, found, inspect, exclude);
+  await walk(root, root, found, inspect, { exclude, exactScope, links: new Map() });
   return found;
 }
 
@@ -408,7 +422,7 @@ export function resumeOrder(waiting, resumeAfter) {
   return start <= 0 ? waiting : [...waiting.slice(start), ...waiting.slice(0, start)];
 }
 
-export async function snapshot(root, store, previous, { scratch, memoryScratch, now = Date.now, clock = () => performance.now(), app, budgetMs = Infinity, freeBytes = diskFree, availableMemory = memoryAvailable, memoryMarginBytes = MEMORY_MARGIN_BYTES, onCopy, resumeAfter, parallel = SAVE_PARALLEL, exclude } = {}) {
+export async function snapshot(root, store, previous, { scratch, memoryScratch, now = Date.now, clock = () => performance.now(), app, budgetMs = Infinity, freeBytes = diskFree, availableMemory = memoryAvailable, memoryMarginBytes = MEMORY_MARGIN_BYTES, onCopy, resumeAfter, parallel = SAVE_PARALLEL, exclude, exactScope } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
   const unsaved = [];
   let unsavedReason;
@@ -426,7 +440,7 @@ export async function snapshot(root, store, previous, { scratch, memoryScratch, 
   const copies = [];
   let heldOnDiskBytes = 0;
   let heldInMemoryBytes = 0;
-  const scanned = await scan(root, { exclude });
+  const scanned = await scan(root, { exclude, exactScope });
   const slots = Array.from({ length: scanned.length }, () => null);
   const waiting = [];
   for (const [index, entry] of scanned.entries()) {
@@ -435,7 +449,7 @@ export async function snapshot(root, store, previous, { scratch, memoryScratch, 
       continue;
     }
     const before = known.get(entry.path);
-    const database = SQLITE.test(entry.path);
+    const database = !exactScope?.(entry.path) && SQLITE.test(entry.path);
     const stamp = database ? await databaseStamp(join(root, entry.path), entry) : undefined;
     if (before && before.size === entry.size && before.mtimeMs === entry.mtimeMs && before.stamp === stamp) {
       slots[index] = { ...entry, ...(stamp ? { stamp } : {}), chunks: before.chunks };
@@ -526,7 +540,7 @@ function changedShape(before, after) {
   for (let index = 0; index < after.length; index += 1) {
     const left = before[index];
     const right = after[index];
-    if (left.path !== right.path || left.type !== right.type || left.mode !== right.mode || left.target !== right.target) return true;
+    if (left.path !== right.path || left.type !== right.type || left.mode !== right.mode || left.target !== right.target || left.hardlink !== right.hardlink) return true;
   }
   return false;
 }
@@ -598,11 +612,27 @@ async function clearForFile(path) {
   if (existing?.isDirectory()) await rm(path, { recursive: true, force: true });
 }
 
-export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMPTS, chunkRetryMs = CHUNK_RETRY_MS, finished = new Set(), exclude } = {}) {
+export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMPTS, chunkRetryMs = CHUNK_RETRY_MS, finished = new Set(), exclude, exactScope } = {}) {
   const retries = { attempts: chunkAttempts, retryMs: chunkRetryMs };
   const manifest = await store.manifest();
   if (!manifest) return { manifest: null, files: 0 };
-  const kept = manifest.entries.filter((entry) => !transient(entry) && !exclude?.(entry.path));
+  const kept = manifest.entries.filter(entry => !exclude?.(entry.path) && (exactScope?.(entry.path) || !transient(entry)));
+  const hardLinks = kept.filter(entry => entry.hardlink !== undefined);
+  const byPath = new Map(kept.map(entry => [entry.path, entry]));
+  for (const entry of hardLinks) {
+    const original = byPath.get(entry.hardlink);
+    if (!exactScope?.(entry.path) || exactScope(entry.path) !== exactScope(entry.hardlink) ||
+        !original || original.type !== "file" || entry.type !== "file" || original.hardlink !== undefined ||
+        original.mode !== entry.mode || original.mtimeMs !== entry.mtimeMs || original.size !== entry.size ||
+        JSON.stringify(original.chunks) !== JSON.stringify(entry.chunks)) throw new Error("Invalid working folder hard link");
+    for (const name of [entry.path, original.path]) {
+      const fields = name.split("/");
+      if (fields.some(part => !part || part === "." || part === "..")) throw new Error("Invalid working folder hard link path");
+      for (let i = 1; i < fields.length; i++) {
+        if (byPath.get(fields.slice(0, i).join("/"))?.type !== "dir") throw new Error("Invalid hard link parent");
+      }
+    }
+  }
   let files = 0;
   const own = async (path) => {
     if (owner) await lchown(path, owner.uid, owner.gid);
@@ -620,7 +650,7 @@ export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMP
     await symlink(entry.target, path);
     await own(path);
   }
-  const pending = kept.filter((entry) => entry.type !== "dir" && entry.type !== "link");
+  const pending = kept.filter(entry => entry.type === "file" && entry.hardlink === undefined);
   const stopping = new AbortController();
   const failures = [];
   const writeOne = async (entry) => {
@@ -659,6 +689,19 @@ export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMP
   };
   await Promise.allSettled(Array.from({ length: Math.min(RESTORE_PARALLEL, pending.length) }, worker));
   if (failures.length > 0) throw failures[0];
+  for (const entry of hardLinks) {
+    const path = join(root, entry.path), original = join(root, entry.hardlink);
+    const info = await lstat(original);
+    if (!info.isFile() || info.size !== entry.size) throw new Error("Working folder hard link target changed");
+    const temporary = join(dirname(path), RESTORING_PREFIX + sha256(entry.path).slice(0, 24));
+    await rm(temporary, { force: true });
+    try {
+      await link(original, temporary);
+      await clearForFile(path);
+      await rename(temporary, path);
+    } finally { await rm(temporary, { force: true }); }
+    files++;
+  }
   for (const entry of [...kept].reverse()) {
     if (entry.type !== "dir") continue;
     const moment = new Date(entry.mtimeMs);

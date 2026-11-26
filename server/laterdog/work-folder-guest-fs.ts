@@ -45,7 +45,9 @@ export class GuestFsChannel {
   private sequence = 0;
   readonly ready: Promise<void>;
   private fail = () => {};
-  constructor(private readonly link: EngineLink) {
+  private readonly link: EngineLink;
+  constructor(link: EngineLink) {
+    this.link = link;
     let started = () => {};
     this.ready = new Promise<void>((resolve, reject) => {
       started = resolve;

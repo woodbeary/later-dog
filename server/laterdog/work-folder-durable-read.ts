@@ -9,7 +9,16 @@ type Leaf = { item: WorkFolderEntry; revision: string };
 
 export class DurableFolderRead {
   private metadata = new Map<string, Promise<WorkFolderNode>>();
-  constructor(private base: string, private token: string, private uid: number, private gid: number) {}
+  private readonly base: string;
+  private readonly token: string;
+  private readonly uid: number;
+  private readonly gid: number;
+  constructor(base: string, token: string, uid: number, gid: number) {
+    this.base = base;
+    this.token = token;
+    this.uid = uid;
+    this.gid = gid;
+  }
   private async get(path: string) {
     return fetch(this.base + path, { headers: { authorization: "Bearer " + this.token }, redirect: "error", signal: AbortSignal.timeout(30_000) });
   }
@@ -83,7 +92,7 @@ export class DurableFolderRead {
     const ts = String(BigInt(Math.floor(entry.mtimeMs ?? 0)) * 1_000_000n);
     const type = entry.kind === "dir" ? 0o40000 : entry.kind === "link" ? 0o120000 : 0o100000;
     const size = entry.kind === "file" ? entry.size : entry.kind === "link" ? Buffer.byteLength(entry.target) : 4096;
-    const ino = BigInt("0x" + createHash("sha256").update(this.base + "\0" + entry.path).digest("hex").slice(0,15)) + 2n;
+    const ino = BigInt("0x" + createHash("sha256").update(this.base + "\0" + (entry.kind === "file" && entry.hardlink || entry.path)).digest("hex").slice(0,15)) + 2n;
     return { ino: String(ino), mode: type | (entry.kind === "link" ? 0o777 : entry.mode & 0o777), nlink: 1, size: String(size), blocks: String(Math.ceil(size / 512)), uid:this.uid, gid:this.gid, atimeNs:ts, mtimeNs:ts, ctimeNs:ts };
   }
   async directory(leaf: Leaf, cursor: unknown): Promise<FsReply> {

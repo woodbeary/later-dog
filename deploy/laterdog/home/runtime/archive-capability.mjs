@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 export const ARCHIVE_CAPABILITY = 4;
 
-export const WORK_FOLDER_PROGRAMS = ["laterdog/engine-folder-cli.js", "laterdog/work-folder-mount-service.js", "laterdog/engine-relay.js"];
+export const WORK_FOLDER_PROGRAMS = ["laterdog/engine-folder-cli.js", "work-folder-mount-service.js", "laterdog/engine-relay.js"];
 
 export async function archiveCompatible(launcher, { workFolders = false } = {}) {
   try {

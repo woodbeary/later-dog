@@ -1,11 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
-import { appendFileSync, chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, linkSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { folderExclusions, folderMounts } from "../runtime/work-folder-mounts.mjs";
+import { folderExclusions, folderMounts, legacyWorkFolderScope } from "../runtime/work-folder-mounts.mjs";
 import { CHUNK_BYTES, chunksOf, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient, MEMORY_MARGIN_BYTES } from "../runtime/sync.mjs";
 
 function memoryStore() {
@@ -1495,4 +1495,27 @@ it("keeps mounted folders out of home restoration and save traversal", async () 
   expect(readFileSync(join(fresh, "keep"), "utf8")).toBe("coordinator contents");
   const next = await snapshot(home, store, original.manifest, { exclude });
   expect(next.manifest.entries.map((entry: {path:string}) => entry.path)).toEqual([".laterdog","keep"]);
+});
+
+it("keeps rollback files from generated directories and restores regular hard links only inside their working folder", async () => {
+  const home = folder(), fresh = folder();
+  const placement = { v: 1, mode: "legacy", layout: { dogs: ["dog"], tasks: {}, projects: [{ path: join(home, "code"), owner: "dog", members: [] }] },
+    baselineManifest: "a".repeat(64), verification: "b".repeat(64) };
+  const exactScope = legacyWorkFolderScope(home, placement);
+  const store = memoryStore();
+  mkdirSync(join(home, "code", ".cache"), { recursive: true });
+  mkdirSync(join(home, ".cache"));
+  writeFileSync(join(home, ".cache", "local"), "hidden");
+  writeFileSync(join(home, "code", ".cache", "a"), "durable bytes");
+  linkSync(join(home, "code", ".cache", "a"), join(home, "code", "b"));
+  const first = await snapshot(home, store, null, { exactScope });
+  const b = first.manifest.entries.find((e: {path:string}) => e.path === "code/b");
+  expect(b.hardlink).toBe("code/.cache/a");
+  expect(first.manifest.entries.some((e: {path:string}) => e.path === ".cache")).toBe(false);
+  await restore(fresh, store, undefined, { exactScope });
+  expect(statSync(join(fresh, "code", "b")).ino).toBe(statSync(join(fresh, "code", ".cache", "a")).ino);
+  writeFileSync(join(fresh, "code", "b"), "new bytes");
+  expect(readFileSync(join(fresh, "code", ".cache", "a"), "utf8")).toBe("new bytes");
+  await store.putManifest({ ...first.manifest, entries: first.manifest.entries.map((e: {path:string}) => e.path === "code/b" ? { ...e, hardlink: ".cache/local" } : e) });
+  await expect(restore(folder(), store, undefined, { exactScope })).rejects.toThrow("Invalid working folder hard link");
 });

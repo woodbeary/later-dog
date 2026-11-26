@@ -1,24 +1,25 @@
-import { chmod, rm } from "node:fs/promises";
+import { chmod, chown, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { basename } from "node:path";
-import { workFolderAuthority, workFolderBaseUrl, type WorkFolderHead } from "../../shared/work-folder-store.ts";
-import { mountedWorkFolders, folderGrant, linkedProjects, projectLink, visibleAliases, visibleWorkspace, type FolderScope } from "./work-folder-locations.ts";
-import { WorkFolderNamespace, folderError } from "./work-folder-namespace.ts";
-import { openGuestFolder, type FsRequest } from "./work-folder-guest-fs.ts";
-import { WorkFolderMountRouter } from "./work-folder-mount-router.ts";
-import { jobComputer } from "../computers.ts";
-import { DurableFolderRead } from "./work-folder-durable-read.ts";
-import { syncComputerWorkFolder } from "./engine-opener.ts";
+import { workFolderAuthority, workFolderBaseUrl, type WorkFolderHead } from "../shared/work-folder-store.ts";
+import { mountedWorkFolders, folderGrant, linkedProjects, projectLink, visibleAliases, visibleWorkspace, type FolderScope } from "./laterdog/work-folder-locations.ts";
+import { WorkFolderNamespace, folderError } from "./laterdog/work-folder-namespace.ts";
+import { openGuestFolder, type FsRequest } from "./laterdog/work-folder-guest-fs.ts";
+import { WorkFolderMountRouter } from "./laterdog/work-folder-mount-router.ts";
+import { jobComputer } from "./computers.ts";
+import { DurableFolderRead } from "./laterdog/work-folder-durable-read.ts";
+import { syncComputerWorkFolder } from "./laterdog/engine-opener.ts";
 
 async function main() {
   const env = process.env;
   const socket = env.LATERDOG_WORK_FOLDER_SOCKET;
+  const checkpoint = env.LATERDOG_WORK_FOLDER_CHECKPOINT_SOCKET;
   const layout = mountedWorkFolders();
   const dataDir = env.LATERDOG_HOME;
   const origin = env.LATERDOG_PUBLIC_URL;
   const secret = env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
   const uid = Number(env.LATERDOG_WORK_FOLDER_UID), gid = Number(env.LATERDOG_WORK_FOLDER_GID);
-  if (!layout || !dataDir || !origin || !secret || !socket || basename(socket) !== "mount.sock" || !Number.isSafeInteger(uid) || !Number.isSafeInteger(gid)) throw new Error("Incomplete work folder mount environment");
+  if (!layout || !dataDir || !origin || !secret || !checkpoint || basename(checkpoint) !== "checkpoint.sock" || !socket || basename(socket) !== "mount.sock" || !Number.isSafeInteger(uid) || !Number.isSafeInteger(gid)) throw new Error("Incomplete work folder mount environment");
   delete env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
   const names = new WorkFolderNamespace(layout, dataDir, visibleWorkspace(dataDir));
   const open = (scope: FolderScope) => openGuestFolder(scope, async id => {
@@ -68,17 +69,35 @@ async function main() {
       response.end(JSON.stringify(await router.dispatch(operation)));
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
+      if (!code || code === "EIO" || code === "MODULE_NOT_FOUND") {
+        const detail = error instanceof Error ? error.message : "unknown";
+        console.error("Working folder I/O failed", String(code ?? "unknown"), detail.replace(/Bearer [^ ]+|https?:\/\/[^ ]+/gi, "[remote]").slice(0, 240));
+      }
       response.end(JSON.stringify({ ok: false, errno: code && /^E[A-Z0-9]+$/.test(code) ? code : "EIO" }));
     }
   });
+  const checkpoints = createServer(async (request, response) => {
+    if (request.method !== "POST" || (request.url !== "/v1/checkpoint" && request.url !== "/v1/reload")) { response.writeHead(404).end(); return; }
+    try {
+      if (request.url === "/v1/reload") await router.reload();
+      else await router.checkpoint();
+      response.writeHead(204).end();
+    } catch (error) {
+      response.writeHead((error as NodeJS.ErrnoException).code === "EBUSY" ? 409 : 503).end();
+    }
+  });
+  await rm(checkpoint, { force: true });
+  await new Promise<void>((resolve, reject) => { checkpoints.once("error", reject); checkpoints.listen(checkpoint, resolve); });
+  await chown(checkpoint, 0, gid);
+  await chmod(checkpoint, 0o660);
   await rm(socket, { force: true });
   await new Promise<void>((resolve, reject) => { http.once("error", reject); http.listen(socket, resolve); });
   await chmod(socket, 0o600);
   process.stdout.write(JSON.stringify({ ready: true, version: 1 }) + "\n");
   const stop = async () => {
-    await new Promise<void>(resolve => http.close(() => resolve()));
+    await Promise.all([http, checkpoints].map(server => new Promise<void>(resolve => server.close(() => resolve()))));
     await router.close();
-    await rm(socket, { force: true });
+    await Promise.all([socket, checkpoint].map(path => rm(path, { force: true })));
   };
   process.once("SIGTERM", () => { void stop().catch(error => { console.error("Work folder shutdown failed", error.message); process.exitCode = 1; }); });
 }
