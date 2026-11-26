@@ -25,9 +25,10 @@ async function helpers(test: (engine: RoomHandoffs, hooks: RoomHandoffHooks, sen
 
 it("lets a helper tell the dog above it a fact without being refused", () => helpers(async (engine, hooks, { limit }) => {
   const fact = tell(engine, limit, lead, "FYI: the two field names are settled");
-  expect(fact).toMatchObject({ botId: "lead", threadId: "lead-chat", reply: "none", status: "queued" });
+  expect(fact).toMatchObject({ botId: "lead", threadId: "lead-chat", reply: "none", status: "completed", contextOnly: true, executions: 0 });
   engine.tick(); await flush();
-  expect(hooks.run).toHaveBeenCalledWith(fact, false, expect.anything());
+  expect(hooks.run).not.toHaveBeenCalled();
+  expect(engine.pendingContext(lead.botId, lead.threadId)).toEqual([fact]);
 }));
 
 it("still refuses a helper that hands work back up and waits for it to return", () => helpers((engine, _hooks, { limit }) => {
@@ -35,7 +36,7 @@ it("still refuses a helper that hands work back up and waits for it to return", 
 }));
 
 it("lets a helper tell a sibling something either way", () => helpers((engine, _hooks, { limit }) => {
-  expect(tell(engine, limit, dog("tally"), "FYI: use limitsHit").status).toBe("queued");
+  expect(tell(engine, limit, dog("tally"), "FYI: use limitsHit")).toMatchObject({ status: "completed", contextOnly: true, executions: 0 });
   expect(tell(engine, limit, dog("tally"), "Check the field names", "result").status).toBe("queued");
 }));
 
