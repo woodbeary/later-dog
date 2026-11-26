@@ -5878,6 +5878,7 @@ const liveContext = new LiveContext();
 const helperTurns = new HelperTurnBudget();
 const turnShape = new TurnShape();
 const DOG_SETUP_QUESTIONS_MS = 30 * 60_000;
+const DOG_DELETE_PAUSED = "Deleting dogs is being made recoverable; ask again shortly. Nothing was deleted.";
 function conversationText(threadId: string, current: string): string {
   return [...store.messagesTail(threadId, 40).messages.filter(isPersonText).slice(-12).map((message) => message.text ?? ""), current].join("\n");
 }
@@ -16039,20 +16040,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
       }
       if (method === "POST" && path === "/api/internal/delete-bot") {
-        const body = await readInternalBody();
-        const fromThreadId = internalCapability.threadId;
-        if (!connectorThread(internalSender.id, fromThreadId) || cloudGuestDriven(fromThreadId)) {
-          return json(res, 403, { error: "source conversation does not belong to sender" });
-        }
-        if (approvalModeFor(store.projectBotForTask(internalSender.id, fromThreadId) ?? internalSender) !== "full") {
-          return json(res, 403, { error: "deleting a dog needs Full access; the person can turn it on in Settings or delete the dog from the sidebar" });
-        }
-        const target = store.bot(String(body.botId ?? ""));
-        if (!target) return json(res, 404, { error: "no such dog" });
-        if (target.id === internalSender.id) return json(res, 409, { error: "a dog cannot delete itself" });
-        const result = await deleteBotWithLifecycle(target.id, true);
-        if (result.status === 200 || result.body.ok) console.log(`[dogs] ${internalSender.id.slice(0, 8)} deleted dog ${target.id.slice(0, 8)}`);
-        return json(res, result.status, result.status === 200 ? { ok: true, name: target.name } : result.body);
+        await readInternalBody();
+        return json(res, 409, { error: DOG_DELETE_PAUSED });
       }
       if (method === "POST" && path === "/api/internal/create-bot") {
         const body = await readInternalBody();
