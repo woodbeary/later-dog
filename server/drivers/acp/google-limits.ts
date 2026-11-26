@@ -52,6 +52,11 @@ function retrySeconds(text: string): number | undefined {
 const windowKind = (ms: number): string => ms <= SESSION_MAX_MS ? "session" : "weekly";
 
 export function googleUsageLimit(error: GoogleLimitError, flavor: GoogleLimitFlavor, now: number = Date.now()): UsageLimit | null {
+  const limit = classify(error, flavor, now);
+  return limit && limit.kind !== "monthly" ? { ...limit, scope: "model" } : limit;
+}
+
+function classify(error: GoogleLimitError, flavor: GoogleLimitFlavor, now: number): UsageLimit | null {
   const text = textOf(error);
   const status429 = error.code === 429 || /\b429\b/.test(text);
   if (!status429 && !EXHAUSTED.test(text)) return null;
