@@ -142,6 +142,7 @@ import { HOME_SERVER_LOG_DIR, installHomeServerLog } from "./laterdog/home-serve
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
+import { preloadHistoryActivity } from "./laterdog/history-client.ts";
 import { liveStepsFrom } from "./laterdog/live-step.ts";
 import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
@@ -16825,6 +16826,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const limit = snapshotPageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const shownBots = store.bots.filter((bot) => visible.bot(bot.id));
+      await preloadHistoryActivity([...shownBots.flatMap(bot=>[bot.threadId,...store.tasks(bot.id).map(task=>task.threadId)]),...store.groups.filter(group=>visible.group(group.id)).map(group=>group.threadId)]);
       const queued = publicBotQueuedMessages();
       const preview = pageViewOf(url.searchParams);
       return json(res, 200, {

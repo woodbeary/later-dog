@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { appendNative, type NativeEntry } from "../drivers/native.ts";
-import { createInterface } from "node:readline";
+import { consumeEngineLines } from "./engine-lines.ts";
 import { newEventId, type RuntimeEvent, type RuntimeEventListener, type SendTurnInput } from "../contracts.ts";
 import type { GuestRequest } from "./guest-provider-types.ts";
 import type { EngineProcess } from "./engine-remote.ts";
@@ -34,10 +34,9 @@ export class GuestProviderChannel {
     this.dataDir = dataDir;
     this.turn = turn;
     this.publish = publish;
-    const lines = createInterface({ input: engine.stdout });
-    lines.on("line", line => this.receive(line));
+    const afterOutput = consumeEngineLines(engine.stdout, line => this.receive(line), true);
     engine.stderr.resume();
-    this.closed = new Promise(resolve => engine.once("close", () => {
+    this.closed = new Promise(resolve => engine.once("close", () => afterOutput(() => {
       this.ended = true;
       const reason = engine.notDispatched ? "The computer could not start the engine." : "The connection to the engine on this dog's computer ended.";
       const error = new Error(reason);
@@ -50,7 +49,7 @@ export class GuestProviderChannel {
         publish({ ...base, eventId: newEventId(), type: "turn.completed", ok: false, stopReason: "disconnected" });
       }
       resolve();
-    }));
+    })));
   }
 
   private receive(line: string) {

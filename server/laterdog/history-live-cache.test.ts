@@ -31,3 +31,30 @@ it("reads once, forwards accepted live projections, and forgets ambiguous writes
   cache.execute(thread, read, load);
   expect(calls).toBe(4);
 });
+
+it("coalesces concurrent cold inventory and discards a late page when the thread changes", async () => {
+  const cache = new HistoryLiveCache();
+  let resume!: () => void,
+    calls = 0;
+  const wait = new Promise<void>((r) => {
+    resume = r;
+  });
+  const load = async (threads: string[]) => {
+    calls++;
+    await wait;
+    return threads.map((threadId) => ({ threadId, result: { runs: [] } }));
+  };
+  const one = cache.preload(["one", "two"], load),
+    two = cache.preload(["two"], load);
+  cache.execute("one", { op: "native.observe" }, () => ({ id: "new", threadId: "one", observation: "live" }));
+  resume();
+  await Promise.all([one, two]);
+  expect(calls).toBe(1);
+  expect(
+    cache.execute("two", { op: "native.livePage" }, () => {
+      throw Error("unexpected read");
+    }),
+  ).toEqual({ runs: [] });
+  const actual = { runs: [{ id: "new", threadId: "one", observation: "live" }] };
+  expect(cache.execute("one", { op: "native.livePage" }, () => actual)).toEqual(actual);
+});

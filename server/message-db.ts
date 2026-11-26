@@ -567,9 +567,13 @@ export function readThread(threadId: string, legacyFile: string): ThreadRows {
     const state = db()
       .prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?")
       .get(threadId) as { active_leaf_id: string | null } | undefined;
-    return { messages: rows.map(rowToMessage), activeLeafId: state?.active_leaf_id ?? null };
+    const result={ messages: rows.map(rowToMessage), activeLeafId: state?.active_leaf_id ?? null };
+    checkDualHistory(threadId,result,64);
+    return result;
   }
-  return importLegacy(threadId, legacyFile);
+  const result=importLegacy(threadId,legacyFile);
+  checkDualHistory(threadId,result,64);
+  return result;
 }
 
 export interface ThreadTailRows extends ThreadRows {

@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { MessageChannel, receiveMessageOnPort, Worker } from "node:worker_threads";
 import { BOOT_CLOUD_SECRETS } from "../cloud-secrets-boot.ts";
 import type { HistoryOperation } from "../../shared/history-shard-types.ts";
+import type { NativeRunList } from "../../shared/native-runs.ts";
 import { HistoryLiveCache } from "./history-live-cache.ts";
 import { historyRequest } from "./history-request.ts";
 
@@ -126,6 +127,10 @@ export async function historyManyAsync<T>(threadIds: readonly string[] | undefin
     after = page.next;
   } while (after);
   return items;
+}
+export async function preloadHistoryActivity(threads: readonly string[]): Promise<void> {
+  if (isRemoteHistory())
+    await liveCache.preload(threads, (ids) => historyManyAsync<NativeRunList>(ids, { op: "native.livePage" }));
 }
 type ComparisonPage = { messages: unknown[]; activeLeafId: string | null; hasMore: boolean; next: string | null };
 export async function compareHistoryTail(
