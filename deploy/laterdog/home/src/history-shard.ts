@@ -1,3 +1,7 @@
+import {
+  historyCommandHead,
+  historyCommandPage,
+} from "../../../../shared/history-command-journal.ts";
 import { createHash } from "node:crypto";
 import { DurableObject } from "cloudflare:workers";
 import {
@@ -362,9 +366,29 @@ export class HistoryShard extends DurableObject<unknown> {
       threadId: grant.threadId,
       version,
       hasUserMessage,
+      commandHead: historyCommandHead(this.sql),
       bytes: this.sql.databaseSize,
       ...this.watermark(grant),
     };
+  }
+  commands(
+    grant: Grant,
+    version: number | null,
+    after?: string,
+    limit?: number,
+  ) {
+    const state = this.configure(grant);
+    if (
+      version === null
+        ? state.fence !== grant.revision
+        : this.exportCheck(grant).version !== version
+    )
+      throw Error("History command evidence changed");
+    return historyCommandPage(this.sql, {
+      op: "messages.commandPage",
+      after,
+      limit,
+    });
   }
   exportPage(grant: Grant, version: number, command: PageCommand) {
     if (this.exportCheck(grant).version !== version)

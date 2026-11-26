@@ -220,6 +220,7 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
       );
     if (request.method !== "POST") return new Response(null, { status: 405 });
     if (
+      url.pathname === "/history/export-commands" ||
       url.pathname === "/history/export-check" ||
       url.pathname === "/history/export-page"
     ) {
@@ -240,6 +241,19 @@ export class HistoryApi extends WorkerEntrypoint<HistoryEnvironment> {
         p.revision !== req.revision
       )
         return new Response("History changed during export", { status: 409 });
+      if (url.pathname === "/history/export-commands") {
+        const grant = await dir.open(req.generation, req.threadId, "read");
+        if (!grant.ordinal || grant.revision !== req.revision)
+          throw Error("Command export membership changed");
+        return Response.json(
+          await shard(this.env, stable, grant).commands(
+            grant,
+            req.version,
+            req.after,
+            req.limit,
+          ),
+        );
+      }
       if (url.pathname === "/history/export-page") {
         const grant = await dir.open(req.generation, req.threadId, "read");
         if (!grant.ordinal || grant.revision !== req.revision)
@@ -336,6 +350,13 @@ type Admin =
       mode: "remote" | "legacy";
       proofs: [string, string][];
     }
+  | {
+      op: "commands";
+      generation: string;
+      threadId: string;
+      after?: string;
+      limit?: number;
+    }
   | { op: "watermark" | "shardStatus"; generation: string; threadId: string }
   | ((PageCommand | ImportCommand) & { generation: string; threadId: string });
 
@@ -396,6 +417,19 @@ export class HistoryMigrationApi extends WorkerEntrypoint<HistoryEnvironment> {
           }),
         );
         return page;
+      }
+      case "commands": {
+        const p = await dir.status();
+        if (p.mode !== "held" || p.generation !== req.generation)
+          throw Error("A history fence is required to export command receipts");
+        const grant = await dir.open(req.generation, req.threadId, "export");
+        if (grant.revision !== p.revision) throw Error("History fence changed");
+        return shard(this.env, stable, grant).commands(
+          grant,
+          null,
+          req.after,
+          req.limit,
+        );
       }
       case "shardStatus":
       case "watermark":
