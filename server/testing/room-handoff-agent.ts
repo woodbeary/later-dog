@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -37,10 +38,15 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
   const botId = integration.env.LATERDOG_BOT_ID;
   const system = launch?.system ?? readAtLaunch(arg("--append-system-prompt-file"));
   const turnContext = `${system}\n${JSON.stringify(prompt)}`;
-  const sessionKey = JSON.stringify([planPath, integration.env.LATERDOG_THREAD_ID ?? botId]);
-  const received = receivedContext.get(sessionKey) ?? [];
+  const sessionFlag = argv.includes("--resume") ? "--resume" : "--session-id";
+  const sessionId = argv.includes(sessionFlag) ? arg(sessionFlag) : undefined;
+  const sessionKey = JSON.stringify([planPath, integration.env.LATERDOG_THREAD_ID ?? botId, sessionId]);
+  const contextPath = sessionId ? `${planPath}.session-${createHash("sha256").update(sessionKey).digest("hex")}.json` : undefined;
+  const received: string[] = receivedContext.get(sessionKey) ??
+    (sessionFlag === "--resume" && contextPath && existsSync(contextPath) ? JSON.parse(readFileSync(contextPath, "utf8")) : []);
   received.push(turnContext);
   receivedContext.set(sessionKey, received);
+  if (contextPath) writeFileSync(contextPath, JSON.stringify(received));
   const conversationContext = received.join("\n");
   const resumed = /your downstream room requests have settled\./i.test(turnContext);
   const basePlan = JSON.parse(readFileSync(planPath, "utf8"))[botId] ?? {};
@@ -126,6 +132,7 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
     clearTimeout(timer); clearTimeout(delayTimer); clearInterval(gateTimer); lines.close(); child.stdin.destroy();
     await waitForExit(child, { signal: "SIGTERM", graceMs: 500 });
     received.push(JSON.stringify(evidence));
+    if (contextPath) writeFileSync(contextPath, JSON.stringify(received));
     appendFileSync(`${planPath}.evidence.jsonl`, JSON.stringify({ botId, turnIndex, threadId: integration.env.LATERDOG_THREAD_ID,
       model: argv.includes("--model") ? arg("--model") : undefined,
       permissionMode: argv.includes("--permission-mode") ? arg("--permission-mode") : undefined,
