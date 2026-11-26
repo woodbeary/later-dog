@@ -119,7 +119,7 @@ function checkpoint(): Promise<void> {
     const files = await inventory(outputs);
     const current = new Map(files.map(file => [engineFileKey(file), file]));
     for (const file of files) if (!sameEngineFile(baseline.get(engineFileKey(file)), file)) await sendFile(file);
-    for (const [key, file] of baseline) if (!current.has(key)) {
+    for (const file of [...baseline.values()].reverse()) if (!current.has(engineFileKey(file))) {
       await send({ type: "file_remove", file });
       if (outputs.some(root => root.id === file.root && selectedTranscript(root, file.path))) await acknowledged("file_window", true);
     }
@@ -334,7 +334,7 @@ async function handle(frame: any): Promise<void> {
         const item = { root: workspace.id, path: expected.path };
         engineFilePath(workspace, item.path, true);
         const resident = receiver.baseline.get(engineFileKey(item));
-        if (resident?.hash !== expected.hash || resident?.mode !== expected.mode) throw new Error("Working file changed before recovery");
+        if (!sameEngineFile(resident, expected)) throw new Error("Working file changed before recovery");
         if (resident) await sendFile(resident, undefined, true);
         else {
           if (lstatSync(engineFilePath(workspace, item.path, true), { throwIfNoEntry: false })) throw new Error("A new working file appeared before recovery");

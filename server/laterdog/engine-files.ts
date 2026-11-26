@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readlinkSync, realpathSync, readdirSync, readFileSync, readSync, renameSync, symlinkSync, unlinkSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readlinkSync, realpathSync, readdirSync, readFileSync, readSync, renameSync, rmdirSync, symlinkSync, unlinkSync, writeSync } from "node:fs";
 import { setImmediate as yieldToIO } from "node:timers/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -19,9 +19,10 @@ export interface EngineFileRoot {
   logicalPath?: string;
 }
 export type EngineFilePrefix = { size: number; hash: string };
-export interface EngineFile { root: string; path: string; hash: string; size: number; mode: number; link?: string }
+export interface EngineFile { root: string; path: string; hash: string; size: number; mode: number; link?: string; directory?: true }
 export const ENGINE_FILE_LIMIT = 128 * 1024 * 1024;
 export const ENGINE_TRANSFER_LIMIT = 512 * 1024 * 1024;
+const EMPTY_HASH = createHash("sha256").digest("hex");
 const SKIP = new Set([".pnpm-store", ".npm", "dist", "build", "out", "coverage", "test-results", "playwright-report"]);
 export const ENGINE_FRAME_BYTES = 32 * 1024;
 export const ENGINE_WINDOW_BYTES = 1024 * 1024;
@@ -31,7 +32,7 @@ export function engineFilePath(root: EngineFileRoot, name: string, allowLeafLink
   if (!name || name.includes("\0") || isAbsolute(name) || name.split("/").some(part => part === ".." || part === "." || !part)) throw new Error("Invalid engine file path");
   const target = resolve(root.path, name);
   const rel = relative(root.path, target);
-  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("Engine file outside its folder");
+  if (rel === ".." || rel.startsWith("../") || isAbsolute(rel)) throw new Error("Engine file outside its folder");
   let current = root.path;
   for (const part of ["", ...name.split("/")]) {
     current = part ? join(current, part) : current;
@@ -87,21 +88,23 @@ function residentLink(root: EngineFileRoot, name: string, path: string): string 
   return target;
 }
 
-export function sameEngineFile(left?: EngineFile, right?: EngineFile): boolean {
-  return left?.hash === right?.hash && left?.mode === right?.mode && left?.link === right?.link;
+export type EngineIdentity = Partial<Pick<EngineFile, "hash" | "mode" | "link" | "directory">>;
+
+export function sameEngineFile(left?: EngineIdentity, right?: EngineIdentity): boolean {
+  return left?.hash === right?.hash && left?.mode === right?.mode && left?.link === right?.link && left?.directory === right?.directory;
 }
 
 export function workspaceRecovery(root: string, home: readonly EngineFile[], computer: readonly EngineFile[], previous: readonly EngineFile[]) {
   const byName = (files: readonly EngineFile[]) => new Map(files.filter(file => file.root === root).map(file => [file.path, file]));
   const local = byName(home), remote = byName(computer), baseline = byName(previous);
-  const changes: { root: string; path: string; hash?: string; mode?: number }[] = [];
+  const changes: (EngineIdentity & { root: string; path: string })[] = [];
   for (const path of new Set([...remote.keys(), ...baseline.keys()])) {
     const here = local.get(path), there = remote.get(path), before = baseline.get(path);
     if (sameEngineFile(here, there) || sameEngineFile(there, before)) continue;
     if (!sameEngineFile(here, before)) throw new Error(`The working file ${path} changed on both computers. Both copies were preserved.`);
-    changes.push({ root, path, hash: there?.hash, mode: there?.mode });
+    changes.push({ root, path, hash: there?.hash, mode: there?.mode, link: there?.link, directory: there?.directory });
   }
-  return changes;
+  return changes.sort((a, b) => a.hash && b.hash ? a.path.length - b.path.length : !a.hash && !b.hash ? b.path.length - a.path.length : a.hash ? -1 : 1);
 }
 
 export function selectEngineTranscript(root: EngineFileRoot | undefined, name: string): void {
@@ -123,6 +126,10 @@ export function decodeEngineChunk(data: unknown): Buffer {
 
 export function* engineFileChunks(root: EngineFileRoot, name: string, chunkSize = ENGINE_FRAME_BYTES, start = 0, end?: number): Generator<Buffer> {
   const path = engineFilePath(root, name, true);
+  if (streamedTree(root) && lstatSync(path).isDirectory()) {
+    if (start || (end !== undefined && end !== 0)) throw new Error("Working folder type changed during transfer");
+    return;
+  }
   if (streamedTree(root) && lstatSync(path).isSymbolicLink()) {
     const bytes = Buffer.from(residentLink(root, name, path));
     if (start || (end !== undefined && end !== bytes.length)) throw new Error("Working folder link changed during transfer");
@@ -220,6 +227,7 @@ export function* inventoryWork(roots: readonly EngineFileRoot[]): FileWork<Engin
     const full = at ? engineFilePath(root, at) : root.path;
     if (!existsSync(full)) return;
     if (lstatSync(full).isSymbolicLink()) throw new Error("Engine sync refuses symbolic links");
+    if (at && streamedTree(root)) files.push({ root: root.id, path: at, hash: EMPTY_HASH, size: 0, mode: 0o700, directory: true });
     for (const entry of readdirSync(full, { withFileTypes: true })) {
       yield;
       const path = at ? `${at}/${entry.name}` : entry.name;
@@ -236,6 +244,15 @@ export function* inventoryWork(roots: readonly EngineFileRoot[]): FileWork<Engin
     else yield* walk(root, "");
   }
   return files;
+}
+
+function* residentIdentity(root: EngineFileRoot, file: EngineFile): FileWork<EngineIdentity | undefined> {
+  const path = engineFilePath(root, file.path, true);
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (!stat) return;
+  if (streamedTree(root) && stat.isDirectory()) return { hash: EMPTY_HASH, mode: 0o700, directory: true };
+  const link = stat.isSymbolicLink() ? residentLink(root, file.path, path) : undefined;
+  return { hash: yield* fileHash(root, file.path), mode: stat.mode & 0o777, link };
 }
 
 export class EngineFileReceiver {
@@ -262,6 +279,7 @@ export class EngineFileReceiver {
     if (!transcript && !workspace) this.#received += file.size;
     if (this.#received > ENGINE_TRANSFER_LIMIT) throw new Error("Engine checkpoint exceeds its limit");
     const path = engineFilePath(root, file.path, true);
+    if (file.directory !== undefined && (!workspace || file.directory !== true || file.link !== undefined || file.size !== 0 || file.hash !== EMPTY_HASH || file.mode !== 0o700)) throw new Error("Invalid working folder directory metadata");
     if (file.link !== undefined) {
       linkTarget(root, file.path, file.link);
       if (file.size !== Buffer.byteLength(file.link) || file.hash !== createHash("sha256").update(file.link).digest("hex")) throw new Error("Invalid working folder link metadata");
@@ -269,10 +287,8 @@ export class EngineFileReceiver {
     const before = this.baseline.get(engineFileKey(file));
     if (prefix && (!transcript || !before || !Number.isSafeInteger(prefix.size) || prefix.size <= 0 || prefix.size >= file.size || prefix.size !== before.size || prefix.hash !== before.hash)) throw new Error("Invalid engine transcript prefix");
     if (lstatSync(path, { throwIfNoEntry: false }) && !prefix) {
-      const actual = yield* fileHash(root, file.path);
-      const mode = lstatSync(path).mode & 0o777;
-      if (workspace && mode !== before?.mode && mode !== file.mode) throw new Error("Engine file permissions conflict with a newer home copy");
-      if (actual !== before?.hash && actual !== file.hash) throw new Error("Engine file conflicts with a newer home copy");
+      const actual = yield* residentIdentity(root, file);
+      if (workspace ? !sameEngineFile(actual, before) && !sameEngineFile(actual, file) : actual?.hash !== before?.hash && actual?.hash !== file.hash) throw new Error("Engine file conflicts with a newer home copy");
     } else if (before && !lstatSync(path, { throwIfNoEntry: false })) throw new Error("Engine file was removed on the home");
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     if ((transcript || workspace) && freeVolumeBytes(dirname(path)) - TRANSFER_SPACE_MARGIN < file.size) throw new Error(
@@ -318,11 +334,17 @@ export class EngineFileReceiver {
       const before = this.baseline.get(engineFileKey(open.file));
       const path = engineFilePath(root, open.file.path, true);
       if (lstatSync(path, { throwIfNoEntry: false })) {
-        const actual = yield* fileHash(root, open.file.path);
-        const mode = lstatSync(path).mode & 0o777;
-        if (streamedTree(root) && mode !== before?.mode && mode !== open.file.mode) throw new Error("Engine file permissions changed while its checkpoint arrived");
-        if (actual !== before?.hash && actual !== open.file.hash) throw new Error("Engine file changed while its checkpoint arrived");
+        const actual = yield* residentIdentity(root, open.file);
+        if (streamedTree(root) ? !sameEngineFile(actual, before) && !sameEngineFile(actual, open.file) : actual?.hash !== before?.hash && actual?.hash !== open.file.hash) throw new Error("Engine file changed while its checkpoint arrived");
       } else if (before) throw new Error("Engine file was removed during its checkpoint");
+      if (open.file.directory) {
+        unlinkSync(open.temp);
+        const stat = lstatSync(path, { throwIfNoEntry: false });
+        if (!stat) mkdirSync(path, { mode: 0o700 });
+        else if (!stat.isDirectory()) throw new Error("Working folder directory conflicts with an existing file");
+        this.baseline.set(engineFileKey(open.file), open.file);
+        return;
+      }
       if (open.file.link !== undefined) {
         const target = linkTarget(root, open.file.path, open.file.link);
         unlinkSync(open.temp);
@@ -344,9 +366,10 @@ export class EngineFileReceiver {
     const path = engineFilePath(root, file.path, true);
     if (!lstatSync(path, { throwIfNoEntry: false })) { this.baseline.delete(engineFileKey(file)); return; }
     const before = this.baseline.get(engineFileKey(file));
-    if (!before || (yield* fileHash(root, file.path)) !== before.hash) throw new Error("Engine deletion conflicts with a newer home copy");
-    if (streamedTree(root) && (lstatSync(path).mode & 0o777) !== before.mode) throw new Error("Engine deletion conflicts with newer file permissions");
-    unlinkSync(path);
+    const actual = before && (yield* residentIdentity(root, before));
+    if (!before || (streamedTree(root) ? !sameEngineFile(actual, before) : actual?.hash !== before.hash)) throw new Error("Engine deletion conflicts with a newer home copy");
+    if (before.directory) rmdirSync(path);
+    else unlinkSync(path);
     this.baseline.delete(engineFileKey(file));
   }
 

@@ -216,7 +216,7 @@ export class RemoteSession extends EventEmitter {
       for (let i = 0; i < changes.length; i += 64) {
         const files = changes.slice(i, i + 64);
         const result = await this.#request({ type: "recover_workspace", files }, SYNC_REPLY_MS, true);
-        if (!result?.recovered || files.some(file => this.#receiver!.baseline.get(engineFileKey(file))?.hash !== file.hash)) throw new Error("The computer's newer working files could not be recovered.");
+        if (!result?.recovered || files.some(file => !sameEngineFile(this.#receiver!.baseline.get(engineFileKey(file)), file))) throw new Error("The computer's newer working files could not be recovered.");
       }
       if (changes.length) home = [...home.filter(file => file.root !== tree.id), ...[...this.#receiver.baseline.values()].filter(file => file.root === tree.id)];
     }
@@ -241,7 +241,7 @@ export class RemoteSession extends EventEmitter {
         if (streamedTree(root) ? sameEngineFile(before, file) : before?.hash === file.hash) continue;
         await this.#sendWorkingFile(root, file, before);
       }
-      for (const file of configured.files) if (!present.has(engineFileKey(file)) && !pushedRoots.has(file.root)) this.#send({ type: "file_remove", file });
+      for (const file of [...configured.files].reverse()) if (!present.has(engineFileKey(file)) && !pushedRoots.has(file.root)) this.#send({ type: "file_remove", file });
       this.#pushScoped(new Map([...remote].map(([key, file]) => [key, file.hash])), initialPush);
       await this.#request({ type: "prepared" }, SYNC_REPLY_MS);
     } catch (error) { throw new NotDispatched((error as Error).message); }
