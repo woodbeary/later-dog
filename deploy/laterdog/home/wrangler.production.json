@@ -26,7 +26,7 @@
     },
     {
       "class_name": "CloudHomeHostLarge",
-      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-home-reliability@sha256:903583151cd4b1833ac8da674bc30645452fe9e387ef7648f92a122a4f208fc1",
+      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-home-reliability@sha256:21082c0acd80e36d970af40c849d57dbb96db4debde7cc7d984d5687757761ca",
       "instance_type": "standard-4",
       "max_instances": 10,
       "observability": {
