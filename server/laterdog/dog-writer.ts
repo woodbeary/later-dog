@@ -16,9 +16,9 @@ export interface TextEngine {
   generateText?(prompt: string, options?: TextGenerationOptions): Promise<string>;
 }
 
-export function dogWriter(instance: TextEngine, chatModel: string | null | undefined): DogWriter | undefined {
+export function dogWriter(instance: TextEngine, chatModel: string | null | undefined, botId?: string): DogWriter | undefined {
   const model = writingModel(chatModel, instance.models);
   if (!instance.generateText || !model) return undefined;
   const generate = instance.generateText.bind(instance);
-  return Object.assign((prompt: string, options?: Omit<TextGenerationOptions, "model">) => generate(prompt, { ...options, model }), { model });
+  return Object.assign((prompt: string, options?: Omit<TextGenerationOptions, "model">) => generate(prompt, { ...options, model, ...(botId ? { botId } : {}) }), { model });
 }

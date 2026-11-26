@@ -1,3 +1,4 @@
+import type { GuestDriverRuntime } from "./guest-cli-runtime.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -35,7 +36,7 @@ function remoteClaudeEnvironment(env: Record<string, unknown>): Record<string, s
 
 export const REMOTE_ENGINES_FILE = "remote-engines.json";
 
-export interface RemoteEngineChoice { botId: string; computer: boolean; fromEnvironment: boolean }
+export interface RemoteEngineChoice { botId: string; computer: boolean; fromEnvironment: boolean; required?: boolean }
 
 const environmentBots = (env: NodeJS.ProcessEnv) => new Set((env.LATERDOG_REMOTE_ENGINE_BOTS ?? "").split(",").map((id) => id.trim()).filter(Boolean));
 const botIds = (value: unknown): string[] => Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
@@ -72,6 +73,7 @@ export function setRemoteEngineDefault(dataDir: string, computer: boolean): bool
 export function remoteEngineChoice(dataDir: string, botId: string, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
   const saved = placementSettings(dataDir);
   const fromEnvironment = environmentBots(env).has(botId);
+  if (env.LATERDOG_CLOUD_ROLE === "home" && saved.placement === "computer") return { botId, computer: true, fromEnvironment, required: true };
   const computer = fromEnvironment || botIds(saved.bots).includes(botId) || (saved.placement === "computer" && !botIds(saved.homeBots).includes(botId));
   return { botId, computer, fromEnvironment };
 }
@@ -113,7 +115,7 @@ export function commandOnPath(command: string, path: string | undefined): string
   return null;
 }
 
-export function engineCliPackage(resolvedCommand: string, path: string | undefined, packageName: "@openai/codex" | "@anthropic-ai/claude-code"): { name: string; version: string } | null {
+export function engineCliPackage(resolvedCommand: string, path: string | undefined, packageName: string): { name: string; version: string } | null {
   const found = commandOnPath(resolvedCommand, path);
   if (!found) return null;
   let at: string;
@@ -162,7 +164,7 @@ export interface ClaudePlacement {
   remoteBase?: string;
 }
 
-export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; renewal?: ClaudeRenewal | null }
+export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; guestRuntime?: { kind: "node" } | { kind: "acp"; cli: GuestDriverRuntime }; renewal?: ClaudeRenewal | null }
 
 export type ClaudeRemotePlan = PlacedEnginePlan;
 
@@ -303,7 +305,7 @@ function stdioSpecFor(server: Record<string, unknown>): StdioSpec | null {
   return null;
 }
 
-export interface EngineOpener { proxyPath: string; remoteBase?: string; openBudgetMs?: number; open(botId: string, plan: ClaudeRemotePlan, signal?: AbortSignal): Promise<EngineLink> }
+export interface EngineOpener { proxyPath: string; guestProvider?: { entry: string; proxy: string }; remoteBase?: string; openBudgetMs?: number; open(botId: string, plan: ClaudeRemotePlan, signal?: AbortSignal): Promise<EngineLink> }
 let opener: EngineOpener | null = null;
 export function setEngineOpener(value: EngineOpener | null): void { opener = value; }
 export function engineOpener(): EngineOpener | null { return opener; }
