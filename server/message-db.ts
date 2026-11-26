@@ -4,7 +4,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import { receiptDigest } from "../shared/history-receipt.ts";
 import type { HistoryOperation } from "../shared/history-shard-types.ts";
 import { checkDualHistory, historyExecute, historyMany, isRemoteHistory, readHistoryReceipt, remoteHistoryGeneration, storeHistoryReceipt } from "./laterdog/history-client.ts";
-import { remoteThread, remoteCards, remoteLatest, remoteSearch, remoteSearchAsync, remoteText, remoteRecall, remoteRecent, remoteLatestBot } from "./laterdog/history-messages.ts";
+import { remoteThread, remoteCards, remoteLatest, remoteSearch, remoteSearchAsync, remoteText, remoteRecall, remoteRecallAsync, remoteRecent, remoteLatestBot } from "./laterdog/history-messages.ts";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -903,6 +903,14 @@ function rangeClause(range: RecallRange | undefined, column: string): { sql: str
     params.push(range.until);
   }
   return { sql: parts.map((part) => ` AND ${part}`).join(""), params };
+}
+
+export async function recallMessagesAsync(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): Promise<RecallHit[]> {
+  if (!isRemoteHistory()) return recallMessages(query, threadIds, limit, range, mode);
+  const match = ftsQuery(query, mode);
+  if (!match || !threadIds.length) return [];
+  flushHistoryOutbox();
+  return remoteRecallAsync(threadIds, match, match.match(/"[^"]+"\*?/g) ?? [], mode, range, limit);
 }
 
 export function recallMessages(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): RecallHit[] {

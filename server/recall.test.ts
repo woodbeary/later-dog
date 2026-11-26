@@ -2,8 +2,8 @@ import { rmSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
-import { closeMessageDb, recallMatchTerm, recallTerms } from "./message-db.ts";
-import { buildRecall, enoughMatches, memoryPassages, RECALL_CLOSE, RECALL_OPEN, recallQuery, renderRecall, topicPassages } from "./recall.ts";
+import { appendMessage, closeMessageDb, recallMatchTerm, recallTerms } from "./message-db.ts";
+import { buildRecall, buildRecallAsync, enoughMatches, memoryPassages, RECALL_CLOSE, RECALL_OPEN, recallQuery, renderRecall, topicPassages } from "./recall.ts";
 import { appendMemoryLog, searchMemoryFiles, writeMemoryFile, writeMemoryTopic, WORKSPACES_DIR } from "./workspace.ts";
 
 const BOT = "bot-recall-test";
@@ -72,6 +72,15 @@ describe("recall from memory files", () => {
     const block = buildRecall({ botId: BOT, message: "book a table, any restaurants?", threadIds: [], label: () => "", author: () => "" });
     expect(block?.text).toContain("memory/dining.md");
     expect(block?.text).toContain("Loves pasta");
+  });
+
+  it("keeps conversation ranking and memory passages when recall yields during dispatch", async () => {
+    writeMemoryTopic(BOT, "saffron.md", "Saffron blooms before the winter.");
+    appendMessage("older", { id: "request", role: "user", kind: "text", at: 100, text: "Our saffron flowers bloom." });
+    const input = { botId: BOT, message: "what about our saffron flowers?", threadIds: ["older"], label: () => "garden", author: () => "Gardener" };
+    const answer = await buildRecallAsync(input);
+    expect(answer?.text).toContain("Gardener");
+    expect(answer).toEqual(buildRecall(input));
   });
 
   it("matches singular and plural, but never turns a symbol into a prefix", () => {

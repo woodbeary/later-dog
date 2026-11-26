@@ -15,7 +15,7 @@ export function remoteThread(thread: string, limit?: number): ThreadTailRows {
       op: "messages.page",
       after,
       backward: limit !== undefined,
-      limit: Math.min(64, limit === undefined ? 64 : Math.max(0, limit - messages.length)),
+      limit: limit === undefined ? 500 : Math.min(64, Math.max(0, limit - messages.length)),
     });
     leaf = page.activeLeafId;
     more = !!page.hasMore;
@@ -89,6 +89,18 @@ export function remoteText(threadId: string, messageId: string) {
     ...(peer ? { peer } : {}),
   };
 }
+type RecallRow = {
+  id: string;
+  rid: string;
+  at: number;
+  role: string;
+  kind: string;
+  head: string;
+  name: string | null;
+  peer: string | null;
+  snippet: string;
+  score: number;
+};
 export function remoteRecall(
   threads: readonly string[],
   match: string,
@@ -97,31 +109,30 @@ export function remoteRecall(
   range: RecallRange | undefined,
   limit: number,
 ): RecallHit[] {
-  type Row = {
-    id: string;
-    rid: string;
-    at: number;
-    role: string;
-    kind: string;
-    head: string;
-    name: string | null;
-    peer: string | null;
-    snippet: string;
-    score: number;
-  };
   const corpus = combinedRecallStats(
     historyMany<RecallCorpus>(undefined, { op: "messages.recallStats", terms }).map((x) => x.result),
     terms.length,
   );
-  return historyMany<Row[]>(threads, {
-    op: "messages.recall",
-    match,
-    terms,
-    corpus,
-    any: mode === "any",
-    ...range,
-    limit,
-  })
+  return rankedRecall(historyMany<RecallRow[]>(threads, recallOperation(match, terms, corpus, mode, range, limit)), limit);
+}
+export async function remoteRecallAsync(
+  threads: readonly string[],
+  match: string,
+  terms: string[],
+  mode: SearchMode,
+  range: RecallRange | undefined,
+  limit: number,
+): Promise<RecallHit[]> {
+  const stats = await historyManyAsync<RecallCorpus>(undefined, { op: "messages.recallStats", terms });
+  const corpus = combinedRecallStats(stats.map(row => row.result), terms.length);
+  const rows = await historyManyAsync<RecallRow[]>(threads, recallOperation(match, terms, corpus, mode, range, limit));
+  return rankedRecall(rows, limit);
+}
+function recallOperation(match: string, terms: string[], corpus: RecallCorpus, mode: SearchMode, range: RecallRange | undefined, limit: number) {
+  return { op: "messages.recall", match, terms, corpus, any: mode === "any", ...range, limit };
+}
+function rankedRecall(rows: { threadId: string; result: RecallRow[] }[], limit: number): RecallHit[] {
+  return rows
     .flatMap(({ threadId, result }) => result.map((r) => ({ ...r, threadId })))
     .sort(
       (a, b) => Number(a.kind === "digest") - Number(b.kind === "digest") || a.score - b.score || chronological(a, b),

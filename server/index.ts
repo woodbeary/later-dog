@@ -186,7 +186,7 @@ import { connectorCallFromFrame, connectorRefusalText, connectorUnrecognizedText
 import { connectorCardText } from "./connector-card-text.ts";
 import { withMainDogRouting } from "./laterdog/main-dog-prompt.ts";
 import { MAIN_DOG_DELETE_REFUSAL, MAIN_DOG_REQUIRED } from "../shared/main-dog.ts";
-import { buildRecall } from "./recall.ts";
+import { buildRecallAsync } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
 import { appendAboutMe, commitLearned, holdLearned, listPendingLearned, planLearned } from "./profile-learned.ts";
 import { canAccessTeam, canReachPeer, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, PEERS_PROMPT, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomRosterLine } from "./peer-roster.ts";
@@ -325,7 +325,7 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
-import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
+import { readMessageText, recallMessagesAsync, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { IncidentLedger, incidentChip, type Incident, type IncidentKind } from "./incidents.ts";
@@ -1946,7 +1946,7 @@ function recentWorkSources(bot: BotRecord) {
   };
 }
 
-function autoRecallPrompt(bot: BotRecord, threadId: string, message: string, opts: { conversations: boolean; userName: string }): string {
+async function autoRecallPrompt(bot: BotRecord, threadId: string, message: string, opts: { conversations: boolean; userName: string }): Promise<string> {
   if (bot.memoryEnabled === false || !autoRecallEnabled(cfg)) return "";
   const roomByThread = new Map<string, GroupRecord>();
   if (opts.conversations) {
@@ -1961,7 +1961,7 @@ function autoRecallPrompt(bot: BotRecord, threadId: string, message: string, opt
       .filter((id) => id !== threadId && (!CLOUD_HOME || cloudOwnerOnlyThread(id)))
     : [];
   try {
-    const recalled = buildRecall({
+    const recalled = await buildRecallAsync({
       botId: bot.id,
       message,
       threadIds,
@@ -9750,6 +9750,13 @@ async function startTurn(
       }
       const computerSelection = computerSelectionTurns.get(threadId);
       if (computerSelection) computerSelection.mounted = mountedComputer ?? (integrations.browser ? "browser" : undefined);
+      const fromPerson = commsDepth === 0 && !opts?.coordination && !opts?.automationSource && !opts?.unattended;
+      const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
+      if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
+      const recalled = recallsThisTurn(dispatchContext, instance.driverKind) ? await autoRecallPrompt(bot, threadId, resolvedImages.text, {
+        conversations: fromPerson,
+        userName: cfg.profile?.name?.trim() || "User",
+      }) : "";
       await pendingCancelledProviderHandshakes.waitForClear(threadId);
       if (!markDirectTurnDispatching(bot.id, dispatchClaimId, threadId)) {
         throw new DirectTurnSetupCancelled("turn stopped before dispatch");
@@ -9799,15 +9806,8 @@ async function startTurn(
       contextBreakdowns.dispatched(threadId, { driverKind: instance.driverKind, instanceId, sections: prompt.sections, tools: homeToolSizes(integrations.agents?.env) });
       compactionCarry.remember(bot.id, threadId, prompt.volatileSections);
       if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
-      const fromPerson = commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended;
       executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort });
       runningTurnEngines.set(threadId, instance);
-      const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
-      if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
-      const recalled = recallsThisTurn(dispatchContext, instance.driverKind) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: fromPerson,
-        userName: cfg.profile?.name?.trim() || "User",
-      }) : "";
       handoffs.dispatching(threadId, dispatchClaimId, dispatchContext.handoff);
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
@@ -11714,6 +11714,7 @@ async function runGroupMemberTurn(
       : store.groupTaskByThread(liveGroup.id, threadId)?.turnTimeoutMinutes,
     longWork: ownerWorkThread(threadId) && runsUnattended(roomTurnApprovalMode(readyBot, threadId, orchestration), autoReviewOn(cfg.features)),
   });
+  const roomRecalled = cardContinuation ? "" : await autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
   const outcome = await new Promise<GroupMemberTurnOutcome>((resolve) => {
     let done = false;
     let unsub = () => {};
@@ -11772,7 +11773,6 @@ async function runGroupMemberTurn(
     compactionCarry.remember(readyBot.id, threadId, roomSystem.volatileSections);
     executionEvidence.dispatch(threadId, selectedBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) });
     runningTurnEngines.set(threadId, instance);
-    const roomRecalled = cardContinuation ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
     guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: readyBot.id,
@@ -15688,7 +15688,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               : interleave(picked.filter((dog) => dog.memoryEnabled !== false).map((dog) =>
                 searchMemoryFiles(dog.id, q, limit).map((hit) => ({ ...hit, bot: dog.name, botId: dog.id, snippet: redactSecretsInText(hit.snippet) }))), limit);
             if (scope === "memory") return json(res, 200, { cross: true, hits: [], memoryHits: crossMemory });
-            const crossFound = q ? recallMessages(q, threadIds, limit, range) : recentMessages(threadIds, range ?? {}, limit);
+            const crossFound = q ? await recallMessagesAsync(q, threadIds, limit, range) : recentMessages(threadIds, range ?? {}, limit);
             const crossHits = crossFound.map((hit) => {
               const chat = chats.get(hit.threadId);
               return { ...hit, snippet: redactSecretsInText(hit.snippet), bot: chat?.dog ?? "a dog", chat: chat?.chat ?? "a chat", current: hit.threadId === fromThreadId };
@@ -15710,7 +15710,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const ownThreads = [...new Set([from.threadId, ...(from.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])]
           .filter(cloudLendingView(internalCapability) ? cloudOwnerOnlyThread : () => true);
         const inRoom = Boolean(store.groupByThread(fromThreadId));
-        const found = q ? recallMessages(q, ownThreads, limit, range) : recentMessages(ownThreads, range ?? {}, limit);
+        const found = q ? await recallMessagesAsync(q, ownThreads, limit, range) : recentMessages(ownThreads, range ?? {}, limit);
         const hits = found.map((hit) => {
           const room = roomByThread.get(hit.threadId);
           return {
