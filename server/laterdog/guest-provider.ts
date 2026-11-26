@@ -26,7 +26,7 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
   const listeners = new Set<RuntimeEventListener>();
   const log = (turn: SendTurnInput, result: string) => notePlacement(dataDir, "[engine] " + JSON.stringify({ driver, account: instance.instanceId, botId: turn.botId, threadId: turn.threadId, messageId: turn.sourceMessageId, placement: result }));
   const open = async (state: ActiveChannel, turn: SendTurnInput) => {
-    const profile = await guestHttpProfile(driver, input) ?? await guestCliProfile(driver, input, turn);
+    const profile = await guestHttpProfile(driver, input) ?? await guestCliProfile(driver, input, turn, dataDir);
     if (!profile) throw new Error("This engine does not have a runtime on the dog's computer.");
     if (state.stopped) throw new Error("The turn was interrupted while the computer was starting.");
     const opener = engineOpener();

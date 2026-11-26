@@ -89,6 +89,7 @@ export interface AcpConfig {
   cli: string;
   fullAuto: boolean;
   workspace?: string;
+  nativeAgentProfile?: string;
 }
 
 type AcpAskFinish = (

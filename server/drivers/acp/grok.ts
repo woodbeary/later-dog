@@ -249,7 +249,7 @@ const GROK_NATIVE_TOOLS = [
   ["image_to_video", "GrokBuild:image_to_video"], ["reference_to_video", "GrokBuild:reference_to_video"],
 ] as const;
 
-export function grokInheritedProfile(cli: string, env: Record<string, string | undefined>, cwd: string): GrokScopeProfile | undefined {
+export function grokInheritedProfile(cli: string, env: Record<string, string | undefined>, cwd: string, selectedPath?: string): GrokScopeProfile | undefined {
   const unsupported = () => { throw new Error("Grok's existing agent profile cannot be safely intersected with tool selection. Use a profile file with explicit tools or a separate default Grok account."); };
   if ((env.GROK_AGENT && env.GROK_AGENT !== "grok-build") || env.GROK_CONFIG || env.GROK_CONFIG_PATH) return unsupported();
   const args = splitCliString(cli);
@@ -257,7 +257,7 @@ export function grokInheritedProfile(cli: string, env: Record<string, string | u
   const flags = args.flatMap((arg, index) => arg === "--agent-profile" || arg.startsWith("--agent-profile=") ? [index] : []);
   if (flags.length > 1) return unsupported();
   const flag = flags[0] ?? -1;
-  let path = flag >= 0 ? (args[flag]!.includes("=") ? args[flag]!.slice(args[flag]!.indexOf("=") + 1) : args[flag + 1]) : undefined;
+  let path = selectedPath ?? (flag >= 0 ? (args[flag]!.includes("=") ? args[flag]!.slice(args[flag]!.indexOf("=") + 1) : args[flag + 1]) : undefined);
   if (flag >= 0 && (!path || path.startsWith("-"))) return unsupported();
   const files = [join(grokHome(env), "config.toml")];
   for (let directory = resolve(cwd);;) {
@@ -281,7 +281,7 @@ export function grokInheritedProfile(cli: string, env: Record<string, string | u
       catch { return unsupported(); }
       if (value.includes("$") || !value) return unsupported();
       if (match[1] === "name" && value !== "grok-build") return unsupported();
-      if (match[1] === "definition" && flag < 0) {
+      if (match[1] === "definition" && flag < 0 && !selectedPath) {
         if (path !== undefined && path !== value) return unsupported();
         path = value;
       }
@@ -355,6 +355,7 @@ const support: AcpSupport = {
       ? "bypassPermissions"
       : turn.approvalMode === "auto" ? "auto" : turn.approvalMode === "edits" ? "acceptEdits" : "default",
     "agent",
+    ...(config.nativeAgentProfile ? ["--agent-profile", config.nativeAgentProfile] : []),
     ...(turn.toolScope !== undefined ? ["--no-leader"] : []),
     ...(turn.model ? ["-m", turn.model] : []),
     ...(turn.effort ? ["--reasoning-effort", turn.effort] : []),
@@ -363,11 +364,11 @@ const support: AcpSupport = {
 
   toolScopeSessionParams: (turn, init, hasMcp, { config, env, cwd }) => {
     if (!narrowsNativeTools(turn.toolScope)) return {};
-    const profile = grokToolScopeProfile(turn.toolScope, init, grokInheritedProfile(config.cli, env, cwd), hasMcp);
+    const profile = grokToolScopeProfile(turn.toolScope, init, grokInheritedProfile(config.cli, env, cwd, config.nativeAgentProfile), hasMcp);
     if (turn.model) profile.model = ensureGrokInjectSlug(turn.model, env);
     return { _meta: { agentProfile: profile } };
   },
-  toolScopeCacheKey: ({ config, env, cwd }) => JSON.stringify(grokInheritedProfile(config.cli, env, cwd) ?? null),
+  toolScopeCacheKey: ({ config, env, cwd }) => JSON.stringify(grokInheritedProfile(config.cli, env, cwd, config.nativeAgentProfile) ?? null),
 
   async configureSession({ request, sessionId, turn, currentModelId }) {
     if (turn.toolScope !== undefined) {
