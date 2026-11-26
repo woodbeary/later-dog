@@ -333,9 +333,9 @@ it("the person's Mac connects by itself through the real connector, asks before 
   });
   const updatesTurn = lastSpawn!;
   expect(updatesTurn.argv).not.toContain("--restricted");
-  expect(await sees(updatesCall)).toBe(0);
-  expect(JSON.parse((await updatesCall("list_shared_computers")).content[0].text).unavailable).toContain("Someone else wrote in this conversation");
-  expect((await reads(updatesCall)).isError).toBe(true);
+  expect(await sees(updatesCall)).toBe(1);
+  expect(JSON.parse((await updatesCall("list_shared_computers")).content[0].text).unavailable).toBeUndefined();
+  expect(JSON.parse((await reads(updatesCall)).content[0].text).content).toBe("from the Mac");
 
   const refused = (await api("POST", `/api/routines/${rewritten}/run`, { token: owner })).body.run;
   await expect.poll(async () => ((await api("GET", "/api/routines", { token: owner })).body.runs as any[]).find((candidate) => candidate.id === refused.id)?.error, { timeout: 15_000 })

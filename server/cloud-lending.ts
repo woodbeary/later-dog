@@ -11,7 +11,7 @@ export interface CloudLendingTurn {
   request: { messageId?: string; generations: ReadonlySet<string>; stopped?: boolean; automation?: RoutineRunTrigger } | undefined;
   generation: string;
   thread: readonly Line[];
-  handoff?: { ownerSent: boolean };
+  handoff?: { ownerSent: boolean; macOwnerSent?: boolean };
   guestDriven?: boolean;
   starters?: readonly (string | undefined)[];
   reportsFromOthers?: boolean;
@@ -31,22 +31,35 @@ export function ownersLine(line: Line | undefined, ownerPerson: (person: string 
 
 export type CloudLendingRefusal = "stopped" | "not-owner" | "someone-else";
 
-export function cloudHomeLendingRefusal(turn: CloudLendingTurn): CloudLendingRefusal | null {
+export function cloudHomeMacLendingRefusal(turn: CloudLendingTurn): CloudLendingRefusal | null {
+  return cloudHomeLendingRefusal(turn, true);
+}
+
+export function cloudHomeLendingRefusal(turn: CloudLendingTurn, mac = false): CloudLendingRefusal | null {
   const request = turn.request?.generations.has(turn.generation) ? turn.request : undefined;
   if (request?.stopped) return "stopped";
   if (turn.handoff) {
-    if (!turn.handoff.ownerSent) return "not-owner";
+    if (!(mac ? turn.handoff.macOwnerSent ?? turn.handoff.ownerSent : turn.handoff.ownerSent)) return "not-owner";
   } else if (request?.automation !== undefined) {
     const run = turn.routineRun();
     const owners = request.automation !== "webhook" && Boolean(run) && run!.triggerSource !== "webhook" &&
       run!.ownerAuthored && (run!.triggerSource !== "manual" || run!.ownerStarted);
     if (!owners) return "not-owner";
   }
-  if (turn.guestDriven || turn.reportsFromOthers) return "someone-else";
+  if (turn.guestDriven || (!mac && turn.reportsFromOthers)) return "someone-else";
   if (turn.starters?.some((person) => person !== undefined && !turn.ownerPerson(person))) return "someone-else";
-  const clean = ownerOnlyConversation(turn.thread, turn.ownerPerson, turn.cardAnswerer,
-    request?.automation !== undefined ? request.messageId : undefined, turn.ownersOwnDogs === true);
-  return clean ? null : "someone-else";
+  if (!mac) {
+    const clean = ownerOnlyConversation(turn.thread, turn.ownerPerson, turn.cardAnswerer,
+      request?.automation !== undefined ? request.messageId : undefined, turn.ownersOwnDogs === true);
+    return clean ? null : "someone-else";
+  }
+  const otherPerson = turn.thread.some(line => {
+    const person = line.role === "user" ? line.sender?.id : undefined;
+    const answerer = answeredByPerson(line.card) ? turn.cardAnswerer(line.card!) : undefined;
+    return (person !== undefined && !turn.ownerPerson(person)) ||
+      (answerer !== undefined && !turn.ownerPerson(answerer));
+  });
+  return otherPerson ? "someone-else" : null;
 }
 
 export function ownerOnlyConversation(
