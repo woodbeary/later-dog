@@ -16,7 +16,7 @@ export function handoffWait(busy: boolean, handoffOpen: boolean, awaited: () => 
 export function handoffWorkDone(threadId: string, nodes: Iterable<RoomHandoff>, personAt: number | undefined): boolean {
   let latest: RoomHandoff | undefined;
   for (const node of nodes) {
-    if (node.groupId || node.threadId !== threadId || !node.parentId) continue;
+    if (node.contextOnly || node.groupId || node.threadId !== threadId || !node.parentId) continue;
     if (!latest || node.createdAt > latest.createdAt) latest = node;
   }
   if (!latest || (personAt !== undefined && personAt > latest.createdAt)) return false;
