@@ -71,7 +71,7 @@ export function setRemoteEngineDefault(dataDir: string, computer: boolean): bool
 }
 
 export function remoteEngineChoice(dataDir: string, botId: string, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
-  const saved = placementSettings(dataDir);
+  const saved = placementSettings(dataDir, env.LATERDOG_CLOUD_ROLE === "home");
   const fromEnvironment = environmentBots(env).has(botId);
   if (env.LATERDOG_CLOUD_ROLE === "home" && saved.placement === "computer") return { botId, computer: true, fromEnvironment, required: true };
   const computer = fromEnvironment || botIds(saved.bots).includes(botId) || (saved.placement === "computer" && !botIds(saved.homeBots).includes(botId));

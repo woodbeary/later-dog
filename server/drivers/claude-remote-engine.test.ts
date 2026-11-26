@@ -53,7 +53,7 @@ it("keeps a required cloud turn off the home when its computer is unavailable", 
   const open = vi.fn(async () => { throw new Error("The fixture computer is offline."); });
   setEngineOpener({ proxyPath: PROXY, open });
   const instance = await ClaudeDriver.create({ instanceId: "claude-required", displayName: "Claude", enabled: true,
-    environment: { CLAUDE_CONFIG_DIR: config, FAKE_CLAUDE_VERSION: "2.1.316" }, config: { cli: fakePackage(join(base, "lib")), permissionMode: "default" } });
+    environment: { CLAUDE_CONFIG_DIR: config, FAKE_CLAUDE_VERSION: "2.1.316" }, config: { cli: fakePackage(join(base, "lib")), permissionMode: "auto" } });
   onTestFinished(() => instance.dispose());
   const recorder = recordEvents(instance.adapter);
   await instance.adapter.sendTurn({ threadId: "required-thread", botId: "required-dog", text: "local execution would write the dump", cwd });
@@ -94,7 +94,7 @@ it("generates auxiliary text on its owning computer with the selected model, usa
     return fakeRelay(plan, remoteRoot);
   } });
   const provider = await ClaudeDriver.create({ instanceId: "claude-helper", displayName: "Claude", enabled: true,
-    environment: { CLAUDE_CONFIG_DIR: config, FAKE_CLAUDE_VERSION: "2.1.316" }, config: { cli: fakePackage(join(base, "home-cli")), permissionMode: "default" } });
+    environment: { CLAUDE_CONFIG_DIR: config, FAKE_CLAUDE_VERSION: "2.1.316" }, config: { cli: fakePackage(join(base, "home-cli")), permissionMode: "auto" } });
   onTestFinished(() => provider.dispose());
   const usage = vi.fn();
   await expect(provider.generateText!("name this conversation", { model: "haiku", botId: "helper-owner", onUsage: usage })).resolves.toBe("fake generated text");

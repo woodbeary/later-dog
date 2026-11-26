@@ -15,13 +15,12 @@ const scripts = new Map<boolean, EngineScripts>();
 export function engineScripts(provider = false): EngineScripts {
   const cached = scripts.get(provider);
   if (cached) return cached;
-  const bundled = existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.js")) && !existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.ts"));
+  const packaged = !existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.ts"));
+  const dist = packaged ? SERVER_ROOT : join(SERVER_ROOT, "..", "dist-server");
+  const bundled = packaged || provider || existsSync(join(dist, "laterdog", "engine-relay.js"));
   const names = bundled ? ["engine-relay.js", "engine-proxy.js"] : ["engine-relay.ts", "engine-proxy.ts", "engine-files.ts", "build-output-path.ts"];
-  const files = names.map((name) => ({ name, bytes: readFileSync(join(SERVER_ROOT, "laterdog", name)) }));
-  if (provider) {
-    const entry = join(bundled ? SERVER_ROOT : join(SERVER_ROOT, "..", "dist-server"), "laterdog", "provider-guest.js");
-    files.push({ name: "provider-guest.mjs", bytes: readFileSync(entry) });
-  }
+  const files = names.map((name) => ({ name, bytes: readFileSync(join(bundled ? dist : SERVER_ROOT, "laterdog", name)) }));
+  if (provider) files.push({ name: "provider-guest.mjs", bytes: readFileSync(join(dist, "laterdog", "provider-guest.js")) });
   const hash = createHash("sha256");
   for (const file of files) hash.update(file.name).update("\0").update(file.bytes);
   const dir = `${REMOTE_ENGINE_BASE}/relay/${hash.digest("hex").slice(0, 16)}`;

@@ -1007,7 +1007,7 @@ const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstra
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
 const deskBrainRoute = deskVerify && deskPrompts ? createDeskBrainRoute({
   verify: deskVerify,
-  dogs: () => deskDogs({
+  dogs: () => remoteEngineChoice(DATA_DIR, "").required ? [] : deskDogs({
     bots: store.bots,
     prompt: (threadId) => deskPrompts.get(threadId),
     path: (threadId) => store.activePath(threadId),

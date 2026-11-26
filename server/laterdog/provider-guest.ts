@@ -24,8 +24,9 @@ async function handle(id: number, req: GuestRequest) {
     const driver = guestCliDriver(req.driver) ?? guestHttpDriver(req.driver, req.input);
     if (!driver || !req.input.enabled) throw new Error("This engine is unavailable on the computer.");
     thread = req.threadId;
-    provider = await driver.create(req.input);
-    provider.adapter.onEvent(event => {
+    const opened = await driver.create(req.input);
+    provider = opened;
+    opened.adapter.onEvent(event => {
       if (event.threadId === thread) write({ event });
     });
     return true;

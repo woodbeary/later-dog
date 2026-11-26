@@ -8,7 +8,7 @@ Started 2026-10-13. This file is the single place that says what is in progress,
 
 ## Cloud engine capacity, November 25
 
-The owner can set the home's default engine placement at `/api/engine-placement`. Individual dog choices take precedence. An eligible dog opens its own computer when a turn starts. The home keeps conversation history and serves tools. A connected native engine on a full-allowance computer can work across the two-hour command deadline and the normal awake limit. Its stream closes when the home disconnects. A resting Claude session releases its computer after the configured idle interval.
+The owner can set the home's default engine placement at `/api/engine-placement`. On a cloud home with computer placement enabled, every dog uses its assigned computer. Individual dog choices still apply on personal installations. An eligible dog opens its own computer when a turn starts. The home keeps conversation history, queues messages while an engine wakes, and serves the tools approved for each turn. Native sessions and the other provider adapters run on the computer, including the loop that calls tools and returns their results. A connected native engine on a full-allowance computer can work across the two-hour command deadline and the normal awake limit. Its stream closes when the home disconnects. A resting Claude session releases its computer after the configured idle interval.
 
 Two disposable Cloudflare computers qualified the native provider paths on November 25. Claude returned the requested marker. Codex called a home tool and resumed the same native conversation on a second turn. The production rollout and repository gate have separate receipts.
 

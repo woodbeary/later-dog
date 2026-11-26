@@ -53,6 +53,7 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
     const state = active.get(threadId);
     if (!state) return local.interruptTurn(threadId, turnId);
     state.stopped = true;
+    if (state.channel?.finishing) { await state.channel.closed; return; }
     if (!state.channel) return;
     if (!state.ready) { state.channel.abort(); await state.channel.closed; return; }
     try { await state.channel.request({ op: "interrupt", turnId }); } finally { await state.channel.dispose(); }
