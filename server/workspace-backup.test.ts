@@ -383,7 +383,7 @@ describe("encrypted full workspace backups", () => {
     expect(applyPendingWorkspaceRestore(target)).toEqual({ restored: false });
   });
 
-  it("rejects authenticated credential metadata, saved auth paths, and connection-bearing config", async () => {
+  it("rejects authenticated credential metadata", async () => {
     const source = directory();
     const exported = await createWorkspaceBackup(source, { password: PASSWORD });
     const staged = await stageWorkspaceBackup(source, exported.path, { password: PASSWORD });
@@ -395,30 +395,35 @@ describe("encrypted full workspace backups", () => {
       const path = encryptedPayload(source, Buffer.concat([tarEntry("manifest.json", "File", JSON.stringify({ ...base, ...variant })), tarEntry("data", "Directory"), Buffer.alloc(1024)]));
       await expect(stageWorkspaceBackup(directory(), path, { password: PASSWORD })).rejects.toThrow(/metadata/);
     }
-    for (const [name, content] of [
-      ["team-computers.json", '{"computers":[{"id":"foreign-computer","section":"Design"}]}'],
-      ["workspace-credentials.json", '{"xaiApiKey":"secret"}'],
-      ["external-runtimes.json", '{"bot-id":"external-runtime-secret"}'],
-      ["External-Runtimes.json", "external-runtime-secret"],
-      ["Sessions.json", "secret"],
-      ["Providers", "secret"],
-      ["Caddy", "secret"],
-      ["Browser-Engine-Key", "secret"],
-      ["vm-home/.Browser-Profiles", "secret"],
-      ["vm-homes/bot/.BROWSER-PROFILES", "secret"],
-      ["Config.json", '{"xai":{"key":"secret"}}'],
-      ["Webhooks.json", '{"webhooks":[{"secretHash":"secret"}]}'],
-      ["browser-engine-key", "secret"],
-      ["config.json", '{"xai":{"key":"secret","url":"https://source.example"}}'],
-      ["config.json", '{"futureAuth":{"field":"secret"}}'],
-      ["webhooks.json", '{"webhooks":[{"secretHash":"secret"}]}'],
-    ]) {
-      const entry = { path: name, type: "file", size: Buffer.byteLength(content), mode: 0o600, sha256: createHash("sha256").update(content).digest("hex") };
-      const parents = name.split("/").slice(0, -1).map((_part, index) => name.split("/").slice(0, index + 1).join("/"));
-      const manifest = { ...base, entries: [...parents.map((path) => ({ path, type: "directory", size: 0, mode: 0o700 })), entry], summary: { ...base.summary, directories: parents.length, files: 1, bytes: entry.size } };
-      const path = encryptedPayload(source, Buffer.concat([tarEntry("manifest.json", "File", JSON.stringify(manifest)), tarEntry("data", "Directory"), ...parents.map((parent) => tarEntry(`data/${parent}`, "Directory")), tarEntry(`data/${name}`, "File", content), Buffer.alloc(1024)]));
-      await expect(stageWorkspaceBackup(directory(), path, { password: PASSWORD })).rejects.toThrow(/Unsafe|connection settings|webhook credentials/);
-    }
+  });
+
+  it.each([
+    ["team-computers.json", '{"computers":[{"id":"foreign-computer","section":"Design"}]}'],
+    ["workspace-credentials.json", '{"xaiApiKey":"secret"}'],
+    ["external-runtimes.json", '{"bot-id":"external-runtime-secret"}'],
+    ["External-Runtimes.json", "external-runtime-secret"],
+    ["Sessions.json", "secret"],
+    ["Providers", "secret"],
+    ["Caddy", "secret"],
+    ["Browser-Engine-Key", "secret"],
+    ["vm-home/.Browser-Profiles", "secret"],
+    ["vm-homes/bot/.BROWSER-PROFILES", "secret"],
+    ["Config.json", '{"xai":{"key":"secret"}}'],
+    ["Webhooks.json", '{"webhooks":[{"secretHash":"secret"}]}'],
+    ["browser-engine-key", "secret"],
+    ["config.json", '{"xai":{"key":"secret","url":"https://source.example"}}'],
+    ["config.json", '{"futureAuth":{"field":"secret"}}'],
+    ["webhooks.json", '{"webhooks":[{"secretHash":"secret"}]}'],
+  ])("rejects authenticated credential paths and connection-bearing config: %s", async (name, content) => {
+    const source = directory();
+    const exported = await createWorkspaceBackup(source, { password: PASSWORD });
+    const staged = await stageWorkspaceBackup(source, exported.path, { password: PASSWORD });
+    const base = readJson(join(source, ".backups", staged.id, "staged", "manifest.json"));
+    const entry = { path: name, type: "file", size: Buffer.byteLength(content), mode: 0o600, sha256: createHash("sha256").update(content).digest("hex") };
+    const parents = name.split("/").slice(0, -1).map((_part, index) => name.split("/").slice(0, index + 1).join("/"));
+    const manifest = { ...base, entries: [...parents.map((path) => ({ path, type: "directory", size: 0, mode: 0o700 })), entry], summary: { ...base.summary, directories: parents.length, files: 1, bytes: entry.size } };
+    const path = encryptedPayload(source, Buffer.concat([tarEntry("manifest.json", "File", JSON.stringify(manifest)), tarEntry("data", "Directory"), ...parents.map((parent) => tarEntry(`data/${parent}`, "Directory")), tarEntry(`data/${name}`, "File", content), Buffer.alloc(1024)]));
+    await expect(stageWorkspaceBackup(directory(), path, { password: PASSWORD })).rejects.toThrow(/Unsafe|connection settings|webhook credentials/);
   });
 
   it("retains differently cased destination auth roots and refuses them in recovery journals", async () => {
