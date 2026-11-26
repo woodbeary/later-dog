@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import {
   chmod,
   lstat,
+  lchmod,
   mkdir,
   mkdtemp,
   open,
@@ -180,10 +181,8 @@ export async function visitFolder(
         const bytes = await readlink(path, { encoding: "buffer" }),
           target = bytes.toString("utf8");
         if (!Buffer.from(target).equals(bytes)) throw new Error("Working folder link cannot be represented in UTF-8");
-        e = {
-          ...recordedLink(name, target, folder, known?.tree.entries.get(name) ?? reference?.entries.get(name)),
-          mode: mode(s),
-        };
+        e = recordedLink(name, target, folder, known?.tree.entries.get(name) ?? reference?.entries.get(name));
+        if (process.platform !== "linux" || e.mode === undefined) e.mode = mode(s);
         if (target !== linkFor(e)) rematerialize.add(name);
       } else if (s.isFile()) {
         const cached = known?.tree.entries.get(name);
@@ -392,6 +391,7 @@ export async function applyFolder(
     async function install(e: WorkFolderEntry, path: string) {
       if (e.kind === "link") {
         await symlink(linkFor(e), path);
+        if (process.platform === "darwin" && e.mode !== undefined) await lchmod(path, e.mode);
         if (e.mtimeMs !== undefined) await lutimes(path, fileTime(e.mtimeMs), fileTime(e.mtimeMs));
       } else await link(material.get(e.path)!, path);
     }
