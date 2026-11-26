@@ -152,6 +152,7 @@ import { createJobWake } from "./laterdog/job-wake.ts";
 import { waitCapMs } from "./laterdog/run-wait.ts";
 import { HelperTurnBudget } from "./laterdog/turn-budget.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
+import { MachineSizeBook } from "./laterdog/machine-size.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
@@ -957,6 +958,7 @@ if (existsSync(join(DATA_DIR, ".backups"))) {
 }
 const workspaceMaintenance = new WorkspaceBackupMaintenance();
 const cloudHold = new CloudHold(join(DATA_DIR, "cloud-hold.json"));
+const machineSizes = new MachineSizeBook(join(DATA_DIR, "machine-sizes.json"));
 const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);
 const signInAllowList = cacheUntilConfigChanges((config) => ({
   admins: parseAllowList(config.signIn?.admins?.join(",")),
@@ -14120,9 +14122,10 @@ INTERNAL_ROUTES.push(createDogTaskRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   insideTask: (sender, threadId) => startedFromTask(store.taskByThread(sender.id, threadId)?.openedBy, sender.id),
   starter: (sender, threadId) => ({
-    open: (title, openedBy) => {
+    open: (title, openedBy, machine) => {
       const task = store.createTask(sender.id, title, false, undefined, openedBy, undefined, inheritedHelperSelection(sender, threadId));
       if (!task) return null;
+      if (machine) machineSizes.setTaskSize(sender.id, task.threadId, machine);
       threadStarters.set(task.threadId, openerFrom(threadId));
       return task.threadId;
     },

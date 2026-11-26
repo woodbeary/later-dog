@@ -340,6 +340,14 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 4000
+                },
+                "machine": {
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "large"
+                  ],
+                  "description": "large for code, builds, tests and app work; small for errands, research, writing and messages. Omit to choose from the folder."
                 }
               },
               "required": [
