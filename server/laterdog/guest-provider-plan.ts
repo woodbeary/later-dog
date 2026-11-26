@@ -66,7 +66,7 @@ export function guestProviderPlan(dataDir: string, driver: string, profile: Gues
         env: { HOME: "/home/dog", PATH: "/home/dog/.local/bin:/usr/local/bin:/usr/bin:/bin", LATERDOG_HOME: join(base, "providers", threadKey), ...profile.env },
         mcp, hooks: [], hookEnv: {}, proxyEnv: { PATH: process.env.PATH ?? "", HOME: homedir() },
         socketPath, stateFile: join(base, "state", threadKey + ".json"), lockFile: join(base, "locks", threadKey + ".lock"),
-        requireCompleteCheckpoint: roots.some(root => root.writable),
+        acknowledgedInput: true, requireCompleteCheckpoint: roots.some(root => root.writable),
       },
     };
     return { plan, turn: { ...turn, cwd, images, integrations, mcpFromUserConfig: false } };

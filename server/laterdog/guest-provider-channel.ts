@@ -8,7 +8,7 @@ export class GuestProviderChannel {
   private readonly pending = new Map<number, { done: (value: unknown) => void; fail: (error: Error) => void; read?: () => void }>();
   private ended = false;
   private turnId?: string;
-  private completed = false;
+  private completion?: Extract<RuntimeEvent, { type: "turn.completed" }>;
   private sending = false;
   private disposing?: Promise<void>;
   readonly closed: Promise<void>;
@@ -36,7 +36,8 @@ export class GuestProviderChannel {
       const error = new Error(reason);
       for (const call of this.pending.values()) call.fail(error);
       this.pending.clear();
-      if (this.turnId && !this.completed) {
+      if (this.completion && engine.exitCode === 0) publish(this.completion);
+      else if (this.turnId) {
         const base = { threadId, turnId: this.turnId, provider: driver, providerInstanceId: instanceId, createdAt: new Date().toISOString() };
         publish({ ...base, eventId: newEventId(), type: "runtime.error", message: reason, terminal: true });
         publish({ ...base, eventId: newEventId(), type: "turn.completed", ok: false, stopReason: "disconnected" });
@@ -52,9 +53,10 @@ export class GuestProviderChannel {
     if (event) {
       if (event.threadId !== this.threadId || event.provider !== this.driver || (event.providerInstanceId && event.providerInstanceId !== this.instanceId)) return;
       if (event.type === "turn.started") this.turnId = event.turnId;
-      if (event.type === "turn.completed") this.completed = true;
-      this.publish({ ...event, providerInstanceId: this.instanceId });
-      if (this.completed && !this.sending) void this.dispose();
+      if (event.type === "turn.completed") {
+        this.completion = { ...event, providerInstanceId: this.instanceId };
+        if (!this.sending) void this.dispose();
+      } else this.publish({ ...event, providerInstanceId: this.instanceId });
       return;
     }
     if (frame.read !== undefined) { this.pending.get(frame.read)?.read?.(); return; }
@@ -87,13 +89,13 @@ export class GuestProviderChannel {
       return result;
     } finally {
       this.sending = false;
-      if (this.completed) void this.dispose();
+      if (this.completion) void this.dispose();
     }
   }
 
   abort() { this.engine.kill(); }
 
-  get finishing() { return this.completed || Boolean(this.disposing); }
+  get finishing() { return Boolean(this.completion) || Boolean(this.disposing); }
 
   dispose(): Promise<void> {
     return this.disposing ??= (async () => {
