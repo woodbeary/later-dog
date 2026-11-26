@@ -153,3 +153,26 @@ describe("sharded conversation operations", () => {
     db.close();
   });
 });
+
+it("finds stale approval candidates and derives anchored windows and branch versions from the shard",()=>{
+  const {db,run}=fixture();
+  const rows=[
+    {id:"first",at:1,role:"user",kind:"text",text:"one"},
+    {id:"answer",at:2,role:"bot",kind:"text",text:"two"},
+    {id:"earlier",at:3,role:"user",kind:"text",parentId:"answer"},
+    {id:"active",at:4,role:"user",kind:"text",parentId:"answer"},
+    {id:"prompt",at:5,role:"bot",kind:"options",card:{tool:"ask_bot",requestId:"id"}}
+  ];
+  try{
+    run({op:"messages.import",messages:rows,leaf:"active"});
+    expect(run({op:"messages.hasCards"})).toBe(true);
+    const info=run({op:"messages.navigation",around:"active",limit:3}) as {versions:unknown;activeLeafId:string;firstAfter:string|null;hasMore:boolean;limit:number};
+    expect(info).toMatchObject({activeLeafId:"active",limit:3,hasMore:true,firstAfter:null,versions:{earlier:{index:1,count:2,ids:["earlier","active"]},active:{index:2,count:2,ids:["earlier","active"]}}});
+    const before=run({op:"messages.navigation",before:"earlier",limit:2}) as typeof info;
+    const page=run({op:"messages.page",backward:true,normalize:true,limit:before.limit,after:before.firstAfter}) as {messages: {id:string;parentId:string|null}[]};
+    expect(page.messages.map(m=>[m.id,m.parentId])).toEqual([["answer","first"],["first",null]]);
+    expect(run({op:"messages.navigation",around:"absent",limit:1})).toBe(null);
+    run({op:"messages.update",message:{...rows.at(-1),card:{answered:"deny"}}});
+    expect(run({op:"messages.hasCards"})).toBe(false);
+  }finally{db.close();}
+});

@@ -142,7 +142,7 @@ import { HOME_SERVER_LOG_DIR, installHomeServerLog } from "./laterdog/home-serve
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
-import { preloadHistoryActivity } from "./laterdog/history-client.ts";
+import { historyManyAsync, isRemoteHistory, preloadHistoryActivity } from "./laterdog/history-client.ts";
 import { liveStepsFrom } from "./laterdog/live-step.ts";
 import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
@@ -11125,12 +11125,13 @@ function endFullAccessAll(): void {
 }
 
 {
-  const stale = dismissStalePeerCards(approvalBus);
-  if (stale) console.log(`peer approvals: dismissed ${stale} card(s) left by a previous run`);
   const threadIds = new Set<string>();
   for (const bot of store.bots) for (const threadId of [bot.threadId, ...(bot.tasks ?? []).map((task) => task.threadId)]) threadIds.add(threadId);
   for (const group of store.groups) for (const threadId of [group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)]) threadIds.add(threadId);
-  const staleMac = macApprovals.dismissStale(threadIds);
+  const candidates=isRemoteHistory()?(await historyManyAsync<boolean>([...threadIds],{op:"messages.hasCards"})).filter(entry=>entry.result).map(entry=>entry.threadId):threadIds;
+  const stale=dismissStalePeerCards(approvalBus,candidates);
+  if(stale)console.log(`peer approvals: dismissed ${stale} card(s) left by a previous run`);
+  const staleMac = macApprovals.dismissStale(candidates);
   if (staleMac) console.log(`mac approvals: closed ${staleMac} card(s) left by a previous run`);
 }
 

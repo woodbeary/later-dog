@@ -1,3 +1,4 @@
+import { conversationVersions } from "../../shared/history-navigation.ts";
 import type { Message } from "../store.ts";
 
 export type RewindAction = "hold" | "resend" | "send";
@@ -48,21 +49,7 @@ export function versionOf(messages: readonly Message[], message: Pick<Message, "
 }
 
 export function branchVersions(messages: readonly Message[], activeLeafId: string | null): Record<string, BranchVersion> {
-  const forks = new Map<string | null, Message[]>();
-  for (const message of messages) {
-    if (!isPersonText(message)) continue;
-    const parent = parentOf(message);
-    forks.set(parent, [...(forks.get(parent) ?? []), message]);
-  }
-  const versions: Record<string, BranchVersion> = {};
-  for (const message of pathTo(messages, activeLeafId)) {
-    if (!isPersonText(message)) continue;
-    const siblings = forks.get(parentOf(message));
-    if (!siblings || siblings.length < 2) continue;
-    const ids = [...siblings].sort((a, b) => a.at - b.at).map((sibling) => sibling.id);
-    for (const id of ids) versions[id] = { index: ids.indexOf(id) + 1, count: ids.length, ids };
-  }
-  return versions;
+  return conversationVersions(messages,activeLeafId);
 }
 
 export function leftInPlace(dropped: readonly Message[]): LeftInPlace {

@@ -1,3 +1,4 @@
+import { historyNavigation } from "./history-navigation.ts";
 import { acceptedHistoryCommand, historyCommandHead, historyCommandPage, journalHistoryCommand } from "./history-command-journal.ts";
 import { historyRecallStats, rankedHistoryRecall, type RecallCorpus } from "./history-recall.ts";
 import { HISTORY_TABLES, type HistoryRow } from "./history-migration.ts";
@@ -116,7 +117,11 @@ function readPage(sql: HistorySql, thread: string, o: HistoryOperation) {
     }
     const raw = readHistoryValue(sql, "messages", r.rid, "json", r.json);
     bytes += raw.length * 2;
-    messages.push(JSON.parse(raw));
+    const message=JSON.parse(raw);
+    if(o.normalize===true&&message.parentId===undefined){
+      message.parentId=first(sql.exec<{id:string}>("SELECT id FROM messages WHERE thread_id=? AND rowid<CAST(? AS INTEGER) ORDER BY rowid DESC LIMIT 1",thread,r.rid))?.id??null;
+    }
+    messages.push(message);
     last = r.rid;
   }
   return { messages, next: more ? last : null, hasMore: more, activeLeafId: leaf(sql, thread) };
@@ -128,6 +133,7 @@ export function executeHistoryOperation(
   allocate: HistoryAllocator,
 ): unknown {
   switch (o.op) {
+    case "messages.navigation":return historyNavigation(sql,thread,o);
     case "messages.page":
       return readPage(sql, thread, o);
     case "messages.insert":
@@ -223,6 +229,7 @@ export function executeHistoryOperation(
           ),
         )?.at ?? null
       );
+    case "messages.hasCards":return !!first(sql.exec("SELECT 1 FROM messages WHERE thread_id=? AND json_type(json,'$.card')='object' AND COALESCE(json_extract(json,'$.card.answered'),'') IN ('',0) AND COALESCE(json_extract(json,'$.card.dismissed'),0)=0 LIMIT 1",thread));
     case "messages.cards": {
       const where = o.permission
         ? "json_extract(json,'$.card.requestType')='permission' AND json_extract(json,'$.card.answered') IS NULL AND COALESCE(json_extract(json,'$.card.dismissed'),0)=0 AND COALESCE(json_extract(json,'$.card.expired'),0)=0"
