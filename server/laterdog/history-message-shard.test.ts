@@ -204,3 +204,11 @@ it("preserves work indicator order while leaving conversation bodies off an idle
     expect(JSON.stringify(rows)).not.toContain("private message");expect(JSON.stringify(rows).length).toBeLessThan(1000);
   }finally{db.close();}
 });
+
+it("marks search results on the same active branch as the normal conversation path",()=>{
+  const {db,run}=fixture();
+  try{
+    run({op:"messages.import",messages:[{id:"one",at:1,role:"user",kind:"text",text:"find me"},{id:"two",parentId:"one",at:2,role:"bot",kind:"text",text:"find me"},{id:"three",parentId:"one",at:3,role:"bot",kind:"text",text:"find me"}],leaf:"two"});
+    expect((run({op:"messages.search",query:"find me",activePath:true}) as Array<{messageId:string;onActivePath:boolean}>).map(h=>[h.messageId,h.onActivePath])).toEqual([["three",false],["two",true],["one",true]]);
+  }finally{db.close();}
+});

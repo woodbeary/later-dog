@@ -17179,7 +17179,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const bot = store.botByThread(hit.threadId);
           const group = bot ? undefined : store.groupByThread(hit.threadId);
           if (!bot && !group) return null;
-          const active = onActivePath(hit.threadId, hit.messageId);
+          const active = hit.onActivePath??onActivePath(hit.threadId,hit.messageId);
           if (bot) {
             const task = store.taskByThread(bot.id, hit.threadId);
             return { ...hit, botId: bot.id, name: bot.name, task: task?.title, onActivePath: active };

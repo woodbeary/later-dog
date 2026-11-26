@@ -37,8 +37,17 @@ export function conversationVersions(messages: readonly BranchPoint[], leaf: str
   return versions;
 }
 
-export function historyNavigation(sql: HistorySql, thread: string, op: HistoryOperation) {
-  type Point = { id:string; parentId:string|null;role:string;kind:string;at:number;rid:string;defined:number;overflow:number };
+function branchPoints(sql: HistorySql, thread: string) {
+  type Point = {
+    id: string;
+    parentId: string | null;
+    role: string;
+    kind: string;
+    at: number;
+    rid: string;
+    defined: number;
+    overflow: number;
+  };
   const nodes: Point[] = [];
   let previous: string | null = null;
   for (const node of sql.exec<Point>(
@@ -56,6 +65,21 @@ export function historyNavigation(sql: HistorySql, thread: string, op: HistoryOp
     Array.from(
       sql.exec<{ leaf: string | null }>("SELECT active_leaf_id AS leaf FROM thread_state WHERE thread_id=?", thread),
     )[0]?.leaf ?? previous;
+  return { nodes, leaf };
+}
+export function activeHistoryIds(sql: HistorySql, thread: string) {
+  const { nodes, leaf } = branchPoints(sql, thread);
+  const parents = new Map(nodes.map((node) => [node.id, node.parentId])),
+    ids = new Set<string>();
+  let id = leaf;
+  while (id && parents.has(id) && !ids.has(id)) {
+    ids.add(id);
+    id = parents.get(id) ?? null;
+  }
+  return ids;
+}
+export function historyNavigation(sql: HistorySql, thread: string, op: HistoryOperation) {
+  const { nodes, leaf } = branchPoints(sql, thread);
   const before = typeof op.before === "string" ? op.before : undefined,
     around = typeof op.around === "string" ? op.around : undefined;
   const id = around ?? before,

@@ -1,7 +1,7 @@
 import { historyAttentionTail } from "./history-attention.ts";
 import { historyStartupFacts } from "./history-startup.ts";
 import { historyHasUnansweredCards } from "./history-card-filter.ts";
-import { historyNavigation } from "./history-navigation.ts";
+import { activeHistoryIds, historyNavigation } from "./history-navigation.ts";
 import { acceptedHistoryCommand, historyCommandHead, historyCommandPage, journalHistoryCommand } from "./history-command-journal.ts";
 import { historyRecallStats, rankedHistoryRecall, type RecallCorpus } from "./history-recall.ts";
 import { HISTORY_TABLES, type HistoryRow } from "./history-migration.ts";
@@ -320,7 +320,9 @@ function queryMessages(sql: HistorySql, thread: string, o: HistoryOperation) {
       });
       if (hits.length === limit) break;
     }
-    return hits;
+    if(!hits.length || !o.activePath)return hits;
+    const active=activeHistoryIds(sql,thread);
+    return hits.map(hit=>({...hit,onActivePath:active.has(hit.messageId)}));
   }
   if (o.op === "messages.recent" || o.op === "messages.latestBot") {
     const latest = o.op === "messages.latestBot";

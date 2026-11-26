@@ -53,13 +53,13 @@ function searchHits(rows: { result: (SearchHit & { rid?: string })[] }[], limit:
 }
 export function remoteSearch(query: string, limit: number, thread?: string) {
   return searchHits(
-    historyMany<SearchHit[]>(thread ? [thread] : undefined, { op: "messages.search", query, limit }),
+    historyMany<SearchHit[]>(thread ? [thread] : undefined, { op: "messages.search", query, limit,activePath:true }),
     limit,
   );
 }
 export async function remoteSearchAsync(query: string, limit: number, thread?: string) {
   return searchHits(
-    await historyManyAsync<SearchHit[]>(thread ? [thread] : undefined, { op: "messages.search", query, limit }),
+    await historyManyAsync<SearchHit[]>(thread ? [thread] : undefined, { op: "messages.search", query, limit,activePath:true }),
     limit,
   );
 }
