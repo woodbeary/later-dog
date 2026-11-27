@@ -239,6 +239,17 @@ export function syncMemoryIndex(botId: string): void {
   memoryIndexDates.set(botId, today);
 }
 
+export function syncMemoryIndexFrom(botId: string, files: ReadonlyMap<string, { text: string; mtimeMs: number; bytes: number }>): void {
+  const indexed = new Map(indexedMemoryFiles(botId).map((file) => [file.path, file]));
+  for (const [path, file] of files) {
+    const known = indexed.get(path);
+    indexed.delete(path);
+    if (known && known.bytes === file.bytes && known.mtimeMs === Math.trunc(file.mtimeMs)) continue;
+    indexMemoryFile(botId, path, searchableMemoryText(path, file.text), { mtimeMs: file.mtimeMs, bytes: file.bytes });
+  }
+  for (const gone of indexed.keys()) removeMemoryFile(botId, gone);
+}
+
 export function searchMemoryFiles(botId: string, query: string, limit = 12, mode: SearchMode = "all"): MemoryHit[] {
   syncMemoryIndex(botId);
   return recallMemory(query, botId, limit, mode);

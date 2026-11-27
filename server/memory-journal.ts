@@ -390,6 +390,15 @@ async function currentDocsInBackground(botId: string): Promise<Map<string, strin
   return new Map(paths.filter((path) => docs.has(path)).map((path) => [path, docs.get(path)!]));
 }
 
+export function memorySnapshotFiles(botId: string): Map<string, { text: string; mtimeMs: number; bytes: number }> {
+  const files = new Map<string, { text: string; mtimeMs: number; bytes: number }>();
+  for (const [path, { stamp, text }] of seenDocs.get(botId) ?? []) {
+    const [bytes, mtimeMs] = stamp.split(":").map(Number);
+    files.set(path, { text, mtimeMs: mtimeMs!, bytes: bytes! });
+  }
+  return files;
+}
+
 function reconcile(botId: string, actor: MemoryActor, via: string, threadId: string | undefined, unknownIsNew: boolean, docs = currentDocs(botId)): MemoryJournalEntry[] {
   const baseline = baselineFor(botId);
   const rows: MemoryJournalEntry[] = [];
