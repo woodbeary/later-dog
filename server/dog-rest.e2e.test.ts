@@ -129,6 +129,17 @@ it("lets a Full-access dog move another dog to Recently deleted and back with no
     expect(back?.hidden).toBeFalsy();
     expect((await messages(target.activeTaskId)).map((message) => message.id)).toEqual(before);
     expect(readFileSync(memoryFile, "utf8")).toContain("The kettle is blue.");
+    await run(caller, caller.activeTaskId, "delete Biscuit again", [step("delete_bot", { bot_id: target.id })]);
+    const listed = (await api("GET", "/api/recently-deleted")).dogs;
+    expect(listed).toEqual([expect.objectContaining({ id: target.id, name: "Biscuit" })]);
+    expect(listed[0].purgeAt - listed[0].at).toBe(30 * 24 * 60 * 60_000);
+    expect((await api("POST", `/api/recently-deleted/${target.id}/restore`)).dogs).toEqual([]);
+    expect((await bots()).find((bot) => bot.id === target.id)?.hidden).toBeFalsy();
+    await run(caller, caller.activeTaskId, "and once more", [step("delete_bot", { bot_id: target.id })]);
+    await api("PATCH", `/api/bots/${target.id}`, { hidden: false });
+    expect((await api("GET", "/api/recently-deleted")).dogs).toEqual([]);
+    expect((await bots()).find((bot) => bot.id === target.id)?.hidden).toBeFalsy();
+    expect((await messages(target.activeTaskId)).map((message) => message.id)).toEqual(before);
     const plan = providerTurns().find((turn) => turn.botId === caller.id && turn.evidence.some((entry: any) => entry.step?.tool === "restore_bot"));
     expect(JSON.stringify(plan.evidence)).toContain("Biscuit");
   } finally {
