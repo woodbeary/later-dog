@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { writeFileAtomic } from "../atomic.ts";
 import { basename, join } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -21,6 +21,28 @@ export const POOL_PING_MS = 15_000;
 export const POOL_SILENT_MS = 45_000;
 export const POOL_EXIT_LINE = JSON.stringify({ type: "native_exit", code: null, signal: "SIGKILL" });
 const CLAUDE_CLI = "@anthropic-ai/claude-code";
+export const POOL_AVOID_MS = 10 * 60_000;
+export const POOL_LOST_REASON = "engine machine lost";
+export const POOL_NOTE = "\n\nWhere you work: this chat runs on a shared engine machine. Your built-in file, search and shell tools act on a scratch folder there, not on your working folder, and that scratch folder can be cleared at any time. For your own files use the folder tool (list, read, search, write, edit, delete). For builds, tests, installs and long or heavy commands use run_on_computer.\n";
+const poolLosses = new Map<string, { at: number; taken: boolean; avoid: boolean }>();
+const CLEAN_CLOSES = ["closed by the home", "pool relay exited 0", "pool closed the engine: idle", "pool closed the engine: closed"];
+const MEMORY_CLOSE = "pool closed the engine: memory";
+
+export function notePoolLoss(botId: string, threadId: string, why = "", now = Date.now()): void {
+  poolLosses.set(poolChat(botId, threadId), { at: now, taken: false, avoid: why !== MEMORY_CLOSE });
+}
+
+export function poolAvoided(botId: string, threadId: string, now = Date.now()): boolean {
+  const loss = poolLosses.get(poolChat(botId, threadId));
+  return loss !== undefined && loss.avoid && now - loss.at < POOL_AVOID_MS;
+}
+
+export function takePoolLoss(botId: string, threadId: string, now = Date.now()): boolean {
+  const loss = poolLosses.get(poolChat(botId, threadId));
+  if (!loss || loss.taken || now - loss.at > 2 * 60_000) return false;
+  loss.taken = true;
+  return true;
+}
 
 export function poolChosen(dataDir: string, botId: string): boolean {
   return poolChosenFrom(poolSetting(dataDir), botId);
@@ -127,7 +149,7 @@ export function attachPool(socket: WebSocket, signal?: AbortSignal): Promise<Web
   });
 }
 
-export function poolLink(socket: WebSocket, stop: () => Promise<boolean>, timing: { pingMs: number; silentMs: number } = { pingMs: POOL_PING_MS, silentMs: POOL_SILENT_MS }): EngineLink {
+export function poolLink(socket: WebSocket, stop: () => Promise<boolean>, timing: { pingMs: number; silentMs: number } = { pingMs: POOL_PING_MS, silentMs: POOL_SILENT_MS }, onLost?: (why: string) => void): EngineLink {
   const link = new EventEmitter() as EngineLink;
   let closed = false;
   let partial: Buffer = Buffer.alloc(0);
@@ -139,6 +161,7 @@ export function poolLink(socket: WebSocket, stop: () => Promise<boolean>, timing
     if (closed) return;
     closed = true;
     clearInterval(beat);
+    if (!CLEAN_CLOSES.includes(why)) onLost?.(why);
     try { socket.terminate(); } catch {}
     void stop().catch(() => false).then((stopped) => {
       if (stopped) deliver(POOL_EXIT_LINE);
@@ -212,6 +235,9 @@ export function poolLaunch(plan: ClaudeRemotePlan, slot: number, computerProxy: 
   launch.stateFile = rebase(launch.stateFile);
   launch.lockFile = rebase(launch.lockFile);
   delete launch.workFolders;
+  const promptAt = launch.args.indexOf("--append-system-prompt-file") + 1;
+  const promptFile = promptAt > 0 ? launch.args[promptAt] : undefined;
+  if (promptFile && promptFile.startsWith(`${plan.stagingDir}/`)) appendFileSync(promptFile, POOL_NOTE);
   const configDir = launch.roots.find((root) => root.id === "account")?.path;
   const projects = configDir ? `${testRoot}${configDir}/projects/${claudeProjectSlug(`${testRoot}${launch.cwd}`)}` : null;
   launch.roots = launch.roots.filter((root) => root.id !== "bot" && root.id !== "bot-workspace").map((root) => {
@@ -233,7 +259,7 @@ export function poolLaunch(plan: ClaudeRemotePlan, slot: number, computerProxy: 
   mkdirSync(plan.stagingDir, { recursive: true, mode: 0o700 });
 }
 
-export async function openOnPool(pool: PoolService, botId: string, plan: ClaudeRemotePlan, computerProxy: string, signal?: AbortSignal, layout: PoolLayout = POOL_LAYOUT): Promise<{ link: EngineLink; state: string; slot: number }> {
+export async function openOnPool(pool: PoolService, botId: string, plan: ClaudeRemotePlan, computerProxy: string, signal?: AbortSignal, layout: PoolLayout = POOL_LAYOUT, onLost?: (why: string) => void): Promise<{ link: EngineLink; state: string; slot: number }> {
   const chat = poolChat(botId, plan.threadId);
   const env = { LATERDOG_ENGINE_FILES: relayFiles() };
   for (let attempt = 0; ; attempt++) {
@@ -246,7 +272,7 @@ export async function openOnPool(pool: PoolService, botId: string, plan: ClaudeR
     try {
       const socket = await pool.stream(chat, signal);
       poolLaunch(plan, opened.slot, computerProxy, layout);
-      return { link: poolLink(socket, () => pool.close(chat)), state: opened.state ?? "cold", slot: opened.slot };
+      return { link: poolLink(socket, () => pool.close(chat), undefined, onLost), state: opened.state ?? "cold", slot: opened.slot };
     } catch (error) {
       if (attempt === 0 && error instanceof PoolNotWarm && !signal?.aborted) continue;
       await pool.close(chat);
@@ -264,11 +290,18 @@ export function poolEngineOpener(computer: EngineOpener, dataDir: string, servic
     async open(botId, plan, signal) {
       if (!poolChosen(dataDir, botId) || !poolFits(plan)) return computer.open(botId, plan, signal);
       const who = `${botId.slice(0, 8)} ${plan.threadId.slice(0, 8)}`;
+      if (poolAvoided(botId, plan.threadId)) {
+        notePlacement(dataDir, `[pool] ${who} uses the dog's computer: the pool lost this chat's engine in the last ${POOL_AVOID_MS / 60_000} minutes`);
+        return computer.open(botId, plan, signal);
+      }
       const began = Date.now();
       try {
         const pool = service();
         if (!pool) throw new Error("this home has no computers service for the pool");
-        const opened = await openOnPool(pool, botId, plan, computer.proxyPath, signal);
+        const opened = await openOnPool(pool, botId, plan, computer.proxyPath, signal, POOL_LAYOUT, (why) => {
+          notePoolLoss(botId, plan.threadId, why);
+          notePlacement(dataDir, `[pool] ${who} lost its pool engine (${why})${why === MEMORY_CLOSE ? "" : `; this chat uses the dog's computer for ${POOL_AVOID_MS / 60_000} minutes`}`);
+        });
         notePlacement(dataDir, `[pool] ${who} engine opened on pool slot ${opened.slot} in ${Date.now() - began} ms`);
         return opened.link;
       } catch (error) {
