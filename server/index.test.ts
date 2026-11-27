@@ -11380,14 +11380,16 @@ describe("bot memory API", () => {
       const insert = history.prepare("INSERT INTO messages (thread_id, id, at, role, kind, text, json) VALUES (?, ?, ?, ?, ?, ?, ?)");
       const pad = "x".repeat(1_500);
       const rows = 120_000;
-      const start = Date.now() - 36 * 3_600_000;
-      history.exec("BEGIN");
+      const start = Date.now() + 3_600_000 - rows * 1_000;
       for (let index = 0; index < rows; index += 1) {
+        if (index % 5_000 === 0) history.exec("BEGIN");
         const text = index % 4 === 0 ? `archived note ${index} about the quarterly ledger` : null;
         insert.run(other.threadId, `bulk-${index}`, start + index * 1_000, "bot", text ? "text" : "activity", text, JSON.stringify({ id: `bulk-${index}`, pad }));
+        if (index % 5_000 === 4_999) {
+          history.exec("COMMIT");
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
       }
-      history.exec("COMMIT");
-      await new Promise((resolve) => setTimeout(resolve, 100));
       const token = await mintTestCapability(BASE, bot.id, bot.threadId);
       let slowestHealth = 0;
       let settled = false;
@@ -11402,6 +11404,7 @@ describe("bot memory API", () => {
       }
       const answer = await searching;
       const body = (await answer.json()) as { cross?: boolean; hits?: Array<{ threadId: string }>; error?: string };
+      expect(slowestHealth).toBeLessThan(100);
       if (answer.status === 200) {
         expect(body.cross).toBe(true);
         expect(body.hits!.length).toBe(18);
@@ -11410,7 +11413,6 @@ describe("bot memory API", () => {
         expect(answer.status).toBe(503);
         expect(body.error).toMatch(/^Searching took too long\. Try a narrower search/);
       }
-      expect(slowestHealth).toBeLessThan(100);
     } finally {
       history.prepare("DELETE FROM messages WHERE thread_id = ?").run(other.threadId);
       history.close();
