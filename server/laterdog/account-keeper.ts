@@ -217,6 +217,13 @@ export function createAccountKeeper(options: AccountKeeperOptions): AccountKeepe
   };
 }
 
+export function grokRenewalCommand(cli: string): string | null {
+  const words = splitCliString(cli);
+  const kept = words.filter((word, index) => !word.startsWith("--agent-profile") && words[index - 1] !== "--agent-profile");
+  if (!kept.length || kept.some(word => word.includes('"'))) return null;
+  return kept.map(word => `"${word}"`).join(" ");
+}
+
 const configOf = (value: unknown): Record<string, unknown> => record(value);
 
 export function keptAccounts(instances: InstanceConfigMap, held: (instanceId: string) => boolean, dataDir: string, base: NodeJS.ProcessEnv = process.env): KeptAccount[] {
@@ -241,9 +248,9 @@ export function keptAccounts(instances: InstanceConfigMap, held: (instanceId: st
       out.push({ instanceId, kind: "codex", handedOver, read: () => readCodexSignIn(home), renewsEarly: true, renew: async () => { await renewCodex(command, env); } });
     } else if (entry.driver === "grokAgent") {
       const file = join(grokHome(env), "auth.json");
-      const binary = splitCliString(cli ?? "grok")[0];
+      const command = grokRenewalCommand(cli ?? "grok");
       out.push({ instanceId, kind: "grok", handedOver, read: () => readGrokSignIn(file), renew: async (earlyBy) => {
-        if (binary) await currentGrokLogin(file, binary, Date.now() + earlyBy);
+        if (command) await currentGrokLogin(file, command, Date.now() + earlyBy);
       } });
     }
   }

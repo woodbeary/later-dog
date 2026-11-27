@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { createAccountKeeper, createSignInRoutes, due, jwtExpiry, keeperRenewing, keptAccounts, readCodexSignIn, readGrokSignIn, type KeptAccount, type SavedSignIn } from "./account-keeper.ts";
+import { createAccountKeeper, createSignInRoutes, due, grokRenewalCommand, jwtExpiry, keeperRenewing, keptAccounts, readCodexSignIn, readGrokSignIn, type KeptAccount, type SavedSignIn } from "./account-keeper.ts";
 
 const scratch: string[] = [];
 afterEach(() => { for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -209,4 +209,11 @@ it("switches renewals with the owner's route and stays read-only for others", as
   expect((await call("PUT", true, { renew: "yes" })).status).toBe(400);
   expect(await call("PUT", true, { renew: true })).toEqual({ status: 200, body: { renewing: true, accounts: [] } });
   expect(keeperRenewing(file)).toBe(true);
+});
+
+it("renews Grok with the account's own command, without its profile flags", () => {
+  expect(grokRenewalCommand("grok")).toBe('"grok"');
+  expect(grokRenewalCommand("/opt/grok --agent-profile work")).toBe('"/opt/grok"');
+  expect(grokRenewalCommand('"/opt/x y/grok" --agent-profile=work')).toBe('"/opt/x y/grok"');
+  expect(grokRenewalCommand("node /data/grok.js")).toBe('"node" "/data/grok.js"');
 });
