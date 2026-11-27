@@ -172,7 +172,7 @@ it("keeps an unconfirmed remote dispatch across restart until its own completion
   expect(first.has()).toBe(false);
 });
 
-it("places the normal task workspace and rejects other chats and linked paths", () => {
+it("places the normal task workspace and rejects other chats and linked paths", async () => {
   const data = mkdtempSync(join(tmpdir(), "codex-placement-"));
   onTestFinished(() => rmSync(data, { recursive: true, force: true }));
   const dog = join(data, "workspaces", "dog");
@@ -180,11 +180,11 @@ it("places the normal task workspace and rejects other chats and linked paths", 
   const sibling = join(data, "task-workspaces", "dog", "other");
   for (const path of [dog, task, sibling]) mkdirSync(path, { recursive: true });
   symlinkSync(sibling, join(task, "linked"), "dir");
-  expect(codexComputerWorkspace(data, "dog", "chat", dog)).toBe(true);
-  expect(codexComputerWorkspace(data, "dog", "chat", task)).toBe(true);
-  expect(codexComputerWorkspace(data, "dog", "chat", sibling)).toBe(false);
-  expect(codexComputerWorkspace(data, "dog", "chat", join(task, "linked"))).toBe(false);
-  expect(codexComputerWorkspace(data, "other", "chat", dog)).toBe(false);
+  expect(await codexComputerWorkspace(data, "dog", "chat", dog)).toBe(true);
+  expect(await codexComputerWorkspace(data, "dog", "chat", task)).toBe(true);
+  expect(await codexComputerWorkspace(data, "dog", "chat", sibling)).toBe(false);
+  expect(await codexComputerWorkspace(data, "dog", "chat", join(task, "linked"))).toBe(false);
+  expect(await codexComputerWorkspace(data, "other", "chat", dog)).toBe(false);
 });
 
 it("after a first start that never saved its session, the retry fetches it from the computer or starts fresh instead of refusing", async () => {

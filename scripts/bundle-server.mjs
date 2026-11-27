@@ -36,6 +36,7 @@ const ENTRY_POINTS = [
   "index.ts",
   "message-search.worker.ts",
   "skills-prompt.worker.ts",
+  "skills.worker.ts",
   "laterdog.ts",
   "pair-cli.ts",
   "workspace-backup.worker.ts",

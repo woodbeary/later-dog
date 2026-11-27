@@ -1236,7 +1236,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           ...mcpArgsIdentity,
           command: method === "execCommandApproval" || method === "item/commandExecution/requestApproval"
             ? permissionCommand(params.command, params.cwd ?? (
-              !params.threadId || params.threadId === codexThreadId ? commandCwd : undefined
+              !params.threadId || params.threadId === codexThreadId ? commandCwd() : undefined
             )) : undefined,
           choices,
           ...(protocolQuestions ? { questions: protocolQuestions.map((pair) => pair.question) } : {}),

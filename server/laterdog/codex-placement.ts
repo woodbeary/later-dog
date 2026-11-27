@@ -9,12 +9,13 @@ import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { ChangedCodexCheckpoint, codexCheckpoint } from "./codex-checkpoint.ts";
 import { codexExternalAccount } from "./codex-external-auth.ts";
 import { MissingCodexSession, validatedCodexRollout } from "./codex-rollout.ts";
-import { botFolderRoot, engineCliPackage, REMOTE_ENGINE_BASE, type EngineOpener, type PlacedEnginePlan } from "./engine-placement.ts";
+import { realFolderPath } from "./dog-mounts.ts";
+import { botFolderPresent, botFolderRoot, engineCliPackage, REMOTE_ENGINE_BASE, type EngineOpener, type PlacedEnginePlan } from "./engine-placement.ts";
 import type { StdioSpec } from "./engine-remote.ts";
 
 const quoted = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
 
-export function codexComputerWorkspace(dataDir: string, bot: string, thread: string, cwd: string): boolean {
+export async function codexComputerWorkspace(dataDir: string, bot: string, thread: string, cwd: string): Promise<boolean> {
   if (![bot, thread].every(value => /^[\w-]{1,128}$/.test(value))) return false;
   const data = resolve(dataDir);
   const folder = resolve(cwd);
@@ -23,7 +24,8 @@ export function codexComputerWorkspace(dataDir: string, bot: string, thread: str
     return rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel);
   });
   if (!owned) return false;
-  try { return realpathSync(folder) === join(realpathSync(data), relative(data, folder)); }
+  const real = await realFolderPath(folder);
+  try { return real !== undefined && real === join(realpathSync(data), relative(data, folder)); }
   catch { return false; }
 }
 
@@ -63,7 +65,7 @@ export async function planCodexRemote(input: CodexPlacement) {
   const cli = engineCliPackage(input.cli, input.env.PATH, "@openai/codex");
   if (!cli) return { stay: "the selected Codex CLI package could not be identified" } as const;
   const cwd = resolve(input.cwd);
-  if (!codexComputerWorkspace(input.dataDir, input.botId, input.threadId, cwd)) return { stay: "this working folder is outside the dog's cloud workspace" } as const;
+  if (!await codexComputerWorkspace(input.dataDir, input.botId, input.threadId, cwd)) return { stay: "this working folder is outside the dog's cloud workspace" } as const;
   let fresh = false;
   if (input.cursor && input.required) {
     try { bound = await binding.bindSaved(input.cursor, cwd); }
@@ -97,7 +99,7 @@ export async function planCodexRemote(input: CodexPlacement) {
       socketPath, stateFile: `${remoteBase}/state/${binding.key}.json`, lockFile: `${remoteBase}/locks/${binding.key}.lock`,
     },
   };
-  const botRoot = botFolderRoot(input.dataDir, input.botId, cwd, home, stagingDir);
+  const botRoot = botFolderRoot(input.dataDir, input.botId, cwd, home, stagingDir, await botFolderPresent(input.dataDir, input.botId));
   if (botRoot) {
     plan.launch.roots.push(botRoot);
     plan.mkdirs.push(botRoot.path);

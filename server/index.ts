@@ -450,6 +450,8 @@ import {
   memorySystemPrompt,
   syncMemoryIndexFrom,
   readMemoryFromSnapshot,
+  memoryDocsOrNull,
+  readMemoryFiles,
   memoryTrimmed,
   memorySourceLabel,
   searchMemoryFiles,
@@ -470,11 +472,14 @@ import {
   type RecallDog,
 } from "./laterdog/cross-dog-recall.ts";
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
-import { MOUNTED_FOLDER_ANSWER_MS, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
+import { MOUNTED_FOLDER_ANSWER_MS, MountedFolderStalled, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
+import { MountDown } from "./laterdog/mount-guard.ts";
+import { dogFoldersMounted, guardMountedFolders } from "./laterdog/dog-mounts.ts";
+import { skillsCall, skillsPromptReady } from "./skills-thread.ts";
+import type { SkillPackageStamp } from "./skills.ts";
 import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
 import { SearchUnavailable } from "./message-search-worker.ts";
 import {
-  beginMemoryTurn,
   beginMemoryTurnInBackground,
   endMemoryTurnInBackground,
   memorySnapshotFiles,
@@ -490,27 +495,17 @@ import {
   SECTION_CONTEXT_MAX_BYTES,
 } from "./section-context.ts";
 import {
-  applyStagedSkillWrite,
-  applySkillWriteWithReceipt,
-  getStagedSkillWrite,
   installOrgSkill,
-  installSkill,
   SKILL_FILE_MAX_BYTES,
-  listBotSkillsWithOrigin,
   resolveBotSkills,
   parseSkillMd,
   scanSkillText,
   listSkills,
   listStagedSkillWrites,
   isSkillName,
-  readSkillFile,
-  rejectStagedSkillWrite,
-  removeSkill,
   setSkillEnabled,
   skillPackageStamps,
   skillsSystemPrompt,
-  stageSkillWrite,
-  undoSkillWrite,
 } from "./skills.ts";
 import { fetchSkillFromSource } from "./skill-fetch.ts";
 import { pickBotName } from "./names.ts";
@@ -873,7 +868,7 @@ import { createAlwaysAllowedRoutes } from "./routes/always-allowed.ts";
 import { createSidebarSectionOrderRoutes } from "./routes/sidebar-section-order.ts";
 import { createPinOrderRoutes } from "./routes/pin-order.ts";
 import { createSlashCommandRoutes } from "./routes/slash-commands.ts";
-import { commandSend, dogCommands, SavedCommands, tricksInIndex } from "./laterdog/slash-commands.ts";
+import { commandSend, dogCommands, SavedCommands, tricksInIndex, type DogTrick } from "./laterdog/slash-commands.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
 import { createTypingWiring } from "./laterdog/typing-wiring.ts";
@@ -2084,6 +2079,10 @@ function indexedRecallLookups(botId: string): RecallLookups | undefined {
   };
 }
 
+function memoryDocsWithin(read: Promise<ReadonlyMap<string, string> | null>): Promise<ReadonlyMap<string, string> | null> {
+  return Promise.race([read, new Promise<null>((resolve) => setTimeout(() => resolve(null), MOUNTED_FOLDER_ANSWER_MS).unref())]);
+}
+
 function withRecalled(recalled: string, text: string): string {
   return recalled ? `${recalled}\n\n${text}` : text;
 }
@@ -2362,11 +2361,11 @@ startPhases.mark("boot", "engines");
 const availableSkills = () => loadUserSkills(join(DATA_DIR, "skills"));
 
 const listBotSkills = (bot: BotRecord) =>
-  skillsLibraryEnabled(cfg) ? resolveBotSkills(bot.id, bot.assignedSkills) : listSkills(bot.id);
-const readBotSkillFile = (bot: BotRecord, name: string): string | null => {
-  const own = readSkillFile(bot.id, name);
+  skillsLibraryEnabled(cfg) ? skillsCall(bot.id, "resolveBotSkills", bot.id, bot.assignedSkills) : skillsCall(bot.id, "listSkills", bot.id);
+const readBotSkillFile = async (bot: BotRecord, name: string): Promise<string | null> => {
+  const own = await skillsCall(bot.id, "readSkillFile", bot.id, name);
   if (own !== null || !skillsLibraryEnabled(cfg)) return own;
-  if (listSkills(bot.id).some((skill) => skill.name === name)) return null;
+  if ((await skillsCall(bot.id, "listSkills", bot.id)).some((skill) => skill.name === name)) return null;
   if (!bot.assignedSkills?.includes(name)) return null;
   return readLibrarySkillFile(name);
 };
@@ -3732,10 +3731,10 @@ function healThreadModel(botId: string, threadId: string): void {
   } });
 }
 
-function checkedExportSkillNames(
+async function checkedExportSkillNames(
   value: unknown,
   bots: readonly BotRecord[],
-): { ok: true; names: string[] } | { ok: false; error: string } {
+): Promise<{ ok: true; names: string[] } | { ok: false; error: string }> {
   if (value === undefined) return { ok: true, names: [] };
   if (!Array.isArray(value) || value.some((name) => typeof name !== "string" || !isSkillName(name))) {
     return { ok: false, error: "skillIds must be a list of exact imported skill names" };
@@ -3743,24 +3742,24 @@ function checkedExportSkillNames(
   const names = [...value] as string[];
   if (new Set(names).size !== names.length) return { ok: false, error: "skillIds must not contain duplicates" };
   if (names.length > BOT_PACKAGE_MAX_SKILLS) return { ok: false, error: `skillIds must contain at most ${BOT_PACKAGE_MAX_SKILLS} names` };
-  const available = new Set(bots.flatMap((bot) => listBotSkills(bot).map((skill) => skill.name)));
+  const available = new Set((await Promise.all(bots.map((bot) => listBotSkills(bot)))).flat().map((skill) => skill.name));
   const unknown = names.find((name) => !available.has(name));
   if (unknown) return { ok: false, error: `skillIds contains unknown imported skill "${unknown}"` };
   return { ok: true, names };
 }
 
-function collectExportSkills(
+async function collectExportSkills(
   bots: readonly BotRecord[],
   names: readonly string[],
-): ReadonlyMap<string, readonly ExportablePackageSkill[]> {
+): Promise<ReadonlyMap<string, readonly ExportablePackageSkill[]>> {
   const selected = new Set(names);
   const byBot = new Map<string, ExportablePackageSkill[]>();
   if (!selected.size) return byBot;
   for (const bot of bots) {
     const assigned: ExportablePackageSkill[] = [];
-    for (const listing of listBotSkills(bot)) {
+    for (const listing of await listBotSkills(bot)) {
       if (!selected.has(listing.name)) continue;
-      const instructions = readBotSkillFile(bot, listing.name);
+      const instructions = await readBotSkillFile(bot, listing.name);
       if (instructions === null) {
         throw new Error(`Skill "${listing.name}" changed or is unavailable and cannot be exported safely`);
       }
@@ -3779,12 +3778,12 @@ function collectExportSkills(
   return byBot;
 }
 
-function collectTeamSkills(
+async function collectTeamSkills(
   bots: readonly BotRecord[],
   selection: unknown,
-): { ok: true; all: boolean; skillsByBot: Map<string, ExportablePackageSkill[]>; skipped: TeamExportSkip[]; available: string[] } | { ok: false; error: string; available: string[] } {
+): Promise<{ ok: true; all: boolean; skillsByBot: Map<string, ExportablePackageSkill[]>; skipped: TeamExportSkip[]; available: string[] } | { ok: false; error: string; available: string[] }> {
   const all = selection === undefined || selection === "all";
-  const available = [...new Set(bots.flatMap((bot) => listBotSkills(bot).map((skill) => skill.name)))].sort();
+  const available = [...new Set((await Promise.all(bots.map((bot) => listBotSkills(bot)))).flat().map((skill) => skill.name))].sort();
   if (!all && (!Array.isArray(selection) || selection.some((name) => typeof name !== "string" || !isSkillName(name)))) {
     return { ok: false, error: "skills must be \"all\" or a list of skill names", available };
   }
@@ -3795,9 +3794,9 @@ function collectTeamSkills(
   const skipped: TeamExportSkip[] = [];
   for (const bot of bots) {
     const assigned: ExportablePackageSkill[] = [];
-    for (const listing of listBotSkills(bot)) {
+    for (const listing of await listBotSkills(bot)) {
       if (!chosen.has(listing.name)) continue;
-      const instructions = readBotSkillFile(bot, listing.name);
+      const instructions = await readBotSkillFile(bot, listing.name);
       if (instructions === null) {
         if (!all) return { ok: false, error: `Skill "${listing.name}" changed or is unavailable and cannot be shared safely`, available };
         const part = `skills[${listing.name}]`;
@@ -3819,6 +3818,12 @@ function collectTeamSkills(
   return { ok: true, all, skillsByBot, skipped, available };
 }
 
+const dogSkillWrites = {
+  install: (botId: string, source: string, files: Array<{ path: string; content: string }>) => skillsCall(botId, "installSkill", botId, source, files),
+  setEnabled: (botId: string, name: string, enabled: boolean) => skillsCall(botId, "setSkillEnabled", botId, name, enabled),
+  installOrg: (botId: string, source: string, skillMd: string, stamp: SkillPackageStamp) => skillsCall(botId, "installOrgSkill", botId, source, skillMd, stamp),
+};
+
 function starterNotes(botId: string): Array<{ path: string; text: string }> {
   const notes: Array<{ path: string; text: string }> = [];
   const index = readMemoryFile(botId).text;
@@ -3834,7 +3839,7 @@ function packageImportDeps(selection: ModelSelection): PackageImportDeps {
   return {
     store,
     routines: routines!,
-    skills: { install: installSkill, setEnabled: setSkillEnabled, installOrg: installOrgSkill },
+    skills: dogSkillWrites,
     memory: { writeIndex: writeMemoryFile, writeTopic: writeMemoryTopic },
     mcp: { servers: () => cfg.mcpServers ?? {}, refusal: mcpPolicyRefusal, persist: persistMcpServers },
     sections: { writeBrief: (section, text) => void writeSectionContext(section, text) },
@@ -4095,7 +4100,7 @@ const wireTrustedApprovalBot = (bot: NonNullable<ReturnType<typeof store.bot>>) 
   return { ...rest, approvalMode: approvalModeFor(rest), avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
 
-function previewSystemPrompt(bot: BotRecord) {
+function previewSystemPrompt(bot: BotRecord, skillsText: string) {
   const persona = [
     `You are ${bot.name}, a dog in later.dog.`,
     bot.title && `Role: ${bot.title}.`,
@@ -4137,7 +4142,7 @@ function previewSystemPrompt(bot: BotRecord) {
     { id: "profile", label: "Profile changes", text: agentsMounted ? PROFILE_PROMPT : "" },
     { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance?.adapter.capabilities.backgroundWork === true, react: agentsMounted, engine: guidanceEngine(instance?.driverKind) }) },
     { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: agentsMounted, fileTools: Boolean(privateWorkspace), enabled: bot.memoryEnabled !== false }) },
-    { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined) : "" },
+    { id: "skills", label: "Skills index", text: privateWorkspace ? skillsText : "" },
   ], cfg.profile?.name);
   const totalBytes = built.sections.reduce((n, s) => n + s.bytes, 0);
   return {
@@ -4199,7 +4204,7 @@ async function botOverview(bot: BotRecord): Promise<BotOverview> {
     webhooks: webhooks.list()
       .filter((webhook) => webhook.botId === bot.id)
       .map((webhook) => ({ name: webhook.name, enabled: webhook.enabled })),
-    skills: listBotSkills(bot).map((skill) => ({
+    skills: (await listBotSkills(bot)).map((skill) => ({
       name: skill.name,
       description: skill.description,
       enabled: skill.enabled,
@@ -9879,9 +9884,6 @@ async function startTurn(
       }
       const assignedSkills = skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined;
       const skillsFromCache = privateWorkspace && promptFromIndex() && skillsPrompts ? (await skillsPrompts.get(bot.id, assignedSkills)).text : null;
-      if (searchIndex?.mode === "shadow" && mountedFoldersActive()) {
-        searchIndex.noteMountRead(bot.id, [...(bot.memoryEnabled !== false && !memoryDocs ? ["memory"] : []), ...(privateWorkspace ? ["skills"] : [])]);
-      }
       if (checkpointCwd && snapshotHead) {
         const before = await snapshotHead.claim();
         turnPhases.mark(threadId, "file snapshot wait");
@@ -9942,10 +9944,11 @@ async function startTurn(
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const folderReads = (!poolTurn || poolFolders) && (!mountedFoldersActive() || Boolean(memoryDocs) || await mountedFolderGate.answers(workspaceDir(bot.id)));
+      const skillsText = skillsFromCache ?? (privateWorkspace && folderReads ? await skillsPromptReady(bot.id, assignedSkills) : "");
       if (memoryDocs) readMemoryFromSnapshot(bot.id, memoryDocs);
-      const memoryText = !folderReads ? "" : memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn });
+      const memoryReads = folderReads && (Boolean(memoryDocs) || !mountedFoldersActive());
+      const memoryText = !memoryReads ? "" : memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn });
       turnPhases.mark(threadId, "memory prompt");
-      const skillsText = skillsFromCache ?? (privateWorkspace && folderReads ? skillsSystemPrompt(bot.id, assignedSkills) : "");
       turnPhases.mark(threadId, "skills prompt");
       const recentText = recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() }));
       const conversation = conversationText(threadId, providerText);
@@ -9994,7 +9997,7 @@ async function startTurn(
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
       const recallReach = recallsThisTurn(dispatchContext, instance.driverKind) ? "conversations"
-        : fromPerson && bot.memoryEnabled !== false && folderReads && memoryTrimmed(bot.id) ? "notes" : null;
+        : fromPerson && bot.memoryEnabled !== false && memoryReads && memoryTrimmed(bot.id) ? "notes" : null;
       const recalled = recallReach ? await autoRecallInBackground(bot, threadId, resolvedImages.text, {
         conversations: recallReach === "conversations" && fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
@@ -11087,7 +11090,7 @@ type UndoResult =
   | { claimed: true; state: "already_undone" | "undone" }
   | { claimed: true; state: "invalid"; error: string; status: number; stale?: true };
 
-function undoSkillCard(botId: string, threadId: string, messageId: string): UndoResult {
+async function undoSkillCard(botId: string, threadId: string, messageId: string): Promise<UndoResult> {
   const message = store.messagesFor(threadId).find((candidate) => candidate.id === messageId);
   const card = message?.card;
   const request = card?.skillRequest;
@@ -11099,7 +11102,7 @@ function undoSkillCard(botId: string, threadId: string, messageId: string): Undo
   if (request.botId !== botId || request.threadId !== threadId) {
     return { claimed: true, state: "invalid", error: "this skill request belongs to a different bot", status: 403 };
   }
-  const undone = undoSkillWrite(botId, {
+  const undone = await skillsCall(botId, "undoSkillWrite", botId, {
     stagedId: request.stagedId,
     name: request.name,
     action: request.action,
@@ -11111,7 +11114,7 @@ function undoSkillCard(botId: string, threadId: string, messageId: string): Undo
   return { claimed: true, state: "undone" };
 }
 
-function undoAppliedChange(res: ServerResponse, threadId: string, requestId: string): void {
+async function undoAppliedChange(res: ServerResponse, threadId: string, requestId: string): Promise<void> {
   const message = store.messagesFor(threadId).find((candidate) => candidate.card?.requestId === requestId);
   const card = message?.card;
   if (!message || !card) return json(res, 404, { error: "this change is no longer in the conversation" });
@@ -11146,7 +11149,7 @@ function undoAppliedChange(res: ServerResponse, threadId: string, requestId: str
     }
     result = undone;
   } else if (card.skillRequest) {
-    result = undoSkillCard(botId, threadId, message.id);
+    result = await undoSkillCard(botId, threadId, message.id);
   }
   if (!result.claimed) return json(res, 409, { error: "Only a change that applied on its own can be undone here." });
   if (result.state === "invalid") {
@@ -11832,10 +11835,9 @@ async function runGroupMemberTurn(
   if (worksInWorkspace) await prepareTurnFolders({ workspace: workspaceDir(bot.id), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
     gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
   const workspace = worksInWorkspace ? await ensureWorkspaceReady(bot.id) : undefined;
-  const roomMemoryHead = workspace && bot.memoryEnabled !== false && promptFromIndex() ? beginMemoryTurnInBackground(bot.id, threadId) : null;
-  if (workspace && bot.memoryEnabled !== false && !roomMemoryHead) beginMemoryTurn(bot.id, threadId);
-  const roomMemoryDocs = roomMemoryHead && searchIndex ? await searchIndex.promptMemory(bot.id, roomMemoryHead) : null;
-  if (searchIndex?.mode === "shadow" && workspace && bot.memoryEnabled !== false && mountedFoldersActive()) searchIndex.noteMountRead(bot.id, ["memory"]);
+  const roomDocs = bot.memoryEnabled === false ? null
+    : promptFromIndex() && searchIndex ? await searchIndex.promptMemory(bot.id, workspace ? beginMemoryTurnInBackground(bot.id, threadId) : null)
+    : await memoryDocsWithin(workspace ? beginMemoryTurnInBackground(bot.id, threadId) : memoryDocsOrNull(bot.id));
   const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, workspace && cloudGuestOpened(threadId)
     ? await ensureTaskWorkspaceReady(bot.id, threadId)
     : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId)));
@@ -11843,8 +11845,9 @@ async function runGroupMemberTurn(
     const drift = checkSoulDrift(bot.id, bot.soul ?? "", bot.soulHash ?? "");
     if (drift.drift !== Boolean(bot.soulDrift)) store.patchBot(bot.id, { soulDrift: drift.drift });
   }
-  if (roomMemoryDocs) readMemoryFromSnapshot(bot.id, roomMemoryDocs);
-  const roomMemory = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: roomForeign });
+  const roomSkills = workspace ? await skillsPromptReady(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "";
+  if (roomDocs) readMemoryFromSnapshot(bot.id, roomDocs);
+  const roomMemory = roomDocs || !mountedFoldersActive() ? memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: roomForeign }) : "";
   const recentLines = recentWork(recentWorkSources(bot), bot, { userName, currentThreadId: threadId, ...recentWorkFilter() });
   const roomComputerPromptKind = resolveComputerPromptKind(
     roomComputerKind === "box" ? "box" : roomVmTarget ? "vm" : roomComputerKind);
@@ -11884,7 +11887,7 @@ async function runGroupMemberTurn(
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
     { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true, react: Boolean(integrations.agents), engine: guidanceEngine(instance.driverKind) }) },
     { id: "memory", label: "Memory", text: roomMemory ? `\n${roomMemory.trim()}` : "" },
-    { id: "skills", label: "Skills index", text: workspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "" },
+    { id: "skills", label: "Skills index", text: roomSkills },
     { id: "skill-instructions", label: "Skill instructions", text: renderSkillInstructions(selectedSkills, { includeRoot: Boolean(workspace) }) },
   ], cfg.profile?.name);
 
@@ -11984,7 +11987,8 @@ async function runGroupMemberTurn(
     compactionCarry.remember(readyBot.id, threadId, roomSystem.volatileSections);
     executionEvidence.dispatch(threadId, selectedBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) });
     runningTurnEngines.set(threadId, instance);
-    const roomRecalled = cardContinuation ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
+    if (roomDocs) readMemoryFromSnapshot(bot.id, roomDocs);
+    const roomRecalled = cardContinuation || (!roomDocs && mountedFoldersActive()) ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
     guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: readyBot.id,
@@ -12700,7 +12704,7 @@ function stagedSkillCleanupsForThread(threadId: string): Array<{ botId: string; 
 }
 
 function rejectDeletedThreadSkillStages(cleanups: Array<{ botId: string; stagedId: string }>): void {
-  for (const cleanup of cleanups) rejectStagedSkillWrite(cleanup.botId, cleanup.stagedId);
+  for (const cleanup of cleanups) void skillsCall(cleanup.botId, "rejectStagedSkillWrite", cleanup.botId, cleanup.stagedId).catch(() => {});
 }
 
 function skillCardCopy(staged: { action: "create" | "update"; name: string; gist: string; warnings: string[] }): {
@@ -12773,17 +12777,17 @@ function appendSkillRequestCard(args: {
   };
 }
 
-function resolveSkillRequest(args: {
+async function resolveSkillRequest(args: {
   botId: string;
   botName?: string;
   threadId: string;
   requestId: string;
   behavior: "allow" | "deny" | "answer";
   reviewedSha256?: string;
-}):
+}): Promise<
   | { claimed: false }
   | { claimed: true; status: number; error: string }
-  | { claimed: true; outcome: "allowed-once" | "rejected"; alreadySettled?: true } {
+  | { claimed: true; outcome: "allowed-once" | "rejected"; alreadySettled?: true }> {
   const message = store.messagesFor(args.threadId).find(
     (candidate) => candidate.card?.requestId === args.requestId && candidate.card.skillRequest,
   );
@@ -12794,7 +12798,7 @@ function resolveSkillRequest(args: {
     return { claimed: true, status: 403, error: "this skill request belongs to a different bot" };
   }
   if (card.answered || card.dismissed) {
-    const cleanup = rejectStagedSkillWrite(args.botId, request.stagedId);
+    const cleanup = await skillsCall(args.botId, "rejectStagedSkillWrite", args.botId, request.stagedId);
     if ("applied" in cleanup && cleanup.applied && card.answered !== "allow") {
       store.patchMessage(args.threadId, message.id, {
         card: { ...card, answered: "allow", dismissed: false, held: undefined },
@@ -12804,7 +12808,7 @@ function resolveSkillRequest(args: {
     return { claimed: true, outcome: card.answered === "allow" ? "allowed-once" : "rejected", alreadySettled: true };
   }
   if (args.behavior !== "allow") {
-    const rejected = rejectStagedSkillWrite(args.botId, request.stagedId);
+    const rejected = await skillsCall(args.botId, "rejectStagedSkillWrite", args.botId, request.stagedId);
     if ("error" in rejected && rejected.error !== "no such staged skill") {
       return { claimed: true, status: 409, error: rejected.error };
     }
@@ -12857,9 +12861,9 @@ function resolveSkillRequest(args: {
   if (previewSha256 !== request.sha256) {
     return { claimed: true, status: 422, error: "the skill preview changed after review — deny and recreate it" };
   }
-  const staged = getStagedSkillWrite(args.botId, request.stagedId);
+  const staged = await skillsCall(args.botId, "getStagedSkillWrite", args.botId, request.stagedId);
   if (!staged) {
-    const replayed = applyStagedSkillWrite(args.botId, request.stagedId, {
+    const replayed = await skillsCall(args.botId, "applyStagedSkillWrite", args.botId, request.stagedId, {
       expectedSha256: request.sha256,
     });
     if (
@@ -12901,7 +12905,7 @@ function resolveSkillRequest(args: {
   ) {
     return { claimed: true, status: 422, error: "the staged skill no longer matches this approval card" };
   }
-  const applied = applyStagedSkillWrite(args.botId, request.stagedId, {
+  const applied = await skillsCall(args.botId, "applyStagedSkillWrite", args.botId, request.stagedId, {
     expectedSha256: request.sha256,
     onApplied: () => {
       const patched = store.patchMessage(args.threadId, message.id, {
@@ -12931,7 +12935,7 @@ function resolveSkillRequest(args: {
 
 function sendSkillResolution(
   res: ServerResponse,
-  result: ReturnType<typeof resolveSkillRequest>,
+  result: Awaited<ReturnType<typeof resolveSkillRequest>>,
 ): boolean {
   if (!result.claimed) return false;
   if ("error" in result) {
@@ -14169,12 +14173,30 @@ ROUTES.push(createPinOrderRoutes({ order: (ids) => store.orderPins(ids) }));
 ROUTES.push(createAlwaysAllowedRoutes({ dog: (id) => store.bot(id), mayManage: canManageCommandAllowlist, list: alwaysAllowedList, resume: (id) => lastingAllows.resume(id), remove: removeAlwaysAllowed }));
 startPhases.mark("boot", "provider reload and backups");
 const savedCommands = new SavedCommands(DATA_DIR);
-const dogTricks = (bot: BotRecord) => {
+const knownTricks = new Map<string, DogTrick[]>();
+const freshTricks = async (bot: BotRecord) => {
   const instance = registry.get(bot.modelSelection.instanceId);
-  return tricksInIndex(listBotSkills(bot).filter((skill) => skill.enabled), Boolean(instance && supportsWorkspaceFiles(instance.driverKind)),
-    () => skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined));
+  const enabled = (await listBotSkills(bot)).filter((skill) => skill.enabled);
+  const index = enabled.length ? await skillsPromptReady(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined) : "";
+  const tricks = tricksInIndex(enabled, Boolean(instance && supportsWorkspaceFiles(instance.driverKind)), () => index);
+  knownTricks.set(bot.id, tricks);
+  return tricks;
 };
-ROUTES.push(createSlashCommandRoutes({ saved: savedCommands, tricks: (botId) => { const bot = store.bot(botId); return bot ? dogTricks(bot) : null; } }));
+const dogTricks = (bot: BotRecord) => {
+  if (!dogFoldersMounted()) {
+    const instance = registry.get(bot.modelSelection.instanceId);
+    return tricksInIndex((skillsLibraryEnabled(cfg) ? resolveBotSkills(bot.id, bot.assignedSkills) : listSkills(bot.id)).filter((skill) => skill.enabled),
+      Boolean(instance && supportsWorkspaceFiles(instance.driverKind)), () => skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined));
+  }
+  void freshTricks(bot).catch(() => {});
+  return knownTricks.get(bot.id) ?? [];
+};
+if (dogFoldersMounted()) setTimeout(() => { for (const bot of store.bots) void freshTricks(bot).catch(() => {}); }, 30_000).unref();
+ROUTES.push(createSlashCommandRoutes({ saved: savedCommands, tricks: (botId) => {
+  const bot = store.bot(botId);
+  if (!bot) return null;
+  return dogFoldersMounted() ? freshTricks(bot).catch(() => knownTricks.get(bot.id) ?? []) : dogTricks(bot);
+} }));
 const personCommand = (auth: RequestAuth, bot: BotRecord, typed: string) =>
   commandSend(typed, { scopes: auth.scopes, fromLocalTools: fromLocalTools(auth) }, () => dogCommands(savedCommands.list(), dogTricks(bot)));
 ROUTES.push(createRoomCardRoutes({
@@ -15960,10 +15982,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             return json(res, 200, { cross: true, hits: crossHits, memoryHits: crossMemory });
           }
         }
+        const localOwnMemory = () => readMemoryFiles(from.id, () => searchMemoryFiles(from.id, q, limit)).catch((error: unknown) => { if (error instanceof MountDown) return []; throw error; });
         const ownMemory = async () => {
-          if (!searchIndex || searchIndex.mode === "off") return searchMemoryFiles(from.id, q, limit);
-          syncMemoryIndex(from.id);
-          return (await searchIndex.memory({ shard: from.id, query: q, dogs: [from.id], limit }, async () => [searchMemoryFiles(from.id, q, limit)]))[0] ?? [];
+          if (!searchIndex || searchIndex.mode === "off") return localOwnMemory();
+          return (await searchIndex.memory({ shard: from.id, query: q, dogs: [from.id], limit }, async () => [await localOwnMemory()]))[0] ?? [];
         };
         const memoryHits = scope === "conversations" || !q || from.memoryEnabled === false ? [] : await ownMemory();
         if (scope === "memory") return json(res, 200, { hits: [], memoryHits });
@@ -16013,7 +16035,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (picked.length !== 1) return json(res, 400, { error: "Name one dog with bot to read its memory file." });
           const owner = picked[0]!;
           if (owner.id !== from.id && !crossDogRecallAllowed(from, fromThreadId)) return json(res, 403, { error: CROSS_DOG_REFUSAL });
-          const text = readRecallMemoryFile(owner.id, file);
+          const text = await readMemoryFiles(owner.id, () => readRecallMemoryFile(owner.id, file));
           if (text === null) return json(res, 404, { error: `${owner.id === from.id ? "You have" : `${owner.name} has`} no memory file ${file}.` });
           return json(res, 200, {
             file, bot: owner.name, cross: owner.id !== from.id,
@@ -16067,8 +16089,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "source conversation does not belong to sender" });
         }
         return json(res, 200, {
-          skills: listBotSkills(from),
-          staged: listStagedSkillWrites(from.id).map(stagedSkillListing),
+          skills: await listBotSkills(from),
+          staged: (await skillsCall(from.id, "listStagedSkillWrites", from.id)).map(stagedSkillListing),
         });
       }
       if (method === "POST" && path === "/api/internal/skills/stage") {
@@ -16097,7 +16119,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (action === "update" && !targetName) {
           return json(res, 400, { error: "skill_name is required when action is update" });
         }
-        const staged = stageSkillWrite(from.id, {
+        const staged = await skillsCall(from.id, "stageSkillWrite", from.id, {
           action,
           targetName: targetName || undefined,
           files: [{ path: "SKILL.md", content: skillMd }],
@@ -16106,16 +16128,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         });
         if ("error" in staged) return json(res, 422, { error: staged.error });
         if (direct) {
-          const previousSkillMd = staged.action === "update" ? readSkillFile(from.id, staged.name) : null;
-          const previousSource = listSkills(from.id).find((skill) => skill.name === staged.name)?.source;
+          const previousSkillMd = staged.action === "update" ? await skillsCall(from.id, "readSkillFile", from.id, staged.name) : null;
+          const previousSource = (await skillsCall(from.id, "listSkills", from.id)).find((skill) => skill.name === staged.name)?.source;
           const previous = previousSkillMd !== null && previousSource ? { preview: previousSkillMd, source: previousSource } : undefined;
-          const applied = applySkillWriteWithReceipt(from.id, staged, () => {
+          const applied = await skillsCall(from.id, "applySkillWriteWithReceipt", from.id, staged, () => {
             const receipt = appendSkillRequestCard({ botId: from.id, threadId: fromThreadId, staged, applied: true, previous });
             appendDecision(DATA_DIR, { threadId: fromThreadId, requestId: receipt.requestId, botId: from.id, botName: from.name,
               tool: "stage_skill", summary: receipt.summary, decision: "auto-approved", source: direct });
           });
           if ("error" in applied) {
-            rejectStagedSkillWrite(from.id, staged.id);
+            await skillsCall(from.id, "rejectStagedSkillWrite", from.id, staged.id);
             return json(res, 422, { state: "failed", error: applied.error });
           }
           return json(res, 201, { state: "applied", stagedId: staged.id, name: staged.name, action: staged.action,
@@ -16125,7 +16147,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         try {
           card = appendSkillRequestCard({ botId: from.id, threadId: fromThreadId, staged });
         } catch (error) {
-          rejectStagedSkillWrite(from.id, staged.id);
+          await skillsCall(from.id, "rejectStagedSkillWrite", from.id, staged.id);
           throw error;
         }
         appendDecision(DATA_DIR, {
@@ -17570,7 +17592,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const publishedKey = dog ? dogShareKey(dog.id) : team;
         const optional = (value: unknown) => (typeof value === "string" ? value : undefined);
         const teamBots = dog ? [dog] : store.bots.filter((bot) => !bot.hidden && sectionKey(bot.section) === team);
-        const skills = collectTeamSkills(teamBots, body.skills);
+        const skills = await collectTeamSkills(teamBots, body.skills);
         if (!skills.ok) return json(res, 400, { error: skills.error, choices: { skills: skills.available } });
         const avatars = body.avatars && typeof body.avatars === "object" && !Array.isArray(body.avatars)
           ? body.avatars as Record<string, unknown>
@@ -17592,7 +17614,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             published: readPublishedTeam(publishedKey),
             skillsByBot: skills.skillsByBot,
             skillSelection: skills.all ? "all" : "chosen",
-            memoryByBot: body.includeMemory === true ? new Map(teamBots.map((bot) => [bot.id, starterNotes(bot.id)])) : undefined,
+            memoryByBot: body.includeMemory === true ? new Map(await Promise.all(teamBots.map(async (bot) => [bot.id, await readMemoryFiles(bot.id, () => starterNotes(bot.id))] as const))) : undefined,
             avatars,
             mcpServers: cfg.mcpServers ?? {},
             skipped: [...skills.skipped, ...(defaults?.skipped ?? [])],
@@ -17622,11 +17644,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if ((body.format === "backup" ? store.bots.length : memberIds.length) === 0) return json(res, 400, { error: "Create a dog before exporting your pack" });
       try {
         if (body.format === "backup") {
-          return json(res, 200, createTeamBackup(store, routines!.listRoutines(), name));
+          return json(res, 200, await createTeamBackup(store, routines!.listRoutines(), name));
         }
         if (body.format === "package") {
           const selectedBots = store.bots.filter((bot) => !bot.hidden);
-          const skillNames = checkedExportSkillNames(body.skillIds, selectedBots);
+          const skillNames = await checkedExportSkillNames(body.skillIds, selectedBots);
           if (!skillNames.ok) return json(res, 400, { error: skillNames.error });
           const document = createBotPackageExport({
             name,
@@ -17634,7 +17656,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             bots: selectedBots,
             groups: store.groups,
             routines: routines!.listRoutines(),
-            skillsByBot: collectExportSkills(selectedBots, skillNames.names),
+            skillsByBot: await collectExportSkills(selectedBots, skillNames.names),
           });
           return json(res, 200, {
             name: document.package.name,
@@ -17718,7 +17740,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const packageId = typeof body?.packageId === "string" && /^[a-f0-9-]{36}$/.test(body.packageId) ? body.packageId : null;
       if (!packageId) return json(res, 400, { error: "Choose a package from your organization's library." });
       if (!orgLibrary) return json(res, 404, { error: "This package is not in your organization's library.", code: "not_listed" });
-      const outcome = orgLibrary.add(packageId, packageImportDeps(await defaultSelection()));
+      const outcome = await orgLibrary.add(packageId, packageImportDeps(await defaultSelection()));
       if (!outcome.ok) return json(res, outcome.status, { error: outcome.error, code: outcome.code });
       if (outcome.value.alreadyAdded) return json(res, 200, outcome.value);
       const imported = outcome.value.result;
@@ -17820,8 +17842,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       let imported: PackageImportResult;
       try {
         const result = packageDocument
-          ? importPackageDocument(packageDocument, { ...options, trust: "file" }, deps)
-          : importTeamManifest(manifest!, options, deps);
+          ? await importPackageDocument(packageDocument, { ...options, trust: "file" }, deps)
+          : await importTeamManifest(manifest!, options, deps);
         if (result.alreadyAdded) return json(res, 200, result);
         await memoryWritesSettled();
         imported = result;
@@ -18534,9 +18556,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           await journalMemoryWrite(bot.id, file, text, { actor: "person", via: "api" });
         }
         if (preset) {
-          applyPresetToBot(bot.id, preset, {
+          await applyPresetToBot(bot.id, preset, {
             store,
-            skills: { install: installSkill, setEnabled: setSkillEnabled, installOrg: installOrgSkill },
+            skills: dogSkillWrites,
             memory: { writeIndex: writeMemoryFile, writeTopic: writeMemoryTopic },
           });
           await memoryWritesSettled();
@@ -18545,10 +18567,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (presetSkills.has(skill.name)) continue;
           const parsed = parseSkillMd(skill.text);
           if ("error" in parsed || parsed.name !== skill.name) throw Object.assign(new Error("Skill name does not match its contents"), { status: 400 });
-          const installed = installSkill(bot.id, skill.source, [{ path: "SKILL.md", content: skill.text }]);
+          const installed = await skillsCall(bot.id, "installSkill", bot.id, skill.source, [{ path: "SKILL.md", content: skill.text }]);
           if ("error" in installed) throw Object.assign(new Error(installed.error), { status: 422 });
           if (skill.enabled) {
-            const enabled = setSkillEnabled(bot.id, skill.name, true);
+            const enabled = await skillsCall(bot.id, "setSkillEnabled", bot.id, skill.name, true);
             if ("error" in enabled) throw Object.assign(new Error(enabled.error), { status: 422 });
           }
         }
@@ -19224,10 +19246,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const input = checked.data;
       const parsed = parseSkillMd(input.text);
       if ("error" in parsed || parsed.name !== input.name) return json(res, 400, { error: "Skill name does not match its contents" });
-      const installed = installSkill(m[1], input.source, [{ path: "SKILL.md", content: input.text }]);
+      const installed = await skillsCall(m[1], "installSkill", m[1], input.source, [{ path: "SKILL.md", content: input.text }]);
       if ("error" in installed) return json(res, 422, { error: installed.error });
       if (input.enabled) {
-        const enabled = setSkillEnabled(m[1], input.name, true);
+        const enabled = await skillsCall(m[1], "setSkillEnabled", m[1], input.name, true);
         if ("error" in enabled) return json(res, 422, { error: enabled.error });
       }
       return json(res, 201, { installed });
@@ -19236,17 +19258,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "GET") {
       if (!store.bot(m[1])) return json(res, 404, { error: "no such bot" });
       if (skillsLibraryEnabled(cfg)) {
-        const { skills, library } = listBotSkillsWithOrigin(m[1]!, store.bot(m[1])!.assignedSkills);
+        const { skills, library } = await skillsCall(m[1]!, "listBotSkillsWithOrigin", m[1]!, store.bot(m[1])!.assignedSkills);
         return json(res, 200, {
           skills,
           library,
           assignedSkills: store.bot(m[1])!.assignedSkills,
-          staged: listStagedSkillWrites(m[1]).map(stagedSkillListing),
+          staged: (await skillsCall(m[1]!, "listStagedSkillWrites", m[1]!)).map(stagedSkillListing),
         });
       }
       return json(res, 200, {
-        skills: listBotSkills(store.bot(m[1])!),
-        staged: listStagedSkillWrites(m[1]).map(stagedSkillListing),
+        skills: await listBotSkills(store.bot(m[1])!),
+        staged: (await skillsCall(m[1]!, "listStagedSkillWrites", m[1]!)).map(stagedSkillListing),
       });
     }
     if (m && method === "POST") {
@@ -19254,7 +19276,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       const written = z.object({ text: z.string().min(1).max(SKILL_FILE_MAX_BYTES) }).safeParse(body);
       if (written.success) {
-        const skill = installSkill(m[1]!, "written by you", [{ path: "SKILL.md", content: written.data.text }]);
+        const skill = await skillsCall(m[1]!, "installSkill", m[1]!, "written by you", [{ path: "SKILL.md", content: written.data.text }]);
         if ("error" in skill) return json(res, 422, { error: skill.error });
         return json(res, 201, { installed: [skill], errors: [] });
       }
@@ -19262,7 +19284,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!parsed.success) return json(res, 400, { error: "send text (a SKILL.md you wrote) or source (a GitHub or skills.sh URL, or owner/repo)" });
       const fetched = await fetchSkillFromSource(parsed.data.source);
       if ("error" in fetched) return json(res, 422, { error: fetched.error });
-      const results = fetched.skills.map((skill) => installSkill(m![1]!, skill.source, skill.files));
+      const results = [];
+      for (const skill of fetched.skills) results.push(await skillsCall(m[1]!, "installSkill", m[1]!, skill.source, skill.files));
       const installed = results.filter((entry): entry is Exclude<typeof entry, { error: string }> => !("error" in entry));
       const errors = results.flatMap((entry) => ("error" in entry ? [entry.error] : []));
       if (!installed.length) return json(res, 422, { error: errors.join("; ") || "nothing importable found" });
@@ -19271,19 +19294,19 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     m = path.match(/^\/api\/bots\/([\w-]+)\/skills\/([a-z0-9-]+)$/);
     if (m && method === "GET") {
       const bot = store.bot(m[1]);
-      const text = bot ? readBotSkillFile(bot, m[2]!) : null;
+      const text = bot ? await readBotSkillFile(bot, m[2]!) : null;
       if (text === null) return json(res, 404, { error: "no such skill" });
       return json(res, 200, { text });
     }
     if (m && method === "PATCH") {
       const parsed = z.object({ enabled: z.boolean() }).safeParse(await readBody(req));
       if (!parsed.success) return json(res, 400, { error: "enabled must be true or false" });
-      const result = setSkillEnabled(m[1]!, m[2]!, parsed.data.enabled);
+      const result = await skillsCall(m[1]!, "setSkillEnabled", m[1]!, m[2]!, parsed.data.enabled);
       if ("error" in result) return json(res, 404, { error: result.error });
       return json(res, 200, { skill: result });
     }
     if (m && method === "DELETE") {
-      const result = removeSkill(m[1]!, m[2]!);
+      const result = await skillsCall(m[1]!, "removeSkill", m[1]!, m[2]!);
       if ("error" in result) return json(res, 404, { error: result.error });
       return json(res, 200, { ok: true });
     }
@@ -19459,7 +19482,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "GET") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      return json(res, 200, previewSystemPrompt(bot));
+      const skillsText = await skillsPromptReady(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined);
+      return json(res, 200, await readMemoryFiles(bot.id, () => previewSystemPrompt(bot, skillsText)));
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/overview$/);
     if (m && method === "GET") {
@@ -19811,7 +19835,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           requestId: String(body.requestId),
           behavior,
         })) return;
-        if (sendSkillResolution(res, resolveSkillRequest({
+        if (sendSkillResolution(res, await resolveSkillRequest({
           botId: bot.id,
           botName: bot.name,
           threadId: bot.threadId,
@@ -19883,7 +19907,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const skillBotId = skillCard.from?.botId ?? store.botByThread(threadId)?.id;
           if (!skillBotId) return json(res, 400, { error: "this skill request has no valid owner" });
           const skillOwner = store.bot(skillBotId);
-          if (sendSkillResolution(res, resolveSkillRequest({
+          if (sendSkillResolution(res, await resolveSkillRequest({
             botId: skillBotId,
             botName: skillOwner?.name,
             threadId,
@@ -22243,6 +22267,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     return json(res, 404, { error: `no route: ${method} ${path}` });
   } catch (e) {
+    if (e instanceof MountDown || e instanceof MountedFolderStalled) return json(res, 503, { error: "The working folder is temporarily unavailable. Try again.", code: "unavailable" });
     const failure = plainFailure(e);
     if (failure.internal) console.error(`${method} ${path} failed`, e);
     const candidateCode = (e as { code?: unknown })?.code;
@@ -22334,6 +22359,7 @@ function janitorThread(botId: string, threadId: string): ReaperThreadState {
 }
 
 const mountedHomePaths = homeMountPaths(DATA_DIR, homedir());
+guardMountedFolders(mountedHomePaths);
 
 function janitorWorkspaces(): WorkspaceTask[] {
   if (mountedHomePaths.length) return [];

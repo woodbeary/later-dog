@@ -1,3 +1,4 @@
+import { realFolderPath } from "./dog-mounts.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
@@ -37,7 +38,9 @@ function guestIntegrations(turn: SendTurnInput, proxy: string, socket: string) {
   return { integrations, mcp };
 }
 
-export function guestProviderPlan(dataDir: string, driver: string, profile: GuestProviderProfile, turn: SendTurnInput, opener: EngineOpener) {
+export async function guestProviderPlan(dataDir: string, driver: string, profile: GuestProviderProfile, turn: SendTurnInput, opener: EngineOpener) {
+  const turnCwd = turn.cwd ? await realFolderPath(turn.cwd) : undefined;
+  if (turn.cwd && turnCwd === undefined) throw new Error("The selected working folder did not answer.");
   if (!turn.botId || !/^[\w-]{1,128}$/.test(turn.botId)) throw new Error("The engine needs a dog to select its computer.");
   if (!/^[\w-]{1,160}$/.test(turn.threadId)) throw new Error("The engine needs a valid chat identity.");
   const programs = opener.guestProvider;
@@ -50,7 +53,7 @@ export function guestProviderPlan(dataDir: string, driver: string, profile: Gues
   mkdirSync(parent, { recursive: true, mode: 0o700 });
   const stagingDir = mkdtempSync(join(parent, "provider-"));
   try {
-    const cwd = turn.cwd ? realpathSync(turn.cwd) : stagingDir;
+    const cwd = turnCwd ?? stagingDir;
     const root = realpathSync(dataDir);
     if (cwd === parse(cwd).root || cwd === homedir() || root === cwd || root.startsWith(cwd + sep)) throw new Error("The selected working folder cannot be mirrored safely.");
     if (turn.cwd && cwd.startsWith(root + sep) && !["workspaces", "task-workspaces"].some(dir => {

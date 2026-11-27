@@ -9,7 +9,8 @@ import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
 import { poolChosen } from "../laterdog/pool-opener.ts";
-import { acceptedEnginePlacement, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { acceptedEnginePlacement, botFolderPresent, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { dogFiles } from "../laterdog/dog-mounts.ts";
 import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
 import { createTurnPhases } from "../laterdog/turn-head-start.ts";
@@ -251,10 +252,10 @@ export function readClaudeAuthSettings(
   }
 }
 
-function projectMcpServers(cwd: string): Record<string, unknown> {
+async function projectMcpServers(cwd: string): Promise<Record<string, unknown>> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf8"));
+    parsed = JSON.parse(await dogFiles.readText(join(cwd, ".mcp.json")) ?? "");
   } catch {
     return {};
   }
@@ -1340,7 +1341,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         botOwned.add(name);
       }
       if (isolated && turn.cwd && !turn.guestConfined) {
-        for (const [name, server] of Object.entries(projectMcpServers(turn.cwd))) {
+        for (const [name, server] of Object.entries(await projectMcpServers(turn.cwd))) {
           if (Object.hasOwn(mcpServers, name)) continue;
           mcpServers[name] = server;
           botOwned.add(name);
@@ -1525,7 +1526,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 input: askedFields(ask.input),
                 wholeInput: ask.kind === "permission" && ask.tool === "WebSearch" && ask.input && typeof ask.input === "object" && !Array.isArray(ask.input) ? ask.input : undefined,
                 command: ask.kind === "permission" && ask.tool === "Bash"
-                  ? permissionCommand(ask.input.command, commandCwd) : undefined,
+                  ? permissionCommand(ask.input.command, commandCwd()) : undefined,
                 requiresExplicitApproval: ask.kind === "permission" && ask.tool === "Bash" && ask.input.dangerouslyDisableSandbox === true || undefined,
                 nativeReview,
                 approvalScope:
@@ -1596,7 +1597,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             checkStart();
           }
           try {
-            remote = planClaudeRemote({ botId: botId!, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand,
+            const botFolder = await botFolderPresent(DATA_DIR, botId!);
+            remote = planClaudeRemote({ botId: botId!, botFolder, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand,
               args, cwd, env, managed: Boolean(config.managed), required, dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase, freshWhenMissing: poolChosen(DATA_DIR, botId!) });
           } catch (error) { remote = { stay: `launch could not be mirrored: ${(error as Error).message}` }; }
           if (required && "stay" in remote) throw new Error(`Claude could not start on this dog's computer. ${remote.stay}. No prompt was sent.`);

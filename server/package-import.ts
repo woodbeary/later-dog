@@ -42,14 +42,16 @@ export type ImportSkipReason =
 
 export interface ImportSkip { part: string; reason: ImportSkipReason }
 
+export type SkillOutcome = SkillListing | { error: string } | Promise<SkillListing | { error: string }>;
+
 export interface PackageImportDeps {
   onPrepared?: (undo:()=>void)=>void;
   store: Store;
   routines: Pick<RoutineManager, "create" | "remove"> & Partial<Pick<RoutineManager, "stampInstalledPackage">>;
   skills: {
-    install(botId: string, source: string, files: Array<{ path: string; content: string }>): SkillListing | { error: string };
-    setEnabled(botId: string, name: string, enabled: boolean): SkillListing | { error: string };
-    installOrg?(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillListing | { error: string };
+    install(botId: string, source: string, files: Array<{ path: string; content: string }>): SkillOutcome;
+    setEnabled(botId: string, name: string, enabled: boolean): SkillOutcome;
+    installOrg?(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillOutcome;
   };
   memory: {
     writeIndex(botId: string, text: string): Promise<void>;
@@ -149,11 +151,11 @@ type ImportSource =
   | { kind: "package"; document: PackageDocument }
   | { kind: "manifest"; manifest: ParsedTeamManifest };
 
-export function importPackageDocument(
+export async function importPackageDocument(
   document: PackageDocument,
   options: PackageImportOptions,
   deps: PackageImportDeps,
-): ImportResult {
+): Promise<ImportResult> {
   const pkg = document.package;
   const library = !pkg.agents.length || !pkg.team;
   if (library && options.trust !== "org" && !deps.presets) throw new PackageImportError("no_bots", NO_BOTS_MESSAGE);
@@ -208,11 +210,11 @@ export function importTeamManifest(
   manifest: ParsedTeamManifest,
   options: Omit<PackageImportOptions, "trust" | "org">,
   deps: PackageImportDeps,
-): PackageImportResult {
+): Promise<PackageImportResult> {
   return runImport({ kind: "manifest", manifest }, { ...options, trust: "file" }, deps);
 }
 
-function runImport(source: ImportSource, options: PackageImportOptions, deps: PackageImportDeps): PackageImportResult {
+async function runImport(source: ImportSource, options: PackageImportOptions, deps: PackageImportDeps): Promise<PackageImportResult> {
   const { store } = deps;
   const pkg = source.kind === "package" ? source.document.package : null;
   const name = pkg?.name ?? (source.kind === "manifest" ? source.manifest.team.name : "");
@@ -342,10 +344,10 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
       for (const skillName of agent?.skills ?? []) {
         const skill = skillByName.get(skillName);
         if (!skill) throw new Error(`Package skill "${skillName}" is unavailable`);
-        const added = org
+        const added = await (org
           ? deps.skills.installOrg!(created.id, `org:${org.ref}@${pkg!.release}`, skill.instructions,
               { installId: org.installId, key: skill.name, release: pkg!.release, ...pair(skill.instructions, skill.instructions) })
-          : deps.skills.install(created.id, skill.source ?? `package:${pkg!.id}`, [{ path: "SKILL.md", content: skill.instructions }]);
+          : deps.skills.install(created.id, skill.source ?? `package:${pkg!.id}`, [{ path: "SKILL.md", content: skill.instructions }]));
         if ("error" in added) throw new Error(`Package skill "${skillName}" could not be imported: ${added.error}`);
       }
       for (const [path, text] of Object.entries(agent?.seed?.memory ?? {})) {

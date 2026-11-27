@@ -815,8 +815,8 @@ export class OrgLibrary {
     return { ok: true, status: 200, value: { package: this.listEntry(entry), document: document.value } };
   }
 
-  add(packageId: string, importDeps: PackageImportDeps):
-    OrgLibraryOutcome<{ alreadyAdded: true; installId: string } | { alreadyAdded: false; result: PackageImportResult }> {
+  async add(packageId: string, importDeps: PackageImportDeps):
+    Promise<OrgLibraryOutcome<{ alreadyAdded: true; installId: string } | { alreadyAdded: false; result: PackageImportResult }>> {
     const library = this.library;
     const entry = this.visibleEntry(packageId);
     if (!library || !entry) return refusal(404, "not_listed", NOT_LISTED);
@@ -869,7 +869,7 @@ export class OrgLibrary {
     }
     let result: PackageImportResult;
     try {
-      const imported = importPackageDocument(document.value, {
+      const imported = await importPackageDocument(document.value, {
         trust: "org",
         mode: "add",
         org: { installId, ref: entry.ref, packageId, sha256: release.sha256, publisher, adminOrigin: library.adminOrigin, organizationId: library.organizationId },

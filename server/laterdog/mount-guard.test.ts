@@ -55,7 +55,7 @@ describe("the dog-folder mount guard", () => {
     expect(guard.isDown(`${ROOT}/fine`)).toBe(false);
   });
 
-  it("lets one call into a folder at a time and four in all, so stuck folders cannot use up the file-system threads", async () => {
+  it("lets one call into a folder at a time and eight in all, so stuck folders cannot use up the file-system threads", async () => {
     const guard = createMountGuard({ roots: () => [ROOT], timeoutMs: 200, coolMs: 10_000 });
     let started = 0;
     const stuck = () => { started += 1; return never(); };
@@ -67,10 +67,44 @@ describe("the dog-folder mount guard", () => {
     expect(started).toBe(1);
     const all = createMountGuard({ roots: () => [ROOT], timeoutMs: 100, coolMs: 10_000 });
     let begun = 0;
-    const stuckEach = Array.from({ length: 6 }, (_, i) => all.run(`${ROOT}/dog-${i}/f`, () => { begun += 1; return never(); }).catch(() => "down"));
+    const stuckEach = Array.from({ length: 10 }, (_, i) => all.run(`${ROOT}/dog-${i}/f`, () => { begun += 1; return never(); }).catch(() => "down"));
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(begun).toBe(4);
+    expect(begun).toBe(8);
     await Promise.all(stuckEach);
+  });
+
+  it("answers a healthy dog at once while four dogs' folders never answer", async () => {
+    const guard = createMountGuard({ roots: () => [ROOT], timeoutMs: 300, coolMs: 10_000 });
+    const stuck = Array.from({ length: 4 }, (_, i) => guard.run(`${ROOT}/stuck-${i}/MEMORY.md`, never).catch(() => "down"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const began = performance.now();
+    expect(await guard.run(`${ROOT}/healthy/MEMORY.md`, () => fast("reply"))).toBe("reply");
+    expect(performance.now() - began).toBeLessThan(50);
+    await Promise.all(stuck);
+    const after = performance.now();
+    expect(await guard.run(`${ROOT}/healthy/MEMORY.md`, () => fast("again"))).toBe("again");
+    expect(performance.now() - after).toBeLessThan(50);
+    expect(guard.state().filter((entry) => entry.folder.includes("stuck")).every((entry) => entry.running === 1 && entry.counted === 0)).toBe(true);
+  });
+
+  it("stops counting slow and tripped folders against the shared cap, so more stuck dogs than the cap still leave room", async () => {
+    const guard = createMountGuard({ roots: () => [ROOT], timeoutMs: 5_000, coolMs: 10_000, inAll: 2, slowMs: 100 });
+    const stuck = Array.from({ length: 3 }, (_, i) => guard.run(`${ROOT}/stuck-${i}/f`, never).catch(() => "down"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const began = performance.now();
+    expect(await guard.run(`${ROOT}/healthy/f`, () => fast("reply"))).toBe("reply");
+    const waited = performance.now() - began;
+    expect(waited).toBeGreaterThan(50);
+    expect(waited).toBeLessThan(400);
+    void stuck;
+  });
+
+  it("treats a mounted project folder as one folder", async () => {
+    const guard = createMountGuard({ roots: () => [ROOT], folders: () => ["/home/dog/site"], timeoutMs: 30, coolMs: 10_000 });
+    expect(guard.folderOf("/home/dog/site/src/index.ts")).toBe("/home/dog/site");
+    expect(guard.folderOf("/home/dog/site-two/x")).toBeNull();
+    await expect(guard.run("/home/dog/site/a", never)).rejects.toBeInstanceOf(MountDown);
+    expect(guard.isDown("/home/dog/site/b/c")).toBe(true);
   });
 
   it("keeps the home answering and another dog's folder fast while one folder never answers", async () => {

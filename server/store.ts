@@ -13,7 +13,7 @@ import { peerAllowKey, type PeerAction } from "./peer-approval-key.ts";
 import { DATA_DIR, EVENTS_DIR, NATIVE_DIR, loadBrowserProfileIdAliases } from "./config.ts";
 import * as mdb from "./message-db.ts";
 import { runCommand, type Command } from "./commands.ts";
-import { workspaceDir } from "./workspace.ts";
+import { dogFiles, workspaceDir } from "./workspace.ts";
 import type { Destination } from "./surface.ts";
 import { retirePlaces } from "./laterdog/places.ts";
 import { newId, type ModelSelection } from "./contracts.ts";
@@ -1636,9 +1636,7 @@ export class Store {
     for (const threadId of new Set([bot.threadId, ...(bot.tasks ?? []).map((t) => t.threadId)])) {
       this.deleteThreadRecord(threadId);
     }
-    try {
-      rmSync(workspaceDir(id), { recursive: true, force: true });
-    } catch {}
+    void dogFiles.remove(workspaceDir(id)).catch((error: unknown) => console.warn(`store: ${id}'s folder could not be removed`, error instanceof Error ? error.message : error));
     try {
       rmSync(join(DATA_DIR, "skill-state", id), { recursive: true, force: true });
     } catch {}
