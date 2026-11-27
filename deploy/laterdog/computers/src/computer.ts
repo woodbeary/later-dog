@@ -588,6 +588,11 @@ export class DogComputer extends DurableObject<Env> {
         this.deleting = false;
       }
       console.log(`laterdog computers: ${record.id} deleted`);
+      if (record.kind === TASK_KIND && record.line) {
+        await this.env.TASK_LINE.get(this.env.TASK_LINE.idFromName(`task-line:${record.line}`))
+          .machineGone(record.id)
+          .catch((error) => console.error(`laterdog computers: [task] could not tell the task line ${record.id} was deleted: ${describeError(error)}`));
+      }
       return ok({ deleted: true as const });
     });
   }

@@ -135,4 +135,16 @@ describe("task machines", () => {
     const line = (await body(await w.fetch(apiRequest("GET", "/v1/task-line", OWNER_KEY)))).line;
     expect(line.running).toEqual([]);
   });
+
+  it("takes a deleted task machine off the line, so the thread's next ticket starts a fresh one", async () => {
+    const w = await world();
+    const first = await take(w, "t1");
+    const id = first.machine.id;
+    expect((await w.fetch(apiRequest("DELETE", `/v1/computers/${id}`, OWNER_KEY))).status).toBe(200);
+    await settle();
+    expect((await body(await w.fetch(apiRequest("GET", "/v1/task-line", OWNER_KEY)))).line.running).toEqual([]);
+    const next = (await body(await w.fetch(apiRequest("POST", "/v1/task-line/tickets", OWNER_KEY, { body: { key: "home:t1:2", thread: "t1", dog: "scout", size: "small", class: "task" } })))).ticket;
+    expect(next.machine).toMatchObject({ id, reused: false });
+    expect((await describeMachine(w, id)).computer).toMatchObject({ kind: "task" });
+  });
 });
