@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { within } from "./http";
-import { BOX_DESKTOPS, validDog } from "./box-routes";
+import { BOX_DESKTOPS, profileKey, validDog } from "./box-routes";
 
 export const BOX_AGENT_PORT = 7070;
 export const BOX_INSTANCE = "standard-3";
@@ -9,6 +9,12 @@ const AGENT = ["/usr/bin/tini", "--", "node", "/usr/local/lib/laterdog/box-agent
 const AGENT_TIMEOUT_MS = 15_000;
 const ALWAYS_ON_MS = 5 * 60 * 60_000;
 const KEEP_AWAKE_MS = 30_000;
+const SAVE_EVERY_MS = 10 * 60_000;
+const SAVED_AT = "saved-at";
+const SHA256 = /^[0-9a-f]{64}$/;
+
+
+export interface SavedProfile { dog: string; bytes: number; sha256: string; savedAt: string }
 
 interface BoxRecord {
   person: string;
@@ -32,7 +38,7 @@ export interface BoxStatus {
 
 export interface BoxAnswer {
   status: number;
-  body: { desktop?: BoxDesktop; closed?: boolean; error?: { code: string; message: string } };
+  body: { desktop?: BoxDesktop; profile?: "present" | "restored" | "none"; closed?: boolean; done?: boolean; error?: { code: string; message: string } };
 }
 
 export class PersonalBox extends DurableObject<Env> {
@@ -110,12 +116,63 @@ export class PersonalBox extends DurableObject<Env> {
     return response?.status === 200 ? ((await response.json()) as BoxStatus) : undefined;
   }
 
+  private person(): string {
+    const record = this.record();
+    if (!record) throw new Error("The box has not been started.");
+    return record.person;
+  }
+
+  async save(dog: string): Promise<SavedProfile | undefined> {
+    const response = await this.agent(`/profiles/${encodeURIComponent(dog)}`);
+    const bytes = Number(response?.headers.get("content-length"));
+    const sha256 = response?.headers.get("x-laterdog-sha256") ?? "";
+    if (!response || response.status !== 200 || !response.body || !Number.isSafeInteger(bytes) || !SHA256.test(sha256)) {
+      await response?.body?.cancel();
+      return undefined;
+    }
+    const sized = new FixedLengthStream(bytes);
+    const piping = response.body.pipeTo(sized.writable);
+    const savedAt = new Date().toISOString();
+    await this.env.BOX_STATE.put(profileKey(this.person(), dog), sized.readable, { sha256, customMetadata: { sha256, savedAt } });
+    await piping;
+    return { dog, bytes, sha256, savedAt };
+  }
+
+  async restore(dog: string): Promise<"present" | "restored" | "none" | "refused"> {
+    const listed = await this.agent("/profiles");
+    const present = listed?.status === 200 ? ((await listed.json()) as { profiles: Array<{ dog: string }> }).profiles.some((profile) => profile.dog === dog) : false;
+    if (present) return "present";
+    const saved = await this.env.BOX_STATE.get(profileKey(this.person(), dog));
+    if (!saved) return "none";
+    const sha256 = saved.customMetadata?.sha256 ?? "";
+    if (!SHA256.test(sha256)) { await saved.body.cancel(); return "refused"; }
+    const sized = new FixedLengthStream(saved.size);
+    const piping = saved.body.pipeTo(sized.writable);
+    const answer = await this.agent(`/profiles/${encodeURIComponent(dog)}`, { method: "PUT", headers: { "x-laterdog-sha256": sha256, "content-length": String(saved.size) }, body: sized.readable });
+    await piping.catch(() => undefined);
+    return answer?.status === 200 ? "restored" : "refused";
+  }
+
+  async saved(): Promise<SavedProfile[]> {
+    const listed = await this.env.BOX_STATE.list({ prefix: `box/${this.person()}/profiles/`, include: ["customMetadata"] });
+    return listed.objects.map((object) => ({ dog: object.key.split("/").pop()!.replace(/\.tgz$/, ""), bytes: object.size, sha256: object.customMetadata?.sha256 ?? "", savedAt: object.customMetadata?.savedAt ?? object.uploaded.toISOString() }));
+  }
+
   async open(dog: string): Promise<BoxAnswer | undefined> {
-    return this.answer(`/desktops/${encodeURIComponent(dog)}`, { method: "POST" });
+    const restored = await this.restore(dog);
+    if (restored === "refused") return { status: 422, body: { error: { code: "profile_refused", message: "The dog's saved profile failed its checksum and was not opened." } } };
+    const opened = await this.answer(`/desktops/${encodeURIComponent(dog)}`, { method: "POST" });
+    return opened?.body.desktop ? { ...opened, body: { ...opened.body, profile: restored } } : opened;
   }
 
   async close(dog: string): Promise<BoxAnswer | undefined> {
-    return this.answer(`/desktops/${encodeURIComponent(dog)}`, { method: "DELETE" });
+    const closed = await this.answer(`/desktops/${encodeURIComponent(dog)}`, { method: "DELETE" });
+    if (closed?.status === 200) await this.save(dog);
+    return closed;
+  }
+
+  async input(dog: string, body: unknown): Promise<BoxAnswer | undefined> {
+    return this.answer(`/desktops/${encodeURIComponent(dog)}/input`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   }
 
   async screenshot(dog: string): Promise<{ status: number; png?: ArrayBuffer; body?: BoxAnswer["body"] } | undefined> {
@@ -134,7 +191,12 @@ export class PersonalBox extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     if (!this.record() || !this.ctx.container?.running) return;
-    await this.status();
+    const status = await this.status();
+    const last = this.ctx.storage.kv.get<number>(SAVED_AT) ?? 0;
+    if (status && Date.now() - last >= SAVE_EVERY_MS) {
+      this.ctx.storage.kv.put(SAVED_AT, Date.now());
+      for (const desktop of status.desktops) await this.save(desktop.dog).catch(() => undefined);
+    }
     await this.ctx.storage.setAlarm(Date.now() + KEEP_AWAKE_MS);
   }
 
