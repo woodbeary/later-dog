@@ -1,9 +1,6 @@
-import { StringDecoder } from "node:string_decoder";
-
 import { availableTools, catalogProfileFromEnv } from "../drivers/agents-catalog.ts";
 import { callTool, capResult, toolCallContextFromEnv, withToolUseId } from "../drivers/agents-call.ts";
 import type { Json } from "../drivers/agents-client.ts";
-import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { withToolLoading } from "./tool-loading.ts";
 
 export type AgentsMcpEnv = Record<string, string | undefined>;
@@ -88,48 +85,5 @@ export function agentsMcpSession(env: AgentsMcpEnv, send: (msg: Json) => void): 
       for (const controller of running.values()) controller.abort();
       running.clear();
     },
-  };
-}
-
-export interface ProxyHandle {
-  write(bytes: Buffer): void;
-  end(): void;
-  kill(): void;
-}
-
-export function servesAgentsInProcess(spec: { command: string; args?: string[] }): boolean {
-  return spec.args?.length === 1 && spec.args[0] === SPAWNED_PROXIES.agents;
-}
-
-export function agentsInProcessProxy(env: AgentsMcpEnv, stdout: (bytes: Buffer) => void, exit: (code: number) => void): ProxyHandle {
-  const session = agentsMcpSession(env, (msg) => stdout(Buffer.from(JSON.stringify(msg) + "\n")));
-  const decoder = new StringDecoder("utf8");
-  let pending = "";
-  let done = false;
-  const finish = (code: number) => {
-    if (done) return;
-    done = true;
-    session.close();
-    exit(code);
-  };
-  return {
-    write(bytes) {
-      if (done) return;
-      pending += decoder.write(bytes);
-      let at = pending.indexOf("\n");
-      while (at >= 0) {
-        session.line(pending.slice(0, at));
-        pending = pending.slice(at + 1);
-        at = pending.indexOf("\n");
-      }
-    },
-    end() {
-      if (done) return;
-      pending += decoder.end();
-      if (pending) session.line(pending);
-      pending = "";
-      finish(0);
-    },
-    kill() { finish(1); },
   };
 }

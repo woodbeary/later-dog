@@ -5,7 +5,7 @@ import { PassThrough } from "node:stream";
 import { createInterface } from "node:readline";
 import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, workspaceRecovery, decodeEngineChunk, engineFileChunks, engineFileKey, inventoryWork, runFileWork, transcriptPrefixWork, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 import { createHash } from "node:crypto";
-import { agentsInProcessProxy, servesAgentsInProcess, type ProxyHandle } from "./agents-mcp-session.ts";
+import { inProcessProxy, type ProxyHandle } from "./in-process-proxies.ts";
 
 export interface EngineLink extends EventEmitter {
   opening?: boolean;
@@ -354,14 +354,11 @@ export class RemoteSession extends EventEmitter {
     const spec = Object.hasOwn(this.#launch.mcp, name) ? this.#launch.mcp[name] : undefined;
     if (!spec) { this.#send({ type: "proxy_exit", id, code: 1 }); return; }
     const env = { ...(this.#launch.proxyEnv ?? this.#launch.hookEnv), ...spec.env };
-    if (servesAgentsInProcess(spec)) {
-      const served: ProxyHandle = agentsInProcessProxy(env, (bytes) => { if (!this.#closed) this.#send({ type: "proxy_stdout", id, data: bytes.toString("base64") }); }, (code) => {
-        if (this.#proxies.get(id) === served) this.#proxies.delete(id);
-        if (!this.#closed) this.#send({ type: "proxy_exit", id, code });
-      });
-      this.#proxies.set(id, served);
-      return;
-    }
+    const served: ProxyHandle | null = inProcessProxy(spec, env, (bytes) => { if (!this.#closed) this.#send({ type: "proxy_stdout", id, data: bytes.toString("base64") }); }, (code) => {
+      if (this.#proxies.get(id) === served) this.#proxies.delete(id);
+      if (!this.#closed) this.#send({ type: "proxy_exit", id, code });
+    });
+    if (served) { this.#proxies.set(id, served); return; }
     const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.homeCwd ?? this.#launch.cwd, env, stdio: ["pipe", "pipe", "pipe"] });
     const handle: ProxyHandle = { write: (bytes) => { child.stdin?.write(bytes); }, end: () => { child.stdin?.end(); }, kill: () => { child.kill(); } };
     this.#proxies.set(id, handle);
