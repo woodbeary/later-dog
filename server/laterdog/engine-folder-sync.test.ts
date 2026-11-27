@@ -194,6 +194,29 @@ describe("assigned working folders on guest computers", () => {
     expect(readFileSync(join(f.right, "older-home.txt"), "utf8")).toBe("saved the old way");
   });
 
+  it("waits out a rate-limited network and finishes the checkout instead of failing it", async () => {
+    const f = await fixture();
+    writeFileSync(join(f.src, "big.txt"), "content");
+    await publishInitialWorkFolder(f.src, f.store);
+    const reach = globalThis.fetch;
+    let limited = 2;
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+        if (limited > 0 && url.includes("/blobs/")) {
+          limited -= 1;
+          return new Response(JSON.stringify({ error: { code: "rate_limited" } }), { status: 429, headers: { "retry-after": "2" } });
+        }
+        return reach(url, options);
+      });
+      const checkout = f.syncA();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await checkout;
+    } finally { vi.useRealTimers(); vi.stubGlobal("fetch", reach); }
+    expect(limited).toBe(0);
+    expect(readFileSync(join(f.left, "big.txt"), "utf8")).toBe("content");
+  });
+
   it("retains older read-only memory mirrors in durable storage and opens the current memory on first checkout", async () => {
     const f = await fixture();
     const data = join(f.dir, "data");

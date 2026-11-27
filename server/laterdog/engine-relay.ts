@@ -14,6 +14,7 @@ import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngine
 const TEST_ROOT = process.env.LATERDOG_ENGINE_TEST_ROOT ?? "";
 let homeRoots: string[] = [];
 const mirrored = (value: string) => TEST_ROOT && homeRoots.some((root) => value === root || value.startsWith(`${root}/`)) ? `${TEST_ROOT}${value}` : value;
+const placedRoot = (root: EngineFileRoot) => TEST_ROOT && typeof root.remotePath === "string" && root.remotePath.startsWith(`${TEST_ROOT}/`) && !root.remotePath.split("/").includes("..") ? root.remotePath : mirrored(root.path);
 let roots: EngineFileRoot[] = [];
 let outputs: EngineFileRoot[] = [];
 let workFolders: EngineWorkFolder[] = [];
@@ -343,7 +344,7 @@ async function handle(frame: any): Promise<void> {
       workFolders = bindings.map(folder => ({...folder,path:mirrored(folder.path)}));
       try { await syncWorkFolders("hydrate"); }
       catch (error) { await reply(frame.id,{refused: (error as Error).message}); return; }
-      roots = frame.roots.map((root: EngineFileRoot) => ({ ...root, logicalPath: root.path, path: mirrored(root.path) }));
+      roots = frame.roots.map((root: EngineFileRoot) => ({ ...root, logicalPath: root.path, path: placedRoot(root) }));
       outputs = roots.filter(root => frame.outputIds.includes(root.id));
       if (frame.ephemeralCodexHome) bindEphemeralCodexHome(frame.ephemeralCodexHome);
       for (const root of outputs) for (const name of root.files ?? []) {

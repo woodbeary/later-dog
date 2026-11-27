@@ -34,3 +34,15 @@ it("gives up on a folder that never comes back within the wake budget and does n
   await prepareTurnFolders({ workspace: "/x", budgetMs: 80, gate, active: false, makeDir: async () => { touched = true; } });
   expect(touched).toBe(false);
 });
+
+it("keeps trying a chat folder whose first checkout is still running and the mount answers that it timed out", async () => {
+  const gate = createMountedFolderGate({ probe: async () => ({}), active: () => true });
+  let tries = 0;
+  const makeDir = async (path: string) => {
+    if (path.endsWith("/chat") && ++tries < 3) throw Object.assign(new Error(`ETIMEDOUT: connection timed out, mkdir '${path}'`), { code: "ETIMEDOUT" });
+  };
+  await prepareTurnFolders({ workspace: "/data/.laterdog/workspaces/a", task: "/data/.laterdog/task-workspaces/a/chat", budgetMs: 5_000, gate, active: true, makeDir, retryMs: 20 });
+  expect(tries).toBe(3);
+  const refused = async () => { throw Object.assign(new Error("EACCES"), { code: "EACCES" }); };
+  await expect(prepareTurnFolders({ workspace: "/data/.laterdog/workspaces/a", budgetMs: 5_000, gate, active: true, makeDir: refused, retryMs: 20 })).rejects.toThrow("EACCES");
+});

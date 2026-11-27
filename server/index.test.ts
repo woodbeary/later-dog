@@ -11372,6 +11372,55 @@ describe("bot memory API", () => {
     }
   });
 
+  it("session_search across all dogs runs off the main thread, so health answers within 100 ms during a large scan", async () => {
+    const bot = (await api("POST", "/api/bots", {})).body.bot;
+    const other = (await api("POST", "/api/bots", {})).body.bot;
+    const history = new DatabaseSync(join(home, ".laterdog", "messages.db"));
+    try {
+      const insert = history.prepare("INSERT INTO messages (thread_id, id, at, role, kind, text, json) VALUES (?, ?, ?, ?, ?, ?, ?)");
+      const pad = "x".repeat(1_500);
+      const rows = 120_000;
+      const start = Date.now() + 3_600_000 - rows * 1_000;
+      for (let index = 0; index < rows; index += 1) {
+        if (index % 5_000 === 0) history.exec("BEGIN");
+        const text = index % 4 === 0 ? `archived note ${index} about the quarterly ledger` : null;
+        insert.run(other.threadId, `bulk-${index}`, start + index * 1_000, "bot", text ? "text" : "activity", text, JSON.stringify({ id: `bulk-${index}`, pad }));
+        if (index % 5_000 === 4_999) {
+          history.exec("COMMIT");
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      }
+      const token = await mintTestCapability(BASE, bot.id, bot.threadId);
+      let slowestHealth = 0;
+      let settled = false;
+      const searching = fetch(
+        `${BASE}/api/internal/session-search?${new URLSearchParams({ fromBotId: bot.id, fromThreadId: bot.threadId, bot: "all", since: "2d", limit: "18" })}`,
+        { headers: { authorization: `Bearer ${token}` } },
+      ).finally(() => { settled = true; });
+      while (!settled) {
+        const asked = performance.now();
+        expect((await fetch(`${BASE}/api/health`)).status).toBe(200);
+        slowestHealth = Math.max(slowestHealth, performance.now() - asked);
+      }
+      const answer = await searching;
+      const body = (await answer.json()) as { cross?: boolean; hits?: Array<{ threadId: string }>; error?: string };
+      expect(slowestHealth).toBeLessThan(100);
+      if (answer.status === 200) {
+        expect(body.cross).toBe(true);
+        expect(body.hits!.length).toBe(18);
+        expect(body.hits!.every((hit) => hit.threadId === other.threadId)).toBe(true);
+      } else {
+        expect(answer.status).toBe(503);
+        expect(body.error).toMatch(/^Searching took too long\. Try a narrower search/);
+      }
+    } finally {
+      history.prepare("DELETE FROM messages WHERE thread_id = ?").run(other.threadId);
+      history.close();
+      await api("DELETE", `/api/bots/${bot.id}`);
+      await api("DELETE", `/api/bots/${other.id}`);
+    }
+  }, 120_000);
+
   it("reads empty memory for a fresh bot and 404s a bot that does not exist", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     try {
