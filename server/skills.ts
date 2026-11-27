@@ -563,6 +563,12 @@ export function skillPackageStamps(botId: string): Array<{ name: string; enabled
     : []);
 }
 
+export function storedSkillPackageStamps(botId: string): Array<{ name: string; enabled: boolean; stamp: SkillPackageStamp }> {
+  return Object.entries(manifestFromFile(manifestPath(botId)) ?? {}).flatMap(([name, entry]) => entry.package
+    ? [{ name, enabled: entry.enabled, stamp: { ...entry.package } }]
+    : []);
+}
+
 export function setSkillEnabled(botId: string, name: string, enabled: boolean): SkillListing | { error: string } {
   if (!isSkillName(name)) return { error: "invalid skill name" };
   const manifest = readManifest(botId);

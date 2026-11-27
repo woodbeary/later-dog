@@ -1,7 +1,6 @@
 import { parentPort } from "node:worker_threads";
 
-import * as skills from "./skills.ts";
-import { RECEIPT_FAILED, SKILL_OPS, type SkillCall, type SkillOp } from "./skills-thread.ts";
+import { RECEIPT_FAILED, SKILL_OPS, skills, type SkillCall, type SkillOp } from "./skills-thread.ts";
 
 parentPort!.on("message", (call: SkillCall) => {
   try {

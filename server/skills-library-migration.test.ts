@@ -241,39 +241,39 @@ describe("skills library migration", () => {
 });
 
 describe("skills library boot sweep", () => {
-  it("does not assign a disabled private copy when shared approval changes later", () => {
+  it("does not assign a disabled private copy when shared approval changes later", async () => {
     const name = "disabled-not-assigned";
     skills.installSkill(botA, "private:test", [{ path: "SKILL.md", content: SKILL(name) }]);
     const patched: string[][] = [];
-    migration.runSkillsLibraryBootSweep({ bots: [{ id: botA }], patch: (_id, names) => patched.push(names) });
+    await migration.runSkillsLibraryBootSweep({ bots: [{ id: botA }], patch: (_id, names) => patched.push(names) });
     expect(patched).toEqual([]);
     expect(library.setLibrarySkillReviewState(name, "approved")).not.toHaveProperty("error");
     expect(skills.resolveBotSkills(botA, undefined)).toEqual([]);
     expect(migration.readPendingAssignments()[botA]).toBeUndefined();
   });
 
-  it("recovers a newly migrated assignment after the bot save fails and boot retries", () => {
+  it("recovers a newly migrated assignment after the bot save fails and boot retries", async () => {
     const name = "restart-save-failure";
     skills.installSkill(botA, "private:test", [{ path: "SKILL.md", content: SKILL(name) }]);
     skills.setSkillEnabled(botA, name, true);
     const bots = [{ id: botA, assignedSkills: undefined as string[] | undefined }];
-    expect(() => migration.runSkillsLibraryBootSweep({
+    await expect(migration.runSkillsLibraryBootSweep({
       bots,
       patch: () => { throw new Error("fixture bot save failed"); },
-    })).toThrow("fixture bot save failed");
+    })).rejects.toThrow("fixture bot save failed");
     const recovered: string[][] = [];
-    migration.runSkillsLibraryBootSweep({ bots, patch: (_id, names) => recovered.push(names) });
+    await migration.runSkillsLibraryBootSweep({ bots, patch: (_id, names) => recovered.push(names) });
     expect(recovered).toEqual([[name]]);
     expect(migration.readPendingAssignments()).toEqual({});
   });
 
-  it("applies script-recorded pending assignments through the patch callback and clears the file", () => {
+  it("applies script-recorded pending assignments through the patch callback and clears the file", async () => {
     skills.installSkill(botA, "private:test", [{ path: "SKILL.md", content: SKILL("pending-skill") }]);
     skills.setSkillEnabled(botA, "pending-skill", true);
     migration.writePendingAssignments({ [botA]: ["some-already-library-skill"] });
     const bots = [{ id: botA, assignedSkills: undefined as string[] | undefined }];
     const patched: Array<[string, string[]]> = [];
-    const report = migration.runSkillsLibraryBootSweep({
+    const report = await migration.runSkillsLibraryBootSweep({
       bots,
       patch: (botId, assignedSkills) => {
         patched.push([botId, assignedSkills]);
@@ -284,7 +284,7 @@ describe("skills library boot sweep", () => {
     expect(report.assignments[botA]).toEqual(["pending-skill", "some-already-library-skill"]);
     expect(migration.readPendingAssignments()).toEqual({});
 
-    const second = migration.runSkillsLibraryBootSweep({
+    const second = await migration.runSkillsLibraryBootSweep({
       bots,
       patch: (botId, assignedSkills) => patched.push([botId, assignedSkills]),
     });
@@ -293,9 +293,9 @@ describe("skills library boot sweep", () => {
     expect(patched.length).toBe(1);
   });
 
-  it("without a patch callback it reports only and leaves pending assignments alone", () => {
+  it("without a patch callback it reports only and leaves pending assignments alone", async () => {
     migration.writePendingAssignments({ [botB]: ["held-skill"] });
-    migration.runSkillsLibraryBootSweep({ bots: [{ id: botB }] });
+    await migration.runSkillsLibraryBootSweep({ bots: [{ id: botB }] });
     expect(migration.readPendingAssignments()).toEqual({ [botB]: ["held-skill"] });
   });
 });
