@@ -78,7 +78,10 @@ export class SearchIndexFeed {
   private readonly waiters: Array<() => void> = [];
   readonly state: FeedState = { pending: 0, sent: 0, failures: 0, dropped: 0, needsBackfill: false };
 
-  constructor(private readonly send: (batch: IndexFeedBatch) => Promise<void>, options: FeedOptions = {}) {
+  private readonly send: (batch: IndexFeedBatch) => Promise<void>;
+
+  constructor(send: (batch: IndexFeedBatch) => Promise<void>, options: FeedOptions = {}) {
+    this.send = send;
     this.maxBatch = Math.min(options.maxBatch ?? 500, INDEX_FEED_MAX_ITEMS);
     this.delayMs = options.delayMs ?? 250;
     this.maxPending = options.maxPending ?? 50_000;
