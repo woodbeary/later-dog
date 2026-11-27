@@ -14,7 +14,7 @@ export function permissionLaunchCwd(cwd: string): () => string | undefined {
     try { real = realpathSync(cwd); } catch {}
     return () => real;
   }
-  let real: string | undefined;
+  let real: string | undefined = cwd;
   void realFolderPath(cwd).then((value) => { real = value; });
   return () => real;
 }

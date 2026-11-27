@@ -137,7 +137,7 @@ it("a turn's folder phase on a dog whose folder hangs does not hold the event lo
   expect(steps[1]!.status).toBe("rejected");
   expect(steps[2]).toEqual({ status: "fulfilled", value: null });
   expect(steps[3]).toEqual({ status: "fulfilled", value: false });
-  expect(steps[4]).toEqual({ status: "fulfilled", value: undefined });
+  expect(steps[4]).toEqual({ status: "fulfilled", value: workspaceDir(WAKING) });
   expect(phaseMs).toBeLessThan(ANSWERS_AFTER_MS);
   expect(worst).toBeLessThan(300);
 }, 30_000);
