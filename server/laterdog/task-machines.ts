@@ -217,7 +217,7 @@ export function taskMachineOpener(inner: EngineOpener, options: TaskMachineOptio
     get remoteBase() { return inner.remoteBase; },
     openBudgetMs: (inner.openBudgetMs ?? 0) + queueBudgetMs,
     async open(botId, plan, signal) {
-      const ticketClass = taskMachineChosen(taskMachineSetting(options.dataDir), botId) ? options.ticketClass(botId, plan.threadId) : null;
+      const ticketClass = !plan.guestRuntime && taskMachineChosen(taskMachineSetting(options.dataDir), botId) ? options.ticketClass(botId, plan.threadId) : null;
       if (!ticketClass) return inner.open(botId, plan, signal);
       const who = `${botId.slice(0, 8)} ${plan.threadId.slice(0, 8)}`;
       const note = (text: string) => notePlacement(options.dataDir, `[task-line] ${who} ${text}`);

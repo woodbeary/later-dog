@@ -112,6 +112,10 @@ describe("task machine opener", () => {
       await opener.open("dog-1", plan("t1"));
       expect(computer.opened).toEqual(["t1"]);
     }
+    const computer = inner();
+    const opener = taskMachineOpener(computer, { dataDir: dataDir(), ticketClass: () => "task", size: () => "small", service: () => line.service, openOn: async () => { throw new Error("not here"); } });
+    await opener.open("dog-1", { threadId: "t9", guestRuntime: { kind: "node" } } as Parameters<EngineOpener["open"]>[1]);
+    expect(computer.opened).toEqual(["t9"]);
     expect(line.rows).toEqual([]);
   });
 
