@@ -106,7 +106,7 @@ it("keeps an idle dog folder open after saving it, so the next look does not reo
     const close = vi.fn();
     const checkpoint = vi.fn(async () => {});
     const open = vi.fn(async () => ({ channel: { closed: false, close, call: async () => ({ ok: true, attr: { ino: "7", mode: 0o100600, size: "1" } }) }, checkpoint }));
-    const router = new WorkFolderMountRouter(names, open as never, vi.fn(async () => {}), 1000, 1000, () => {}, async () => undefined);
+    const router = new WorkFolderMountRouter(names, open as never, vi.fn(async () => {}), 1000, 1000, () => {}, async () => null);
     const look = () => router.dispatch({ op: "getattr", path: "dogs/lab/MEMORY.md", root: "work-folders" });
     await look();
     expect(open).toHaveBeenCalledOnce();
