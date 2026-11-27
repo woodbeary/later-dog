@@ -30,7 +30,7 @@
       "class_name": "PersonalBox",
       "scheduling_policy": "durable_object",
       "images": {
-        "box": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-computers-box@sha256:67c917a8f836dda4da7105a94e406d9492f4c510f38c4e286b4d7223709ae8e7" }
+        "box": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-computers-box@sha256:11cc5924dad781b068b3c33b3e7f646334d09ca95cd916031d4905a7c349c8fe" }
       },
       "observability": { "enabled": true }
     }

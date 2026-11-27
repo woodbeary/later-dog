@@ -61,6 +61,7 @@ async function open(dog) {
   launch(desktop, ["laterdog-websockify", `0.0.0.0:${desktop.wsPort}`, `localhost:${desktop.vncPort}`]);
   launch(desktop, asDog(display, ["xfwm4"]));
   launch(desktop, asDog(display, ["chromium", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--password-store=basic", "--disable-dev-shm-usage", "--hide-crash-restore-bubble", "--start-maximized", `--remote-debugging-port=${desktop.debugPort}`, "--remote-debugging-address=127.0.0.1"]));
+  await waitFor(["curl", "-sf", "-o", "/dev/null", `http://127.0.0.1:${desktop.debugPort}/json/version`], 20_000);
   return view(dog, desktop);
 }
 
@@ -141,7 +142,7 @@ setInterval(() => {
 
 const readBody = (req) => new Promise((resolve) => {
   let text = "";
-  req.on("data", (chunk) => { text += chunk; if (text.length > 16_384) req.destroy(); });
+  req.on("data", (chunk) => { text += chunk; if (text.length > 70_000) req.destroy(); });
   req.on("end", () => { try { resolve(JSON.parse(text || "{}")); } catch { resolve(null); } });
 });
 
@@ -195,11 +196,37 @@ function profiles() {
   return readdirSync(PROFILES).filter((name) => DOG.test(name)).map((dog) => ({ dog, open: desktops.has(dog), changedAt: statSync(join(PROFILES, dog)).mtimeMs }));
 }
 
+const RUN_OUTPUT_CAP = 8 * 1024 * 1024;
+
+function runOnDesktop(desktop, command, timeoutMs) {
+  return new Promise((resolve) => {
+    const own = join(PROFILES, desktop.dog, "home");
+    const env = { HOME: existsSync(own) ? own : "/home/dog", USER: "dog", LOGNAME: "dog", PATH: process.env.PATH, DISPLAY: `:${desktop.display}`, NO_AT_BRIDGE: "1", LATERDOG_PAGE_CDP_PORT: String(desktop.debugPort) };
+    const child = spawn("runuser", ["-u", "dog", "--", "env", ...Object.entries(env).map(([key, value]) => `${key}=${value}`), "bash", "-c", command], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let done = false;
+    child.stdout.on("data", (chunk) => { if (stdout.length < RUN_OUTPUT_CAP) stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-4000); });
+    const finish = (exitCode) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      child.stdout.destroy();
+      child.stderr.destroy();
+      resolve({ ok: exitCode === 0, exitCode, stdout, stderr });
+    };
+    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} finish(null); }, timeoutMs);
+    child.on("exit", (code) => setTimeout(() => finish(code), 50));
+    child.on("error", () => finish(null));
+  });
+}
+
 const send = (res, status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
 
 createServer(async (req, res) => {
   const url = new URL(req.url, "http://box");
-  const match = /^\/desktops\/([^/]+)(\/screenshot|\/touch|\/input)?$/.exec(url.pathname);
+  const match = /^\/desktops\/([^/]+)(\/screenshot|\/touch|\/input|\/run)?$/.exec(url.pathname);
   try {
     const profile = /^\/profiles\/([^/]+)$/.exec(url.pathname);
     if (url.pathname === "/profiles" && req.method === "GET") return send(res, 200, { profiles: profiles() });
@@ -234,6 +261,12 @@ createServer(async (req, res) => {
     if (!desktop) return send(res, 404, { error: { code: "no_desktop", message: "This dog has no desktop open." } });
     desktop.usedAt = Date.now();
     if (match[2] === "/touch" && req.method === "POST") return send(res, 200, { desktop: view(dog, desktop) });
+    if (match[2] === "/run" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!body || typeof body.command !== "string" || !body.command || body.command.length > 64_000) return send(res, 400, { error: { code: "bad_command", message: "Send a command." } });
+      const timeoutMs = Math.min(Math.max(Number(body.timeoutMs) || 60_000, 1000), 300_000);
+      return send(res, 200, await runOnDesktop(desktop, body.command, timeoutMs));
+    }
     if (match[2] === "/input" && req.method === "POST") {
       const done = await input(desktop, await readBody(req));
       return done ? send(res, 200, { done: true }) : send(res, 400, { error: { code: "bad_input", message: "Send click with x and y, type with text, key with keys, or open with an http(s) url." } });

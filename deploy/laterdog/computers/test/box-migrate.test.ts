@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inventoryRow, packScript, readPacked } from "../src/box-migrate";
+import { inventoryRow, packScript, readPacked, retirementCheck } from "../src/box-migrate";
 import { boxRequest } from "../src/box-routes";
 
 const DAY = 24 * 60 * 60_000;
@@ -18,6 +18,8 @@ describe("moving a dog's browser profile to the box", () => {
     expect(script).toContain("--exclude='*/Cache'");
     expect(script).toContain("select distinct host_key from cookies");
     expect(script).not.toMatch(/select[^\n]*value/);
+    expect(script).toContain("--transform 's,^\\.,dog-1/home/.,'");
+    for (const login of [".config/gh", ".ssh", ".npmrc", ".git-credentials"]) expect(script).toContain(`"$HOME/${login}"`);
   });
 
   it("reads what the computer reported and refuses anything partial", () => {
@@ -26,6 +28,26 @@ describe("moving a dog's browser profile to the box", () => {
     expect(readPacked("none\n")).toBe("none");
     expect(readPacked(`sha256 nope\nbytes 1\nsites 0\ncli \npart.000`)).toBeNull();
     expect(readPacked(`sha256 ${sha}\nbytes 1\nsites 0\ncli \n`)).toBeNull();
+  });
+
+  it("reports which computers could retire, and never one that woke after its move or was never moved", () => {
+    const now = Date.parse("2026-12-20T00:00:00Z");
+    const view = (id: string, state: "sleeping" | "running", lastActiveAt: string) => ({ id, name: id, size: "standard" as const, state, createdAt: "2026-10-01T00:00:00Z", lastActiveAt });
+    const rows = retirementCheck([
+      view("cmp_old", "sleeping", "2026-11-27T10:00:00Z"),
+      view("cmp_woke", "sleeping", "2026-12-01T00:00:00Z"),
+      view("cmp_recent", "sleeping", "2026-12-10T00:00:00Z"),
+      view("cmp_awake", "running", "2026-11-27T10:00:00Z"),
+      view("cmp_never", "sleeping", "2026-11-01T00:00:00Z"),
+    ], [
+      { dog: "a", from: "cmp_old", savedAt: "2026-11-27T12:00:00Z", sha256: "x" },
+      { dog: "b", from: "cmp_woke", savedAt: "2026-11-27T12:00:00Z", sha256: "x" },
+      { dog: "c", from: "cmp_recent", savedAt: "2026-12-15T00:00:00Z", sha256: "x" },
+      { dog: "d", from: "cmp_awake", savedAt: "2026-11-27T12:00:00Z", sha256: "x" },
+    ], now);
+    expect(rows.map((row) => [row.computer, row.retirable])).toEqual([["cmp_old", true], ["cmp_woke", false], ["cmp_recent", false], ["cmp_awake", false], ["cmp_never", false]]);
+    expect(rows[1]?.reason).toMatch(/woke after/);
+    expect(rows[4]?.reason).toMatch(/not been moved/);
   });
 
   it("only moves computers that belong to the caller", async () => {

@@ -34,19 +34,24 @@ export function inventoryRow(view: ComputerView, packaged: InventoryRow["package
   };
 }
 
+export const CLI_LOGINS = [".config/gh", ".ssh", ".npmrc", ".gitconfig", ".git-credentials", ".netrc", ".docker/config.json"] as const;
+
 export function packScript(dog: string): string {
+  const cli = CLI_LOGINS.map((path) => `[ -e "$HOME/${path}" ] && cli+=("${path}")`).join("; ");
   return [
     "set -euo pipefail",
     `rm -rf ${MOVE_DIR} && mkdir -p ${MOVE_DIR} && cd ${MOVE_DIR}`,
     "profile=$HOME/.config/chromium",
-    "[ -d \"$profile\" ] || { echo 'none'; exit 0; }",
+    `cli=(); ${cli}; true`,
+    "[ -d \"$profile\" ] || [ ${#cli[@]} -gt 0 ] || { echo 'none'; exit 0; }",
     "sites=$(python3 -c \"import sqlite3,sys,glob\nn=set()\nfor f in glob.glob(sys.argv[1]+'/*/Cookies')+glob.glob(sys.argv[1]+'/*/Network/Cookies'):\n  try:\n    c=sqlite3.connect('file:'+f+'?mode=ro&immutable=1',uri=True)\n    n.update(r[0].lstrip('.') for r in c.execute('select distinct host_key from cookies'))\n  except Exception: pass\nprint(len(n))\" \"$profile\" 2>/dev/null || echo 0)",
-    `tar -czf profile.tgz --warning=no-file-changed --ignore-failed-read --exclude='Singleton*' --exclude='*/Cache' --exclude='*/Code Cache' --exclude='*/GPUCache' --exclude='*/Service Worker/CacheStorage' -C "$HOME/.config" --transform 's,^chromium,${dog}/chromium,' chromium || [ $? -le 1 ]`,
+    "parts=(); [ -d \"$profile\" ] && parts+=(-C \"$HOME/.config\" chromium); [ ${#cli[@]} -gt 0 ] && parts+=(-C \"$HOME\" \"${cli[@]}\")",
+    `tar -czf profile.tgz --warning=no-file-changed --ignore-failed-read --exclude='Singleton*' --exclude='*/Cache' --exclude='*/Code Cache' --exclude='*/GPUCache' --exclude='*/Service Worker/CacheStorage' --transform 's,^chromium,${dog}/chromium,' --transform 's,^\\.,${dog}/home/.,' "\${parts[@]}" || [ $? -le 1 ]`,
     `split -b ${MOVE_PART_BYTES} -d -a 3 profile.tgz part.`,
     "echo \"sha256 $(sha256sum profile.tgz | cut -d' ' -f1)\"",
     "echo \"bytes $(stat -c %s profile.tgz)\"",
     "echo \"sites $sites\"",
-    "echo \"cli $( [ -f $HOME/.config/gh/hosts.yml ] && echo gh ) $( ls $HOME/.ssh/id_* 2>/dev/null | head -1 | sed 's,.*,ssh,' ) $( [ -f $HOME/.npmrc ] && echo npm )\"",
+    "echo \"cli ${cli[*]}\"",
     "ls part.* | tr '\\n' ' '",
   ].join("\n");
 }
@@ -95,10 +100,10 @@ export async function moveProfile(input: { computer: MovableComputer; computerId
   if (!packed.ok) return failed(packed.refusal.status, packed.refusal.code, packed.refusal.message);
   if (packed.value.exitCode !== 0) return failed(502, "pack_failed", `Packing the browser profile failed: ${packed.value.stderr.slice(0, 300)}`);
   const found = readPacked(packed.value.stdout);
-  if (found === "none") return failed(404, "no_profile", "The dog's computer has no browser profile.");
+  if (found === "none") return failed(404, "no_profile", "The dog's computer has no browser profile or command-line logins.");
   if (!found) return failed(502, "pack_unreadable", "The packed profile could not be read.");
   const key = profileKey(input.person, input.dog);
-  const upload = await input.bucket.createMultipartUpload(key, { customMetadata: { sha256: found.sha256, savedAt: new Date().toISOString(), from: input.computerId, sites: String(found.sites) } });
+  const upload = await input.bucket.createMultipartUpload(key, { customMetadata: { sha256: found.sha256, savedAt: new Date().toISOString(), movedAt: new Date().toISOString(), from: input.computerId, sites: String(found.sites) } });
   try {
     const parts: R2UploadedPart[] = [];
     for (const [index, name] of found.parts.entries()) {
@@ -119,4 +124,35 @@ export async function moveProfile(input: { computer: MovableComputer; computerId
     return failed(502, "checksum_mismatch", "The copied profile did not match the computer's checksum and was removed.");
   }
   return { ok: true, dog: input.dog, computer: input.computerId, bytes: found.bytes, sha256: found.sha256, sites: found.sites, cliLogins: found.cli, seconds: Math.round((Date.now() - started) / 1000) };
+}
+
+export const RETIRE_AFTER_QUIET_DAYS = 14;
+
+export interface MovedPackage { dog: string; from?: string; movedAt?: string; savedAt: string; sha256: string }
+
+export interface RetirementRow {
+  computer: string;
+  name: string;
+  dog: string | null;
+  retirable: boolean;
+  reason: string;
+  quietSince: string | null;
+  retirableFrom: string | null;
+}
+
+export function retirementCheck(views: ComputerView[], packages: MovedPackage[], now = Date.now()): RetirementRow[] {
+  return views.map((view) => {
+    const moved = packages.filter((entry) => entry.from === view.id).sort((a, b) => Date.parse(b.movedAt ?? b.savedAt) - Date.parse(a.movedAt ?? a.savedAt))[0];
+    const row = { computer: view.id, name: view.name, dog: moved?.dog ?? null, quietSince: null as string | null, retirableFrom: null as string | null };
+    if (!moved) return { ...row, retirable: false, reason: "Its logins have not been moved to the box." };
+    const movedAt = Date.parse(moved.movedAt ?? moved.savedAt);
+    const lastActive = Date.parse(view.lastActiveAt);
+    const quietSince = Math.max(movedAt, Number.isFinite(lastActive) ? lastActive : movedAt);
+    const from = quietSince + RETIRE_AFTER_QUIET_DAYS * DAY_MS;
+    const timed = { ...row, quietSince: new Date(quietSince).toISOString(), retirableFrom: new Date(from).toISOString() };
+    if (view.state !== "sleeping") return { ...timed, retirable: false, reason: `It is ${view.state}, not asleep.` };
+    if (Number.isFinite(lastActive) && lastActive > movedAt) return { ...timed, retirable: false, reason: "It woke after its logins were moved; move them again first." };
+    if (now < from) return { ...timed, retirable: false, reason: `It has to stay asleep until ${new Date(from).toISOString().slice(0, 10)}.` };
+    return { ...timed, retirable: true, reason: `Asleep for ${RETIRE_AFTER_QUIET_DAYS}+ days since its logins moved; its package stays in storage for 90 days.` };
+  });
 }

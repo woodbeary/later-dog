@@ -15,7 +15,10 @@ describe("personal box routes", () => {
     expect(boxRoute("GET", "/v1/box/desktops/dog-1/input")).toEqual({ op: "method_not_allowed", allow: ["POST"] });
     expect(boxRoute("POST", "/v1/box/desktops/dog-1/save")).toEqual({ op: "save", dog: "dog-1" });
     expect(boxRoute("GET", "/v1/box/profiles")).toEqual({ op: "profiles" });
+    expect(boxRoute("POST", "/v1/box/desktops/dog-1/run")).toEqual({ op: "run", dog: "dog-1" });
     expect(boxRoute("GET", "/v1/box/moves")).toEqual({ op: "inventory" });
+    expect(boxRoute("GET", "/v1/box/retirement")).toEqual({ op: "retirement" });
+    expect(boxRoute("DELETE", "/v1/box/retirement")).toEqual({ op: "method_not_allowed", allow: ["GET"] });
     expect(boxRoute("POST", "/v1/box/moves/dog-1/from/cmp_abc")).toEqual({ op: "move", dog: "dog-1", computer: "cmp_abc" });
     expect(boxRoute("GET", "/v1/pool")).toBeUndefined();
   });
