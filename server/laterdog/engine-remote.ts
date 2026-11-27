@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createInterface } from "node:readline";
-import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, workspaceRecovery, decodeEngineChunk, engineFileChunks, engineFileKey, inventoryWork, runFileWork, transcriptPrefixWork, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, workspaceRecovery, decodeEngineChunk, engineFileChunks, engineFileKey, inventoryWork, runFileWork, transcriptPrefixWork, fileHash, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 import { createHash } from "node:crypto";
 
 export interface EngineLink extends EventEmitter {
@@ -231,7 +231,15 @@ export class RemoteSession extends EventEmitter {
       const local = this.#receiver.baseline.get(key);
       const guest = remote.get(key);
       if (local?.hash === guest?.hash || guest?.hash === receipt.before?.hash) continue;
-      if (local?.hash !== receipt.before?.hash) throw new Error("Native transcript changed on both the home and computer. Both copies were preserved.");
+      const computerNewer = Boolean(local && guest && local.size < guest.size && (await this.#request({ type: "transcript_prefix", root: root.id, path: receipt.path, size: local.size }, SYNC_REPLY_MS, true))?.hash === local.hash);
+      if (local?.hash !== receipt.before?.hash && !computerNewer) {
+        if (!guest || local && guest.size <= local.size && await runFileWork(fileHash(root, receipt.path, guest.size), this.#fileAbort.signal) === guest.hash) continue;
+        const aside = await this.#request({ type: "set_aside_transcript", root: root.id, path: receipt.path, hash: guest.hash }, SYNC_REPLY_MS, true);
+        if (typeof aside?.setAside !== "string") throw new Error("Native transcript changed on both the home and computer. Both copies were preserved.");
+        remote.delete(key);
+        this.emit("notice", `This chat's conversation on its computer had changed apart from the home's copy, so the home's copy continues and the computer's is kept beside it as ${aside.setAside.split("/").at(-1)}.`);
+        continue;
+      }
       const recovery = await this.#request({ type: "recover_transcript", root: root.id, path: receipt.path, hash: guest?.hash }, SYNC_REPLY_MS, true);
       if (!recovery?.recovered || this.#receiver.baseline.get(key)?.hash !== guest?.hash) throw new Error("The newer computer transcript could not be recovered. Both copies were preserved.");
       home = home.filter(file => engineFileKey(file) !== key);

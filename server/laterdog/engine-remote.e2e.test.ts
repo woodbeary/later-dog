@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { EventEmitter } from "node:events";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createServer, type Server } from "node:http";
 import { createInterface } from "node:readline";
@@ -248,7 +248,7 @@ it("parks a selected rollout after loss and recovers only that file into the nex
   await done;
 }, 30_000);
 
-it("recovers a later guest transcript before dispatch and preserves both copies on a two-sided edit", async () => {
+it("recovers a later guest transcript, continues the home copy over an older restored one, takes the computer copy when it extends the home's, and keeps a diverged computer copy beside it with a note", async () => {
   const w = world();
   const first = w.start(w.plan());
   await turn(first.engine, "first turn");
@@ -266,18 +266,44 @@ it("recovers a later guest transcript before dispatch and preserves both copies 
   const closedAgain = closed(resumed.engine);
   resumed.engine.stdin.end();
   await closedAgain;
-  writeFileSync(w.sessionFile, "home revision");
-  writeFileSync(guest, "computer revision");
-  const conflict = w.start(w.plan(true));
-  const diagnostics: string[] = [];
-  conflict.engine.stderr.on("data", chunk => diagnostics.push(String(chunk)));
-  expect(await closed(conflict.engine)).toBe(1);
-  expect(await killCliTree(conflict.engine as unknown as ChildProcess, 0)).toBe(true);
-  expect(diagnostics.join("")).toContain("Both copies were preserved");
-  expect(readFileSync(w.sessionFile, "utf8")).toBe("home revision");
-  expect(readFileSync(guest, "utf8")).toBe("computer revision");
+  const settled = readFileSync(w.sessionFile);
+  writeFileSync(guest, Buffer.concat([settled, Buffer.from("restored computer line\n")]));
+  writeFileSync(w.sessionFile, Buffer.concat([settled, Buffer.from("restored computer line\n"), Buffer.from("later home line\n")]));
+  const notices: string[] = [];
+  const restored = w.start(w.plan(true), undefined, false, undefined, { onNotice: (text) => notices.push(text) });
+  await turn(restored.engine, "after a restore from an older snapshot");
+  expect(readFileSync(w.sessionFile, "utf8")).toContain("later home line");
+  expect(notices).toEqual([]);
+  const restoredClosed = closed(restored.engine);
+  restored.engine.stdin.end();
+  await restoredClosed;
+  const shared = readFileSync(w.sessionFile);
+  writeFileSync(w.sessionFile, Buffer.concat([shared, Buffer.from("home took the first part\n")]));
+  writeFileSync(guest, Buffer.concat([shared, Buffer.from("home took the first part\n"), Buffer.from("computer kept working\n")]));
+  const ahead = w.start(w.plan(true), undefined, false, undefined, { onNotice: (text) => notices.push(text) });
+  await turn(ahead.engine, "after the computer kept working past the home's copy");
+  expect(readFileSync(w.sessionFile, "utf8")).toContain("computer kept working");
+  expect(notices).toEqual([]);
+  const aheadClosed = closed(ahead.engine);
+  ahead.engine.stdin.end();
+  await aheadClosed;
+  const agreed = readFileSync(w.sessionFile);
+  writeFileSync(w.sessionFile, Buffer.concat([agreed, Buffer.from("home revision\n")]));
+  writeFileSync(guest, Buffer.concat([agreed, Buffer.from("computer revision\n")]));
+  const conflict = w.start(w.plan(true), undefined, false, undefined, { onNotice: (text) => notices.push(text) });
+  await turn(conflict.engine, "after the two copies diverged");
+  const kept = readdirSync(dirname(guest)).filter((name) => name.endsWith(".preserved"));
+  expect(kept).toHaveLength(1);
+  expect(readFileSync(join(dirname(guest), kept[0]!), "utf8")).toContain("computer revision");
+  expect(readFileSync(w.sessionFile, "utf8")).toContain("home revision");
+  expect(readFileSync(w.sessionFile, "utf8")).not.toContain("computer revision");
+  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain(kept[0]);
+  const conflictClosed = closed(conflict.engine);
+  conflict.engine.stdin.end();
+  await conflictClosed;
   expect(w.localLaunches()).toBe(0);
-  expect(w.launches()).toHaveLength(2);
+  expect(w.launches()).toHaveLength(5);
 });
 
 it("resumes a large Claude transcript on the computer and checkpoints its exact bytes back to the home", async () => {
