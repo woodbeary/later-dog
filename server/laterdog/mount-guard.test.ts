@@ -55,16 +55,22 @@ describe("the dog-folder mount guard", () => {
     expect(guard.isDown(`${ROOT}/fine`)).toBe(false);
   });
 
-  it("lets at most two calls into one folder at a time, so a stuck folder cannot use up the file-system threads", async () => {
+  it("lets one call into a folder at a time and four in all, so stuck folders cannot use up the file-system threads", async () => {
     const guard = createMountGuard({ roots: () => [ROOT], timeoutMs: 200, coolMs: 10_000 });
     let started = 0;
     const stuck = () => { started += 1; return never(); };
     const calls = Array.from({ length: 6 }, () => guard.run(`${ROOT}/busy/f`, stuck).catch((error: unknown) => error));
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(started).toBe(2);
+    expect(started).toBe(1);
     const results = await Promise.all(calls);
     expect(results.every((result) => result instanceof MountDown)).toBe(true);
-    expect(started).toBe(2);
+    expect(started).toBe(1);
+    const all = createMountGuard({ roots: () => [ROOT], timeoutMs: 100, coolMs: 10_000 });
+    let begun = 0;
+    const stuckEach = Array.from({ length: 6 }, (_, i) => all.run(`${ROOT}/dog-${i}/f`, () => { begun += 1; return never(); }).catch(() => "down"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(begun).toBe(4);
+    await Promise.all(stuckEach);
   });
 
   it("keeps the home answering and another dog's folder fast while one folder never answers", async () => {
@@ -85,7 +91,7 @@ describe("the dog-folder mount guard", () => {
     let now = 0;
     let probes = 0;
     const guard = createMountGuard({ roots: () => [ROOT], timeoutMs: 30, coolMs: 1_000, now: () => now, probe: async () => { probes += 1; } });
-    await expect(guard.run(`${ROOT}/back/x`, never)).rejects.toBeInstanceOf(MountDown);
+    await expect(guard.run(`${ROOT}/back/x`, () => Promise.reject(Object.assign(new Error("io"), { code: "EIO" })))).rejects.toBeInstanceOf(MountDown);
     now = 500;
     await expect(guard.run(`${ROOT}/back/x`, fast)).rejects.toBeInstanceOf(MountDown);
     expect(probes).toBe(0);
@@ -93,6 +99,14 @@ describe("the dog-folder mount guard", () => {
     expect(await guard.run(`${ROOT}/back/x`, () => fast("again"))).toBe("again");
     expect(probes).toBe(1);
     expect(guard.isDown(`${ROOT}/back`)).toBe(false);
+  });
+
+  it("stays down while an earlier call on the folder has still not returned", async () => {
+    let now = 0;
+    const guard = createMountGuard({ roots: () => [ROOT], timeoutMs: 30, coolMs: 1_000, now: () => now, probe: fast });
+    await expect(guard.run(`${ROOT}/held/x`, never)).rejects.toBeInstanceOf(MountDown);
+    now = 1_500;
+    await expect(guard.run(`${ROOT}/held/x`, fast)).rejects.toBeInstanceOf(MountDown);
   });
 
   it("stays down when the probe after the cool-off does not answer", async () => {

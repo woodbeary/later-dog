@@ -1,3 +1,4 @@
+import { MountDown } from "../laterdog/mount-guard.ts";
 import { z } from "zod";
 import type { ServerResponse } from "node:http";
 
@@ -35,7 +36,7 @@ export interface BotMemoryRouteDeps {
 
 export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
   function replyMemoryError(res: ServerResponse, error: unknown) {
-    if (mountedWorkspaceUnavailable(error)) return json(res, 503, { error: "The working folder is temporarily unavailable. Try again.", code: "unavailable" });
+    if (error instanceof MountDown || mountedWorkspaceUnavailable(error)) return json(res, 503, { error: "The working folder is temporarily unavailable. Try again.", code: "unavailable" });
     if (!(error instanceof MemoryStoreError)) throw error;
     if (error.code === "conflict") {
       return json(res, error.status, { error: error.message, code: error.code, currentHash: error.currentHash, current: error.current });
