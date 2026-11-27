@@ -175,6 +175,30 @@ describe("assigned working folders on guest computers", () => {
     expect(readFileSync(join(f.right, "reply-turn.txt"), "utf8")).toBe("made during the turn");
   });
 
+  it("saves a folder at sleep without downloading durable files the computer never checked out", async () => {
+    const f = await fixture();
+    for (let n = 0; n < 20; n++) writeFileSync(join(f.src, `durable-${n}.txt`), `durable ${n}`);
+    await publishInitialWorkFolder(f.src, f.store);
+    mkdirSync(f.left);
+    writeFileSync(join(f.left, "written-before-checkout.txt"), "keep me");
+    const reach = globalThis.fetch;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      calls.push(`${options?.method ?? "GET"} ${new URL(url).pathname.split("/").at(-2)}`);
+      return reach(url, options);
+    });
+    await syncFolder({ path: f.left, grant: f.a }, f.state, undefined, undefined, "/data", "save");
+    vi.stubGlobal("fetch", reach);
+    expect(calls.filter((call) => call === "GET blobs")).toEqual([]);
+    expect(existsSync(join(f.left, "durable-0.txt"))).toBe(false);
+    await f.syncB();
+    expect(readFileSync(join(f.right, "written-before-checkout.txt"), "utf8")).toBe("keep me");
+    expect(readFileSync(join(f.right, "durable-19.txt"), "utf8")).toBe("durable 19");
+    await f.syncA();
+    expect(readFileSync(join(f.left, "durable-19.txt"), "utf8")).toBe("durable 19");
+    expect(readFileSync(join(f.left, "written-before-checkout.txt"), "utf8")).toBe("keep me");
+  });
+
   it("falls back to page writes and a commit when the home does not offer one-request saves yet", async () => {
     const f = await fixture();
     await publishInitialWorkFolder(f.src, f.store);
