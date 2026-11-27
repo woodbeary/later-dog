@@ -6,7 +6,7 @@ import { basename, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import WebSocket from "ws";
 import { claudeProjectSlug } from "./claude-project.ts";
-import { computersConnection, computersKey } from "./cloud-computers.ts";
+import { computersConnection, computersKey, savedTrial } from "./cloud-computers.ts";
 import { engineScripts } from "./engine-computer.ts";
 import { notePlacement, REMOTE_ENGINE_BASE, REMOTE_ENGINES_FILE, type ClaudeRemotePlan, type EngineOpener } from "./engine-placement.ts";
 import type { EngineLink } from "./engine-remote.ts";
@@ -94,7 +94,7 @@ export class PoolNotWarm extends Error {}
 
 export function poolService(): PoolService | null {
   const connection = computersConnection();
-  if (!connection || connection.source === "trial") return null;
+  if (!connection || (connection.source === "trial" && !savedTrial()?.included)) return null;
   const key = computersKey(connection);
   const base = `${connection.api.replace(/\/v1$/, "")}/v1/pool/engines`;
   const headers = { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" };
