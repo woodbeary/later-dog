@@ -169,7 +169,7 @@ export function readSignedBody(req: IncomingMessage, limit = 4096): Promise<Buff
 
 const ADOPTABLE = new Set(["lost+found", ".bash_logout", ".bashrc", ".profile"]);
 const SEEDED_DATA_DIR = ".laterdog";
-const SEEDED_DATA_FILES = new Set(["computers-trial-key", "computers-trial.json", "home-health.log"]);
+const SEEDED_DATA_FILES = new Set(["computers-trial-key", "computers-trial.json"]);
 
 function adoptable(home: string, name: string): boolean {
   if (ADOPTABLE.has(name)) return true;
