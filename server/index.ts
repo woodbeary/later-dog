@@ -797,7 +797,7 @@ import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalCandidate } from "./laterdog/account-removal.ts";
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
-import { newAntigravityAccount } from "./laterdog/google-accounts.ts";
+import { createGeminiKeyAccountSchema, newAntigravityAccount, newGeminiKeyAccount } from "./laterdog/google-accounts.ts";
 import {
   AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, googleKeyUse, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
@@ -2182,6 +2182,8 @@ function adminAuditPlan(method: string, path: string): AuditPlan | null {
   if (m && method === "POST") plan.engineAction = { id: m[1]!, action: m[2]!.replace("/", "-") };
   if (method === "POST" && path === "/api/instances/claude-accounts") plan.engineAction = { id: "claude", action: "account-add" };
   if (method === "POST" && path === "/api/instances/chatgpt-accounts") plan.engineAction = { id: "chatgpt", action: "account-add" };
+  if (method === "POST" && path === "/api/instances/antigravity-accounts") plan.engineAction = { id: "antigravity", action: "account-add" };
+  if (method === "POST" && path === "/api/instances/gemini-accounts") plan.engineAction = { id: "gemini", action: "account-add" };
   return plan.config || plan.botId || plan.createsBots || plan.deletesBot || plan.createsWebhook || plan.webhookId || plan.sessionId || plan.pairing || plan.engineAction || plan.roomId ? plan : null;
 }
 
@@ -20971,6 +20973,24 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       try {
         const { instanceId, instances } = newAntigravityAccount(persistableInstanceConfigs(cfg), parsed.data.displayName);
         await persistProviderInstance(instanceId, instances);
+        return json(res, 201, { instanceId, instances: await describeInstances() });
+      } finally { providerConfigBusy = false; }
+    }
+
+    if (method === "POST" && path === "/api/instances/gemini-accounts") {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(res, 415, { error: "content-type must be application/json" });
+      const parsed = createGeminiKeyAccountSchema.safeParse(await readBody(req, 8192));
+      if (!parsed.success) return json(res, 400, { error: "Enter an account name, a Gemini API key, and whether it is free tier or allowed paid use." });
+      if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
+      providerConfigBusy = true;
+      try {
+        const { instanceId, instances } = newGeminiKeyAccount(persistableInstanceConfigs(cfg), parsed.data.displayName, parsed.data.apiKey);
+        await persistProviderInstance(instanceId, instances);
+        const battery = { ...(cfg.accountBattery ?? { enabled: false, order: {} }) };
+        battery.googleKeys = { ...battery.googleKeys, [instanceId]: parsed.data.use };
+        saveConfig({ accountBattery: battery });
+        cfg.accountBattery = battery;
+        broadcast({ kind: "config", ...configStatus() });
         return json(res, 201, { instanceId, instances: await describeInstances() });
       } finally { providerConfigBusy = false; }
     }
