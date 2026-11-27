@@ -64,7 +64,7 @@ describe("importing a whole team", () => {
   it("adds every part from a file: persona, picture, brief, Chief, rooms, paused routines, skills off, valueless connections, notes", async () => {
     const app = await installation({ servers: { crm: { type: "http", url: "https://existing.example.com", headers: { Authorization: "Bearer mine" }, enabled: true } } });
     const document: PackageDocument = app.parsePackageDocument(fixture("full-team.v2.json"));
-    const result = app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
+    const result = await app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (result.alreadyAdded) throw new Error("unexpected");
     const byKey = new Map(result.bots.map((bot) => [bot.installedPackage!.agentKey, app.store.bot(bot.id)!]));
@@ -115,9 +115,9 @@ describe("importing a whole team", () => {
   it("imports the same file twice as two independent copies", async () => {
     const app = await installation();
     const document = app.parsePackageDocument(fixture("full-team.v2.json"));
-    const first = app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
+    const first = await app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
-    const second = app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
+    const second = await app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (first.alreadyAdded || second.alreadyAdded) throw new Error("file imports are never 'already added'");
     expect(second.section).toBe("Sales desk 2");
@@ -128,7 +128,7 @@ describe("importing a whole team", () => {
 
   it("records a connection the organization's policy refuses and imports the rest", async () => {
     const app = await installation({ refuse: (name) => (name === "crm" ? "Not approved by Acme." : undefined) });
-    const result = app.importer.importPackageDocument(app.parsePackageDocument(fixture("full-team.v2.json")), { trust: "file", mode: "add" }, app.deps);
+    const result = await app.importer.importPackageDocument(app.parsePackageDocument(fixture("full-team.v2.json")), { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (result.alreadyAdded) throw new Error("unexpected");
     expect(result.skipped).toContainEqual({ part: "connections[crm]", reason: "connection_refused_by_policy" });
@@ -142,7 +142,7 @@ describe("importing a whole team", () => {
     const app = await installation();
     const before = app.snapshot();
     const failing = { ...app.deps, sections: { writeBrief: () => { throw new Error("disk full"); } } };
-    expect(() => app.importer.importPackageDocument(app.parsePackageDocument(fixture("full-team.v2.json")), { trust: "file", mode: "add" }, failing))
+    await expect(app.importer.importPackageDocument(app.parsePackageDocument(fixture("full-team.v2.json")), { trust: "file", mode: "add" }, failing)).rejects
       .toThrow("disk full");
     expect(app.snapshot()).toBe(before);
     expect(app.sections.readSectionContext("Sales desk")).toBeNull();
@@ -151,7 +151,7 @@ describe("importing a whole team", () => {
   it("refuses a library-only package with a pointer to the shelf, creating nothing", async () => {
     const app = await installation();
     const before = app.snapshot();
-    expect(() => app.importer.importPackageDocument(app.parsePackageDocument(fixture("library-only.v2.json")), { trust: "file", mode: "add" }, app.deps))
+    await expect(app.importer.importPackageDocument(app.parsePackageDocument(fixture("library-only.v2.json")), { trust: "file", mode: "add" }, app.deps)).rejects
       .toThrow(app.importer.NO_BOTS_MESSAGE);
     expect(app.snapshot()).toBe(before);
   });
@@ -160,7 +160,7 @@ describe("importing a whole team", () => {
     const app = await installation();
     const input = fixture("full-team.v2.json");
     input.package.routines[0].timeoutMinutes = 600;
-    const result = app.importer.importPackageDocument(app.parsePackageDocument(input), { trust: "file", mode: "add" }, app.deps);
+    const result = await app.importer.importPackageDocument(app.parsePackageDocument(input), { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (result.alreadyAdded) throw new Error("unexpected");
     expect(result.routines[0]!.timeoutMinutes).toBe(240);
@@ -176,7 +176,7 @@ describe("importing a whole team", () => {
       publisher: { organizationId: "org-acme", slug: "acme", name: "Acme Partners" },
       installId: app.importer.orgInstallId("https://admin.example.com", "org-1", "pkg-1"),
     };
-    const result = app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps);
+    const result = await app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (result.alreadyAdded) throw new Error("unexpected");
     const scout = result.bots.find((bot) => bot.installedPackage?.agentKey === "scout")!;
@@ -187,12 +187,12 @@ describe("importing a whole team", () => {
     expect(scout.installedPackage).toMatchObject({ source: "org", installId: org.installId, ref: "acme/sales-desk", sha256: org.sha256, publisher: org.publisher });
     expect(result.routines.every((routine) => !routine.enabled)).toBe(true);
     const bots = app.store.bots.length;
-    expect(app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps)).toEqual({ alreadyAdded: true, installId: org.installId });
+    expect(await app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps)).toEqual({ alreadyAdded: true, installId: org.installId });
     await (await import("./workspace.ts")).memoryWritesSettled();
     expect(app.store.bots).toHaveLength(bots);
-    expect(() => app.importer.importPackageDocument(document, { trust: "org", mode: "add", org: { ...org, installId: "f".repeat(32) } }, app.deps))
+    await expect(app.importer.importPackageDocument(document, { trust: "org", mode: "add", org: { ...org, installId: "f".repeat(32) } }, app.deps)).rejects
       .toThrow("install id");
-    expect(() => app.importer.importPackageDocument(document, { trust: "org", mode: "add", org: { ...org, publisher: { ...org.publisher, slug: "other" } } }, app.deps))
+    await expect(app.importer.importPackageDocument(document, { trust: "org", mode: "add", org: { ...org, publisher: { ...org.publisher, slug: "other" } } }, app.deps)).rejects
       .toThrow("not published by the organization");
   });
 });

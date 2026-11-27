@@ -34,6 +34,7 @@ const { permissionLaunchCwd } = await import("./drivers/permission-command.ts");
 const { guardMountedFolders } = await import("./laterdog/dog-mounts.ts");
 const { DATA_DIR } = await import("./config.ts");
 const { join } = await import("node:path");
+const { skillsCall, skillsPromptReady } = await import("./skills-thread.ts");
 
 const bot = `dog-folder-sync-${process.pid}`;
 let server: Server;
@@ -116,12 +117,24 @@ describe("server code that reads or writes a dog's mounted folder", () => {
     expect(placement.botFolderRoot(DATA_DIR, bot, task, "/config", "/staging", true)?.path).toBe(dog);
     for (const cwd of [dog, task, project]) {
       const resolved = permissionLaunchCwd(cwd);
+      expect(resolved()).toBe(cwd);
       await new Promise((settle) => setTimeout(settle, 20));
       expect(resolved()).toBeTruthy();
       expect(claudeProject.physicalClaudePath(cwd)).toBe(cwd);
       expect(claudeProject.claudeSessionWorkspace(cwd, "/no-config", "11111111-2222-3333-4444-555555555555").physical).toBe(cwd);
     }
     expect(await codex.codexComputerWorkspace(DATA_DIR, bot, "launch", task)).toBe(true);
+    expect(touched).toEqual([]);
+  });
+
+  it("lists, installs and indexes a dog's skills for its turn without a synchronous call on the main thread", async () => {
+    const skill = "---\nname: tea-notes\ndescription: Notes on tea.\n---\n\nSteep it.\n";
+    expect(await skillsCall(bot, "installSkill", bot, "src", [{ path: "SKILL.md", content: skill }])).toMatchObject({ name: "tea-notes" });
+    expect(await skillsCall(bot, "setSkillEnabled", bot, "tea-notes", true)).toMatchObject({ enabled: true });
+    expect(await skillsPromptReady(bot)).toContain("tea-notes");
+    expect((await skillsCall(bot, "listSkills", bot)).map((entry) => entry.name)).toEqual(["tea-notes"]);
+    expect(await skillsCall(bot, "readSkillFile", bot, "tea-notes")).toBe(skill);
+    expect(await skillsCall(bot, "removeSkill", bot, "tea-notes")).toEqual({ removed: true });
     expect(touched).toEqual([]);
   });
 
