@@ -800,7 +800,7 @@ import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import { createGeminiKeyAccountSchema, newAntigravityAccount, newGeminiKeyAccount } from "./laterdog/google-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, googleKeyUse, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, percentLeft, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, googleKeyUse, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -835,6 +835,7 @@ import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
 import { CompactionCarry } from "./laterdog/after-compaction.ts";
+import { HandoffCompactions } from "./laterdog/handoff-compaction.ts";
 import { onlyTapbackText, replyTapback, replyTapbackStreamChunk, tapbackTarget, tapbackStreamChunk, tapbackTurnKey, withTapback } from "./laterdog/tapback.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { pushWorthy } from "./laterdog/push-gate.ts";
@@ -6535,6 +6536,7 @@ function observedTurnResults(threadId: string) {
 const turnCheckpoints = new Map<string, { botId: string; cwd: string; hash: string; pin: string }>();
 const liveTurnByThread = new Map<string, string>();
 const compactionCarry = new CompactionCarry();
+const handoffCompactions = new HandoffCompactions();
 
 function forgetTurnCheckpoint(threadId: string): void {
   const checkpoint = turnCheckpoints.get(threadId);
@@ -10031,6 +10033,14 @@ async function startTurn(
       });
       handoffs.dispatching(threadId, dispatchClaimId, dispatchContext.handoff);
       turnPhases.mark(threadId, "recall");
+      const handoffWindow = instance.driverKind === "claudeAgent" && accountBattery.enabled ? handoffCompactions.window(threadId, {
+        driverKind: instance.driverKind, instanceId,
+        left: percentLeft(latestPlanRow(instanceId), Date.now()),
+        nextDriverKind: accountBattery.nextWhenOut(bot.modelSelection, batteryAccounts(), threadId,
+          [...((liveBot ?? bot).fallback ?? []), ...(cfg.automaticRecovery?.enabled && cfg.automaticRecovery.backup ? [cfg.automaticRecovery.backup] : [])])?.driverKind,
+        contextTokens: turnContext.get(threadId)?.tokens,
+      }) : undefined;
+      if (handoffWindow) console.log(`[handoff-compaction] chat=${threadId} account=${instanceId} window=${handoffWindow}`);
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: bot.id,
@@ -10063,6 +10073,7 @@ async function startTurn(
         integrations,
         mcpFromUserConfig: claudeUserMcpEnabled(cfg) && !managedPolicy.restrictsMcp(),
         mcpCallTimeoutMs: mcpCallTimeoutMinutes(cfg) * 60_000,
+        ...(handoffWindow ? { compactWindow: handoffWindow } : {}),
         cwd,
       }), () => !directTurnClaimExists(bot.id, dispatchClaimId, threadId), async () => {
         await instance.adapter.interruptTurn(threadId).catch(() => {});
