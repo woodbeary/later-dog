@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 
@@ -47,7 +47,7 @@ export function createMountGuard(options: MountGuardOptions): MountGuard {
   const perFolder = options.perFolder ?? MOUNT_OPS_PER_FOLDER;
   const inAll = options.inAll ?? MOUNT_OPS_IN_ALL;
   let runningInAll = 0;
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => Date.now());
   const probe = options.probe ?? ((folder: string) => stat(folder));
   const folders = new Map<string, FolderState>();
 
@@ -154,6 +154,7 @@ export interface MountFiles {
   unlink(path: string): Promise<void>;
   statOf(path: string): Promise<Stats>;
   list(path: string): Promise<string[]>;
+  remove(path: string): Promise<void>;
 }
 
 const missing = (error: unknown) => (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
@@ -174,5 +175,6 @@ export function mountFiles(guard: MountGuard): MountFiles {
     async unlink(path) { await guard.run(path, () => unlink(path).catch((error: unknown) => { if (!missing(error)) throw error; })); },
     statOf: (path) => guard.run(path, (): Promise<Stats> => stat(path)),
     list: (path) => guard.run(path, () => readdir(path).catch((error: unknown) => { if (missing(error)) return [] as string[]; throw error; })),
+    async remove(path) { await guard.run(path, () => rm(path, { recursive: true, force: true })); },
   };
 }

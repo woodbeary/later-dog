@@ -62,7 +62,7 @@ describe("additive portable team backups", () => {
     const scope = { allow: ["native:read", "mcp:notes:read"], deny: ["mcp:notes:write"] };
     store.patchBot(chief.id, { toolScope: scope } as never);
     store.patchBot(scout.id, { toolScope: { allow: [] } } as never);
-    const backup = createTeamBackup(store, routines.listRoutines(), "Selected tools");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "Selected tools");
     expect(backup.bots.find((bot) => bot.key === chief.id)).toHaveProperty("toolScope", scope);
     const restored = importTeamBackup(store, routines, backup, selection());
     await memoryWritesSettled();
@@ -82,7 +82,7 @@ describe("additive portable team backups", () => {
     const key = `sk-ant-api03-${"k".repeat(40)}`;
     writeFileSync(join(workspaceDir(chief.id), "memory", "keys.md"), `anthropic: ${key}\n`);
 
-    const backup = createTeamBackup(store, routines.listRoutines(), "With memory");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "With memory");
     const exported = backup.bots.find((bot) => bot.key === chief.id)!.memory!;
     expect(exported.file).toBe('- 2026-09-10 · from chat "Setup" · The user\'s name is Ada\n');
     expect(exported.topics.map((topic) => topic.name)).toEqual(["deploys.md", "keys.md"]);
@@ -116,7 +116,7 @@ describe("additive portable team backups", () => {
 
   it("round-trips all bots, sections, Chiefs, rooms, tasks and branches without changing originals", async () => {
     const { store, routines, chief, scout, otherChief, archived, group } = fixture();
-    const backup = createTeamBackup(store, routines.listRoutines(), "My team");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "My team");
     const originalBots = structuredClone(store.bots);
     const originalGroups = structuredClone(store.groups);
     const originalRoutines = routines.listRoutines();
@@ -181,7 +181,7 @@ describe("additive portable team backups", () => {
   it("carries connector grants in the private backup but lands imported bots grant-less", async () => {
     const { store, routines, chief } = fixture();
     store.patchBot(chief.id, { connectorTools: { gmail: { tools: ["GMAIL_SEND_EMAIL", "GMAIL_SEND_EMAIL"] } } });
-    const backup = createTeamBackup(store, routines.listRoutines(), "Granted team");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "Granted team");
     expect(backup.bots.find((bot) => bot.key === chief.id)?.connectorTools).toEqual({
       gmail: { tools: ["GMAIL_SEND_EMAIL"] },
     });
@@ -201,7 +201,7 @@ describe("additive portable team backups", () => {
     store.titleTaskFromFirstMessage(chief.id, "Audit the payroll export", titled);
     const channelTask = store.createGroupTask(group.id, undefined, false)!.threadId;
     store.titleGroupTaskFromFirstMessage(group.id, "Plan the launch review", channelTask);
-    const backup = createTeamBackup(store, routines.listRoutines(), "Markers");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "Markers");
     expect(backup.bots.find((bot) => bot.name === "Mira")!.tasks.find((task) => task.key === titled)!.titleFromFirstMessage).toBe(true);
     expect(backup.groups[0].tasks.find((task) => task.key === channelTask)!.titleFromFirstMessage).toBe(true);
 
@@ -227,7 +227,7 @@ describe("additive portable team backups", () => {
     const dm = store.createGroup("Direct", [chief.id, scout.id], true);
     store.patchGroup(dm.id, { turnTimeoutMinutes: 45 });
 
-    const backup = createTeamBackup(store, routines.listRoutines(), "Limits");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "Limits");
     const roomTask = backup.groups.find((candidate) => candidate.key === group.id)!.tasks.find((task) => task.key === threadId)!;
     expect(roomTask.turnTimeoutMinutes).toBe(30);
     expect(backup.groups.find((candidate) => candidate.key === dm.id)!.tasks[0].turnTimeoutMinutes).toBe(45);
@@ -242,9 +242,9 @@ describe("additive portable team backups", () => {
     expect(restoredDm.dm).toBe(true);
   });
 
-  it.each(["unknown-version", "duplicate-bot", "cycle", "dangling-room", "dangling-task", "oversized-soul"])("rejects %s before any writes", (corruption) => {
+  it.each(["unknown-version", "duplicate-bot", "cycle", "dangling-room", "dangling-task", "oversized-soul"])("rejects %s before any writes", async (corruption) => {
     const { store, routines } = fixture();
-    const backup = createTeamBackup(store, routines.listRoutines(), "My team");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "My team");
     const before = readFileSync(join(DATA_DIR, "bots.json"), "utf8");
     const groupsBefore = readFileSync(join(DATA_DIR, "groups.json"), "utf8");
     const source = backup.bots.find((bot) => bot.name === "Mira")!;
@@ -261,7 +261,7 @@ describe("additive portable team backups", () => {
 
   it("accepts legacy backups without soul and enforces its UTF-8 byte cap", async () => {
     const { store, routines } = fixture();
-    const backup = createTeamBackup(store, routines.listRoutines(), "Legacy team");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "Legacy team");
     for (const bot of backup.bots) delete bot.soul;
     expect(importTeamBackup(store, routines, backup, selection()).bots.every((bot) => bot.soul === "")).toBe(true);
     await memoryWritesSettled();
@@ -273,7 +273,7 @@ describe("additive portable team backups", () => {
 
   it("strips injected permissions, IDs and live actions from untrusted files", async () => {
     const { store, routines, chief } = fixture();
-    const backup = createTeamBackup(store, routines.listRoutines(), "My team");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "My team");
     const source = backup.bots.find((bot) => bot.name === "Mira")!;
     Object.assign(source, { id: chief.id, threadId: chief.threadId, cwd: "/tmp", composio: true, approvalMode: "full", autoApprove: true, browser: true, computer: "local", resumeCursors: { fixture: "secret-session" } });
     Object.assign(source.tasks[0].messages[0], { kind: "options", queued: true, card: { requestId: "live-approval" }, attachments: [{ path: "/etc/passwd" }] });
@@ -288,12 +288,12 @@ describe("additive portable team backups", () => {
   it("rolls back fresh bots, rooms and transcripts after a late failure", async () => {
     const { store, routines } = fixture();
     const beforeSections = [...store.sections];
-    const backup = createTeamBackup(store, routines.listRoutines(), "My team");
-    const before = createTeamBackup(store, routines.listRoutines(), "My team");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "My team");
+    const before = await createTeamBackup(store, routines.listRoutines(), "My team");
     const write = vi.spyOn(routines, "create").mockImplementationOnce(() => { throw new Error("fixture disk failure"); });
     expect(() => importTeamBackup(store, routines, backup, selection())).toThrow("fixture disk failure");
     write.mockRestore();
-    const after = createTeamBackup(new Store(selection), routines.listRoutines(), "My team");
+    const after = await createTeamBackup(new Store(selection), routines.listRoutines(), "My team");
     expect({ ...after, exportedAt: 0 }).toEqual({ ...before, exportedAt: 0 });
     expect(new Store(selection).sections).toEqual(beforeSections);
   });
@@ -308,7 +308,7 @@ describe("additive portable team backups", () => {
   it("also rolls back a creation that throws before returning its new record", async () => {
     const { store, routines } = fixture();
     const beforeSections = [...store.sections];
-    const backup = createTeamBackup(store, routines.listRoutines(), "My team");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "My team");
     const before = structuredClone(store.bots);
     const create = store.createBot.bind(store);
     const fail = vi.spyOn(store, "createBot").mockImplementationOnce((...args) => {
@@ -325,7 +325,7 @@ describe("additive portable team backups", () => {
   it("keeps case-distinct sections separate and never moves the main dog", async () => {
     const { store, routines, otherChief } = fixture();
     const second = store.createBot({ name: "Another", section: "engineering" }, { seedMessages: false });
-    const imported = importTeamBackup(store, routines, createTeamBackup(store, routines.listRoutines(), "My team"), selection());
+    const imported = importTeamBackup(store, routines, (await createTeamBackup(store, routines.listRoutines(), "My team")), selection());
     await memoryWritesSettled();
     const mira = imported.bots.find((bot) => bot.name === "Mira 2")!;
     const other = imported.bots.find((bot) => bot.name === "Another 2")!;
@@ -343,7 +343,7 @@ describe("additive portable team backups", () => {
     store.appendMessage(dm.threadId, { role: "bot", kind: "text", text: "Keep this old reply", from: { botId: chief.id, name: chief.name, color: chief.color } });
     store.deleteBot(chief.id);
     Object.assign(group, { memberIds: [chief.id, scout.id], defaultResponder: { kind: "member", botId: chief.id } });
-    const backup = createTeamBackup(store, routines.listRoutines(), "My team");
+    const backup = await createTeamBackup(store, routines.listRoutines(), "My team");
     expect(backup.warnings).toHaveLength(4);
     expect(backup.routines).toEqual([]);
     expect(backup.groups.find((room) => room.key === group.id)).toMatchObject({ memberIds: [scout.id], defaultResponder: { kind: "mentions" } });

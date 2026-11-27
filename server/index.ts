@@ -444,6 +444,8 @@ import {
   memorySystemPrompt,
   syncMemoryIndexFrom,
   readMemoryFromSnapshot,
+  memoryDocsOrNull,
+  readMemoryFiles,
   memoryTrimmed,
   memorySourceLabel,
   searchMemoryFiles,
@@ -464,11 +466,11 @@ import {
   type RecallDog,
 } from "./laterdog/cross-dog-recall.ts";
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
-import { MOUNTED_FOLDER_ANSWER_MS, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
+import { MOUNTED_FOLDER_ANSWER_MS, MountedFolderStalled, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
+import { MountDown } from "./laterdog/mount-guard.ts";
 import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
 import { SearchUnavailable } from "./message-search-worker.ts";
 import {
-  beginMemoryTurn,
   beginMemoryTurnInBackground,
   endMemoryTurnInBackground,
   memorySnapshotFiles,
@@ -2043,6 +2045,10 @@ async function autoRecallInBackground(bot: BotRecord, threadId: string, message:
     console.warn(`auto-recall failed for ${bot.id}: ${(err as Error).message}`);
     return "";
   }
+}
+
+function memoryDocsWithin(read: Promise<ReadonlyMap<string, string> | null>): Promise<ReadonlyMap<string, string> | null> {
+  return Promise.race([read, new Promise<null>((resolve) => setTimeout(() => resolve(null), MOUNTED_FOLDER_ANSWER_MS).unref())]);
 }
 
 function withRecalled(recalled: string, text: string): string {
@@ -9898,7 +9904,8 @@ async function startTurn(
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const folderReads = (!poolTurn || poolFolders) && (!mountedFoldersActive() || Boolean(memoryDocs) || await mountedFolderGate.answers(workspaceDir(bot.id)));
       if (memoryDocs) readMemoryFromSnapshot(bot.id, memoryDocs);
-      const memoryText = !folderReads ? "" : memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn });
+      const memoryReads = folderReads && (Boolean(memoryDocs) || !mountedFoldersActive());
+      const memoryText = !memoryReads ? "" : memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn });
       turnPhases.mark(threadId, "memory prompt");
       const skillsText = privateWorkspace && folderReads ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "";
       turnPhases.mark(threadId, "skills prompt");
@@ -9949,7 +9956,7 @@ async function startTurn(
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
       const recallReach = recallsThisTurn(dispatchContext, instance.driverKind) ? "conversations"
-        : fromPerson && bot.memoryEnabled !== false && folderReads && memoryTrimmed(bot.id) ? "notes" : null;
+        : fromPerson && bot.memoryEnabled !== false && memoryReads && memoryTrimmed(bot.id) ? "notes" : null;
       const recalled = recallReach ? await autoRecallInBackground(bot, threadId, resolvedImages.text, {
         conversations: recallReach === "conversations" && fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
@@ -11782,7 +11789,7 @@ async function runGroupMemberTurn(
   if (worksInWorkspace) await prepareTurnFolders({ workspace: workspaceDir(bot.id), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
     gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
   const workspace = worksInWorkspace ? await ensureWorkspaceReady(bot.id) : undefined;
-  if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
+  const roomDocs = bot.memoryEnabled === false ? null : await memoryDocsWithin(workspace ? beginMemoryTurnInBackground(bot.id, threadId) : memoryDocsOrNull(bot.id));
   const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, workspace && cloudGuestOpened(threadId)
     ? await ensureTaskWorkspaceReady(bot.id, threadId)
     : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId)));
@@ -11790,7 +11797,8 @@ async function runGroupMemberTurn(
     const drift = checkSoulDrift(bot.id, bot.soul ?? "", bot.soulHash ?? "");
     if (drift.drift !== Boolean(bot.soulDrift)) store.patchBot(bot.id, { soulDrift: drift.drift });
   }
-  const roomMemory = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: roomForeign });
+  if (roomDocs) readMemoryFromSnapshot(bot.id, roomDocs);
+  const roomMemory = roomDocs || !mountedFoldersActive() ? memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: roomForeign }) : "";
   const recentLines = recentWork(recentWorkSources(bot), bot, { userName, currentThreadId: threadId, ...recentWorkFilter() });
   const roomComputerPromptKind = resolveComputerPromptKind(
     roomComputerKind === "box" ? "box" : roomVmTarget ? "vm" : roomComputerKind);
@@ -11930,7 +11938,8 @@ async function runGroupMemberTurn(
     compactionCarry.remember(readyBot.id, threadId, roomSystem.volatileSections);
     executionEvidence.dispatch(threadId, selectedBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) });
     runningTurnEngines.set(threadId, instance);
-    const roomRecalled = cardContinuation ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
+    if (roomDocs) readMemoryFromSnapshot(bot.id, roomDocs);
+    const roomRecalled = cardContinuation || (!roomDocs && mountedFoldersActive()) ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
     guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: readyBot.id,
@@ -15885,7 +15894,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             return json(res, 200, { cross: true, hits: crossHits, memoryHits: crossMemory });
           }
         }
-        const memoryHits = scope === "conversations" || !q || from.memoryEnabled === false ? [] : searchMemoryFiles(from.id, q, limit);
+        const memoryHits = scope === "conversations" || !q || from.memoryEnabled === false ? [] : await readMemoryFiles(from.id, () => searchMemoryFiles(from.id, q, limit)).catch((error: unknown) => { if (error instanceof MountDown) return []; throw error; });
         if (scope === "memory") return json(res, 200, { hits: [], memoryHits });
         const roomByThread = new Map<string, GroupRecord>();
         for (const group of store.groups) {
@@ -15933,7 +15942,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (picked.length !== 1) return json(res, 400, { error: "Name one dog with bot to read its memory file." });
           const owner = picked[0]!;
           if (owner.id !== from.id && !crossDogRecallAllowed(from, fromThreadId)) return json(res, 403, { error: CROSS_DOG_REFUSAL });
-          const text = readRecallMemoryFile(owner.id, file);
+          const text = await readMemoryFiles(owner.id, () => readRecallMemoryFile(owner.id, file));
           if (text === null) return json(res, 404, { error: `${owner.id === from.id ? "You have" : `${owner.name} has`} no memory file ${file}.` });
           return json(res, 200, {
             file, bot: owner.name, cross: owner.id !== from.id,
@@ -17512,7 +17521,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             published: readPublishedTeam(publishedKey),
             skillsByBot: skills.skillsByBot,
             skillSelection: skills.all ? "all" : "chosen",
-            memoryByBot: body.includeMemory === true ? new Map(teamBots.map((bot) => [bot.id, starterNotes(bot.id)])) : undefined,
+            memoryByBot: body.includeMemory === true ? new Map(await Promise.all(teamBots.map(async (bot) => [bot.id, await readMemoryFiles(bot.id, () => starterNotes(bot.id))] as const))) : undefined,
             avatars,
             mcpServers: cfg.mcpServers ?? {},
             skipped: [...skills.skipped, ...(defaults?.skipped ?? [])],
@@ -17542,7 +17551,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if ((body.format === "backup" ? store.bots.length : memberIds.length) === 0) return json(res, 400, { error: "Create a dog before exporting your pack" });
       try {
         if (body.format === "backup") {
-          return json(res, 200, createTeamBackup(store, routines!.listRoutines(), name));
+          return json(res, 200, await createTeamBackup(store, routines!.listRoutines(), name));
         }
         if (body.format === "package") {
           const selectedBots = store.bots.filter((bot) => !bot.hidden);
@@ -19379,7 +19388,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "GET") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      return json(res, 200, previewSystemPrompt(bot));
+      return json(res, 200, await readMemoryFiles(bot.id, () => previewSystemPrompt(bot)));
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/overview$/);
     if (m && method === "GET") {
@@ -22163,6 +22172,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     return json(res, 404, { error: `no route: ${method} ${path}` });
   } catch (e) {
+    if (e instanceof MountDown || e instanceof MountedFolderStalled) return json(res, 503, { error: "The working folder is temporarily unavailable. Try again.", code: "unavailable" });
     const failure = plainFailure(e);
     if (failure.internal) console.error(`${method} ${path} failed`, e);
     const candidateCode = (e as { code?: unknown })?.code;
