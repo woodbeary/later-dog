@@ -6,6 +6,12 @@ import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
+
+export function alreadyUnmounted(error) {
+  return error?.code === 32 && /not mounted/.test(String(error?.stderr ?? ""));
+}
+
+const unmount = (path) => exec("umount", [path]).catch((error) => { if (!alreadyUnmounted(error)) throw error; });
 const runtime = "/run/laterdog-work-folders";
 const tree = join(runtime, "tree");
 const socket = join(runtime, "mount.sock");
@@ -111,9 +117,9 @@ export async function startWorkFolderMounts({ home, placement, mounts, owner, se
     shutdown = (async () => {
       const failures = [];
       for (const path of [...mounted].reverse()) {
-        await exec("umount", [path]).catch(error => failures.push(error));
+        await unmount(path).catch(error => failures.push(error));
       }
-      if (children.length > 1) await exec("umount", [tree]).catch(error => failures.push(error));
+      if (children.length > 1) await unmount(tree).catch(error => failures.push(error));
       for (const child of [...children].reverse()) {
         if (child.exitCode !== null || child.signalCode !== null) continue;
         await new Promise(resolve => {

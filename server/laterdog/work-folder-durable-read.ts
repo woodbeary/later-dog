@@ -6,9 +6,12 @@ import type { FsReply, FsRequest } from "./work-folder-guest-fs.ts";
 
 type Range = WorkFolderPageInfo & {hash: string};
 type Leaf = { item: WorkFolderEntry; revision: string };
+export const HEAD_REUSE_MS = 2_000;
 
 export class DurableFolderRead {
   private metadata = new Map<string, Promise<WorkFolderNode>>();
+  private spans = new Map<string, Promise<Range[]>>();
+  private current: { at: number; head: Promise<WorkFolderHead | null> } | null = null;
   private readonly base: string;
   private readonly token: string;
   private readonly uid: number;
@@ -39,11 +42,17 @@ export class DurableFolderRead {
     void lookup.catch(() => this.metadata.delete(hash));
     return lookup;
   }
-  private async ranges(hash: string): Promise<Range[]> {
-    const response = await this.get("/ranges/" + hash);
-    if (!response.ok) throw folderError("EIO");
-    const detail = await response.json() as {children:Range[]};
-    return detail.children;
+  private ranges(hash: string): Promise<Range[]> {
+    const prior = this.spans.get(hash);
+    if (prior) return prior;
+    const lookup = this.get("/ranges/" + hash).then(async response => {
+      if (!response.ok) throw folderError("EIO");
+      return (await response.json() as {children:Range[]}).children;
+    });
+    this.spans.set(hash, lookup);
+    if (this.spans.size > 128) this.spans.delete(this.spans.keys().next().value!);
+    void lookup.catch(() => this.spans.delete(hash));
+    return lookup;
   }
   private async *entries(hash: string, start: string, end: string | null, depth = 0, directPrefix?: string): AsyncGenerator<WorkFolderEntry> {
     if (depth > 32) throw folderError("EIO");
@@ -69,11 +78,17 @@ export class DurableFolderRead {
     if (root.kind !== "root") throw folderError("EIO");
     return root;
   }
-  private async head(): Promise<WorkFolderHead | null> {
-    const response = await this.get("/head");
-    if (response.status === 404) return null;
-    if (!response.ok) throw folderError("EIO");
-    return await response.json() as WorkFolderHead;
+  private head(): Promise<WorkFolderHead | null> {
+    if (this.current && Date.now() - this.current.at < HEAD_REUSE_MS) return this.current.head;
+    const head = this.get("/head").then(async response => {
+      if (response.status === 404) return null;
+      if (!response.ok) throw folderError("EIO");
+      return await response.json() as WorkFolderHead;
+    });
+    const held = { at: Date.now(), head };
+    this.current = held;
+    void head.catch(() => { if (this.current === held) this.current = null; });
+    return head;
   }
   async lookup(path: string): Promise<Leaf> {
     const head = await this.head();
