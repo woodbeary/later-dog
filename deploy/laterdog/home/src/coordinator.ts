@@ -8,7 +8,10 @@ import { dogRoutines, type DogRoutinesPort } from "./dog-routines.ts";
 import { dogInbox, type DogInboxPort } from "./dog-inbox.ts";
 import { serveInbox, serveRoutines, type DogObjectPort } from "./dog-routes.ts";
 import { INBOX_ROUTE, ROUTINES_ROUTE, type InboxLetter, type ObjectRoutine, type OccurrenceState } from "../../../../shared/dog-object-protocol.ts";
-import { ChatQueue, dogSlots, validHistoryRow, validQueueRow, validSlot, QUEUE_ROW_STATUSES, type ChatHistoryPort, type ChatQueuePort, type DogSlot, type DogSlotsPort, type QueueRowStatus } from "./chat-queue.ts";
+import { serveHistory } from "./chat-history.ts";
+
+export { serveHistory };
+import { ChatQueue, dogSlots, validQueueRow, validSlot, QUEUE_ROW_STATUSES, type ChatHistoryPort, type ChatQueuePort, type DogSlot, type DogSlotsPort, type QueueRowStatus } from "./chat-queue.ts";
 
 export { ChatQueue, DogIndex, PersonIndex };
 
@@ -146,21 +149,6 @@ function presentedClaims(request: Request): SignedCapabilityClaims | null {
 export interface QueuePorts {
   dog(home: string, dog: string): DogSlotsPort;
   chat(home: string, chat: string): ChatQueuePort & ChatHistoryPort;
-}
-
-export async function serveHistory(body: Record<string, unknown>, claims: SignedCapabilityClaims, ports: QueuePorts): Promise<Response> {
-  const chat = ports.chat(claims.home, claims.chat);
-  if (body.op === "append") {
-    const rows = Array.isArray(body.messages) ? body.messages : [];
-    if (!rows.every(validHistoryRow)) return answer(400, { error: "bad_messages" });
-    return answer(200, { ok: true, stored: await chat.append(rows) });
-  }
-  if (body.op === "page") {
-    const after = typeof body.after === "string" ? body.after : null;
-    const limit = typeof body.limit === "number" ? body.limit : 100;
-    return answer(200, { ok: true, ...(await chat.page(after, limit)) });
-  }
-  return answer(400, { error: "unknown_op" });
 }
 
 export async function serveQueue(body: Record<string, unknown>, claims: SignedCapabilityClaims, ports: QueuePorts): Promise<Response> {
