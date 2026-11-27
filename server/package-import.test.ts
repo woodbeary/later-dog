@@ -65,6 +65,7 @@ describe("importing a whole team", () => {
     const app = await installation({ servers: { crm: { type: "http", url: "https://existing.example.com", headers: { Authorization: "Bearer mine" }, enabled: true } } });
     const document: PackageDocument = app.parsePackageDocument(fixture("full-team.v2.json"));
     const result = app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
+    await (await import("./workspace.ts")).memoryWritesSettled();
     if (result.alreadyAdded) throw new Error("unexpected");
     const byKey = new Map(result.bots.map((bot) => [bot.installedPackage!.agentKey, app.store.bot(bot.id)!]));
     const lead = byKey.get("lead")!;
@@ -115,7 +116,9 @@ describe("importing a whole team", () => {
     const app = await installation();
     const document = app.parsePackageDocument(fixture("full-team.v2.json"));
     const first = app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
+    await (await import("./workspace.ts")).memoryWritesSettled();
     const second = app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
+    await (await import("./workspace.ts")).memoryWritesSettled();
     if (first.alreadyAdded || second.alreadyAdded) throw new Error("file imports are never 'already added'");
     expect(second.section).toBe("Sales desk 2");
     expect(second.bots[0]!.name).toBe("Morgan 2");
@@ -126,6 +129,7 @@ describe("importing a whole team", () => {
   it("records a connection the organization's policy refuses and imports the rest", async () => {
     const app = await installation({ refuse: (name) => (name === "crm" ? "Not approved by Acme." : undefined) });
     const result = app.importer.importPackageDocument(app.parsePackageDocument(fixture("full-team.v2.json")), { trust: "file", mode: "add" }, app.deps);
+    await (await import("./workspace.ts")).memoryWritesSettled();
     if (result.alreadyAdded) throw new Error("unexpected");
     expect(result.skipped).toContainEqual({ part: "connections[crm]", reason: "connection_refused_by_policy" });
     expect(result.connections).toEqual([]);
@@ -157,6 +161,7 @@ describe("importing a whole team", () => {
     const input = fixture("full-team.v2.json");
     input.package.routines[0].timeoutMinutes = 600;
     const result = app.importer.importPackageDocument(app.parsePackageDocument(input), { trust: "file", mode: "add" }, app.deps);
+    await (await import("./workspace.ts")).memoryWritesSettled();
     if (result.alreadyAdded) throw new Error("unexpected");
     expect(result.routines[0]!.timeoutMinutes).toBe(240);
     expect(result.skipped).toContainEqual({ part: "routines[daily-digest].timeoutMinutes", reason: "run_limit_adjusted" });
@@ -172,6 +177,7 @@ describe("importing a whole team", () => {
       installId: app.importer.orgInstallId("https://admin.example.com", "org-1", "pkg-1"),
     };
     const result = app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps);
+    await (await import("./workspace.ts")).memoryWritesSettled();
     if (result.alreadyAdded) throw new Error("unexpected");
     const scout = result.bots.find((bot) => bot.installedPackage?.agentKey === "scout")!;
     expect(app.skills.listSkills(scout.id)).toEqual([
@@ -182,6 +188,7 @@ describe("importing a whole team", () => {
     expect(result.routines.every((routine) => !routine.enabled)).toBe(true);
     const bots = app.store.bots.length;
     expect(app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps)).toEqual({ alreadyAdded: true, installId: org.installId });
+    await (await import("./workspace.ts")).memoryWritesSettled();
     expect(app.store.bots).toHaveLength(bots);
     expect(() => app.importer.importPackageDocument(document, { trust: "org", mode: "add", org: { ...org, installId: "f".repeat(32) } }, app.deps))
       .toThrow("install id");

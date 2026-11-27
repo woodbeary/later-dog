@@ -3,7 +3,14 @@ import { join } from "node:path";
 
 export const claudeProjectSlug = (cwd: string): string => cwd.replace(/[^a-zA-Z0-9]/g, "-");
 
+const MOUNTED_DOG_FOLDER = /\/\.laterdog\/(task-)?workspaces\//;
+
+export function onMountedDogFolder(path: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.LATERDOG_CLOUD_ROLE === "home" && Boolean(env.LATERDOG_WORK_FOLDER_LAYOUT) && MOUNTED_DOG_FOLDER.test(`${path}/`);
+}
+
 export function physicalClaudePath(path: string): string {
+  if (onMountedDogFolder(path)) return path;
   try { return realpathSync(path); } catch { return path; }
 }
 
