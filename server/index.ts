@@ -940,7 +940,8 @@ import { createLiveRoutes } from "./routes/live.ts";
 import { withScopeHint } from "./connector-scope-hint.ts";
 import { remoteEngineChoice, remoteEngineDefault, setRemoteEngineDefault, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
 import { preToolGuardDecision } from "./laterdog/placed-threads.ts";
-import { carryClaudeSession } from "./laterdog/session-carry.ts";
+import { carryClaudeSession, type CarriedSession } from "./laterdog/session-carry.ts";
+import { carryCodexSession } from "./laterdog/codex-session-carry.ts";
 import { createEnginePlacementRoutes } from "./routes/engine-placement.ts";
 import { ProjectAccessController, type ProjectSelection } from "./laterdog/project-access.ts";
 import { retireMemberProjects } from "./laterdog/project-member-retirement.ts";
@@ -8553,15 +8554,29 @@ function claudeConfigDirOf(instanceId: string): string | undefined {
   try { return resolveClaudeConfigDir(plan.configDir, { ...process.env, ...plan.environment }); } catch { return undefined; }
 }
 
-function carrySessionAcross(botId: string, threadId: string, instance: NonNullable<ReturnType<typeof registry.get>>): void {
+function codexHomeOf(instanceId: string): string | undefined {
+  const plan = planAccountsFromInstances(instanceConfigs(cfg)).find((account) => account.id === instanceId && account.driver === "codex");
+  return plan ? codexHome({ ...process.env, ...plan.environment }) ?? undefined : undefined;
+}
+
+async function carrySessionAcross(botId: string, threadId: string, instance: NonNullable<ReturnType<typeof registry.get>>): Promise<void> {
   const task = store.taskByThread(botId, threadId);
   const from = task?.lastInstanceId;
-  if (!task?.cwd || !from || from === instance.instanceId || task.rewound || instance.driverKind !== "claudeAgent" || registry.get(from)?.driverKind !== "claudeAgent") return;
-  const fromConfigDir = claudeConfigDirOf(from);
-  const toConfigDir = claudeConfigDirOf(instance.instanceId);
-  if (!fromConfigDir || !toConfigDir) return;
+  const kind = instance.driverKind;
+  if (!task?.cwd || !from || from === instance.instanceId || task.rewound || (kind !== "claudeAgent" && kind !== "codex") || registry.get(from)?.driverKind !== kind) return;
   try {
-    const carried = carryClaudeSession({ sessionId: task.resumeCursors[from], cwd: task.cwd, fromConfigDir, toConfigDir });
+    let carried: CarriedSession | undefined;
+    if (kind === "claudeAgent") {
+      const fromConfigDir = claudeConfigDirOf(from);
+      const toConfigDir = claudeConfigDirOf(instance.instanceId);
+      if (!fromConfigDir || !toConfigDir) return;
+      carried = carryClaudeSession({ sessionId: task.resumeCursors[from], cwd: task.cwd, fromConfigDir, toConfigDir });
+    } else {
+      const fromHome = codexHomeOf(from);
+      const toHome = codexHomeOf(instance.instanceId);
+      if (!fromHome || !toHome) return;
+      carried = await carryCodexSession({ cursor: task.resumeCursors[from], fromHome, toHome });
+    }
     if (!carried) return;
     store.setResumeCursor(botId, instance.instanceId, carried.sessionId, threadId);
     const handed = task.handedMessages?.[from];
@@ -9408,7 +9423,7 @@ async function startTurn(
         if (!readiness.ready) throw new Error(readiness.reason ?? "The cloud computer is not ready");
       }
       turnPhases.mark(threadId, "saved logs");
-      carrySessionAcross(bot.id, threadId, instance);
+      await carrySessionAcross(bot.id, threadId, instance);
       await compactConversation({ bot, threadId, generation: dispatchClaimId, instance, model,
         excludedIds: new Set([userMessage.id, ...(opts?.excludeMessageIds ?? [])]), manual: opts?.compactOnly === true });
       if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped during context setup");
