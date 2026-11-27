@@ -9884,9 +9884,6 @@ async function startTurn(
       }
       const assignedSkills = skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined;
       const skillsFromCache = privateWorkspace && promptFromIndex() && skillsPrompts ? (await skillsPrompts.get(bot.id, assignedSkills)).text : null;
-      if (searchIndex?.mode === "shadow" && mountedFoldersActive()) {
-        searchIndex.noteMountRead(bot.id, [...(bot.memoryEnabled !== false && !memoryDocs ? ["memory"] : []), ...(privateWorkspace ? ["skills"] : [])]);
-      }
       if (checkpointCwd && snapshotHead) {
         const before = await snapshotHead.claim();
         turnPhases.mark(threadId, "file snapshot wait");
