@@ -5189,6 +5189,7 @@ exchangeLookup = {
   redact: redactSecretsInText,
 };
 
+startPhases.mark("boot", "store and chat services");
 const groupUsageReader = new GroupUsageReader(DATA_DIR);
 try { groupUsageReader.refresh(); } catch {}
 function publicGroupState(record: GroupRecord): WireGroup {
@@ -10178,6 +10179,7 @@ function routineSourceOwner(run: Pick<RoutineRun, "routineId" | "webhookId" | "b
   return { bot, group: undefined, threadId: ranIn ?? bot.threadId };
 }
 
+startPhases.mark("boot", "event handlers");
 const routineCardThreads = new Map<string, string>();
 
 function routineCardIn(botId: string, runId: string, threadIds: (string | undefined)[]): { threadId: string; message: Message } | null {
@@ -22161,6 +22163,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   }
 };
 
+startPhases.mark("boot", "routines and turn handling");
 const server = createServer(handleRequest);
 desktopViewer.attach(server, handleRequest);
 
@@ -22406,7 +22409,7 @@ for (const row of chatFollowups()) {
   }
   settleChatFollowups([row.id], null);
 }
-startPhases.mark("boot", "routes and watchers");
+startPhases.mark("boot", "routes");
 restoreSteeredMessages();
 restoreChannelMessages();
 
