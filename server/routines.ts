@@ -256,6 +256,21 @@ export interface RoutineManagerOptions {
   onRunDeferred?: (run: RoutineRun) => void;
   hasPendingDelegations?: (threadId: string, runId: string) => boolean;
   turnBelongsToRun?: (run: RoutineRun) => boolean;
+  objectOwned?: (botId: string) => boolean;
+  beforeStart?: (run: RoutineRun) => Promise<boolean>;
+}
+
+export interface ObjectOccurrence {
+  id: string;
+  routineId: string;
+  scheduledFor: number;
+  nextRunAt: number | null;
+  missed: boolean;
+  state: "due" | "started" | "settled";
+}
+
+export function isObjectRun(run: Pick<RoutineRun, "id" | "routineId" | "scheduledFor">): boolean {
+  return run.id === `${run.routineId}-at-${run.scheduledFor}`;
 }
 
 const WAKE_HORIZON_MS = 60 * 60_000;
@@ -1134,7 +1149,7 @@ export class RoutineManager {
         }
       }
       const dueRoutines = this.routines.filter(
-        (routine) => routine.enabled && routine.nextRunAt != null && routine.nextRunAt <= now,
+        (routine) => routine.enabled && routine.nextRunAt != null && routine.nextRunAt <= now && !this.options.objectOwned?.(routine.botId),
       );
       const scheduledRuns: RoutineRun[] = [];
       if (dueRoutines.length > 0) {
@@ -1203,6 +1218,10 @@ export class RoutineManager {
         if (state === "missing") {
           this.failRun(run, this.missingTargetMessage(run.target));
           continue;
+        }
+        if (this.options.beforeStart && isObjectRun(run)) {
+          const cleared = await this.options.beforeStart(cloneRun(run)).catch(() => false);
+          if (!cleared || run.status !== "queued") continue;
         }
         const startedAt = this.now();
         const conversation = this.options.conversationFor(run);
@@ -1401,6 +1420,55 @@ export class RoutineManager {
       : "The assigned dog no longer exists";
   }
 
+  routinesForBot(botId: string): Routine[] {
+    return this.routines.filter((routine) => routine.botId === botId).map(cloneRoutine);
+  }
+
+  admitObjectOccurrence(occurrence: ObjectOccurrence): ObjectOccurrence["state"] {
+    const existing = this.runs.find((run) => run.id === occurrence.id);
+    if (existing) {
+      if (existing.status === "queued") return "due";
+      return existing.status === "running" || existing.status === "waiting" ? "started" : "settled";
+    }
+    const routine = this.routines.find((candidate) => candidate.id === occurrence.routineId);
+    if (!routine || occurrence.state === "settled") return "settled";
+    const now = this.now();
+    let run: RoutineRun | null = null;
+    if (occurrence.state === "started") {
+      this.commitMutation(() => {
+        run = this.newRun(routine, occurrence.scheduledFor, false, routine.sourceThreadId, occurrence.id);
+        run.status = "failed";
+        run.finishedAt = now;
+        run.error = "The home restarted as this run was starting, so it was not started again";
+      });
+    } else if (routine.enabled) {
+      this.commitMutation(() => {
+        run = this.admitOccurrence(routine, occurrence, now, occurrence.id);
+      });
+      this.emitRoutine(routine);
+    }
+    const admitted = run as RoutineRun | null;
+    if (!admitted) return "settled";
+    this.emitRun(admitted);
+    if (admitted.status === "queued") return "due";
+    this.options.onRunFailed?.(cloneRun(admitted));
+    return "settled";
+  }
+
+  mirrorObjectSchedules(views: ReadonlyArray<{ id: string; nextRunAt: number | null }>): number {
+    const changed: Routine[] = [];
+    this.commitMutation(() => {
+      for (const view of views) {
+        const routine = this.routines.find((candidate) => candidate.id === view.id);
+        if (!routine || !routine.enabled || routine.nextRunAt === view.nextRunAt) continue;
+        routine.nextRunAt = view.nextRunAt;
+        changed.push(routine);
+      }
+    });
+    for (const routine of changed) this.emitRoutine(routine);
+    return changed.length;
+  }
+
   private admitOccurrence(routine: Routine, due: DueOccurrence, now: number, runId?: string): RoutineRun | null {
     const { scheduledFor } = due;
     const overlapping = routine.schedule.type !== "once" && this.runs.some(
@@ -1433,7 +1501,7 @@ export class RoutineManager {
     const changed: Routine[] = [];
     this.commitMutation(() => {
       for (const routine of this.routines) {
-        if (!routine.enabled || routine.schedule.type === "once" || routine.schedule.type === "cron") continue;
+        if (!routine.enabled || routine.schedule.type === "once" || routine.schedule.type === "cron" || this.options.objectOwned?.(routine.botId)) continue;
         const next = nextOccurrence(routine.schedule, now);
         if (next === null || next === routine.nextRunAt) continue;
         routine.nextRunAt = next;

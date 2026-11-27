@@ -50,7 +50,7 @@ describe("routines in the dog object", () => {
     expect(await h.routines.fireRoutines()).toBe(1);
     expect(await h.routines.fireRoutines()).toBe(0);
     const claimed = await h.routines.claimRoutines();
-    expect(claimed.occurrences).toEqual([expect.objectContaining({ id: `r1:${START + 10 * MINUTE}`, state: "due", missed: false, nextRunAt: START + 20 * MINUTE })]);
+    expect(claimed.occurrences).toEqual([expect.objectContaining({ id: `r1-at-${START + 10 * MINUTE}`, state: "due", missed: false, nextRunAt: START + 20 * MINUTE })]);
     expect(h.alarm.at).toBe(START + 20 * MINUTE);
   });
 
@@ -62,7 +62,7 @@ describe("routines in the dog object", () => {
     const reopened = h.open();
     const after = await reopened.putRoutines("UTC", [{ id: "r1", schedule: every10, nextRunAt: START + 10 * MINUTE, enabled: true }]);
     expect(after.schedules).toEqual([{ id: "r1", nextRunAt: START + 20 * MINUTE, enabled: true }]);
-    expect(after.occurrences.map((occurrence) => occurrence.id)).toEqual([`r1:${START + 10 * MINUTE}`]);
+    expect(after.occurrences.map((occurrence) => occurrence.id)).toEqual([`r1-at-${START + 10 * MINUTE}`]);
   });
 
   it("moves an occurrence from due to started to settled, never back, and only for its run", async () => {

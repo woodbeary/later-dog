@@ -107,7 +107,7 @@ export function dogRoutines(sql: Sql, alarm: AlarmClock, now: () => number = Dat
     for (const row of due) {
       const schedule = JSON.parse(String(row.schedule)) as RoutineSchedule;
       const occurrence = dueOccurrence(schedule, Number(row.next_run_at), at, clock);
-      const id = `${String(row.id)}:${occurrence.scheduledFor}`;
+      const id = `${String(row.id)}-at-${occurrence.scheduledFor}`;
       const inserted = sql.exec(
         "INSERT INTO dog_occurrences (id, routine_id, scheduled_for, next_run_at, missed, state, run_id, fired_at, changed_at) VALUES (?, ?, ?, ?, ?, 'due', NULL, ?, ?) ON CONFLICT(id) DO NOTHING RETURNING id",
         id, String(row.id), occurrence.scheduledFor, occurrence.nextRunAt, occurrence.missed ? 1 : 0, at, at,

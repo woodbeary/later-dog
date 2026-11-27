@@ -333,7 +333,8 @@ import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
-import { readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
+import { readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
+import { DogObjectCalls, ObjectRoutines } from "./laterdog/object-routines.ts";
 import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
 import { SkillsPromptCache, skillsPromptWorker } from "./skills-prompt-cache.ts";
 import { readMessageText, recallMemoryOffThread, recallMessagesOffThread, recentMessagesOffThread, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
@@ -1074,6 +1075,15 @@ const historyMirror = CLOUD_HOME ? new HistoryMirror({
 }) : null;
 if (historyMirror) historyMirror.enabled = coordinatorSetting.history === "shadow";
 const queuesInObject = (botId: string) => Boolean(objectQueue) && queueModeFor(coordinatorSetting, botId) === "object";
+const dogObjectCalls = CLOUD_HOME ? new DogObjectCalls({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
+const routinesInObject = (botId: string) => Boolean(dogObjectCalls) && dogPartModeFor(coordinatorSetting.routines, botId) === "object";
+const objectRoutines = dogObjectCalls ? new ObjectRoutines({
+  calls: dogObjectCalls,
+  book: () => routines,
+  owned: routinesInObject,
+  dogs: () => store.bots.map((bot) => bot.id),
+  timeZone: () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+}) : null;
 const objectRowOf = (item: SteerQueueItem, status: "accepted" | "pending") =>
   ({ id: item.messageId, sendId: item.sendId ?? null, status, payload: item, at: item.queuedAt });
 setSteerQueueSink({
@@ -10545,7 +10555,14 @@ async function stopBotForEmergencyApprovalDowngrade(botId: string): Promise<void
 
 startPhases.mark("boot", "turn handling setup");
 routines = new RoutineManager({
-  emit: broadcast,
+  emit: (payload) => {
+    broadcast(payload);
+    if (!objectRoutines) return;
+    if (payload.kind === "routine") objectRoutines.changed((payload.routine as { botId: string }).botId);
+    if (payload.kind === "routine.deleted") for (const bot of store.bots) objectRoutines.changed(bot.id);
+  },
+  objectOwned: routinesInObject,
+  beforeStart: async (run) => objectRoutines ? objectRoutines.beforeStart(run) : true,
   hasPendingDelegations: (threadId, runId) => roomHandoffs.outstandingDirect(threadId).some(node => roomHandoffs.root(node).routineRunId === runId),
   turnBelongsToRun: routineTurnBelongsToRun,
   botState: routineTargetState,
@@ -10589,6 +10606,7 @@ routines = new RoutineManager({
   },
   interruptGoal: interruptRoutineGroupGoal,
   onRunChanged: (run) => {
+    objectRoutines?.runChanged(run);
     if (run.manual && run.status === "queued" && ownerRunNowScope.active()) ownerStartedRoutineRuns.add(run.id);
     attestCloudRoutineRun(run);
     syncRoutineRunToSource(run);
@@ -14274,8 +14292,8 @@ const workspaceBackupAccess = {
       teamComputers.list().every(computer => !teamComputerInUse(computer)) &&
       store.bots.every((bot) => !botHasActiveTurn(bot.id) && !routines?.activeRunForBot(bot.id) && !botComputerControlSnapshot(bot.id).held) &&
       store.groups.every((group) => !groupIsWorking(group)),
-    pause: () => { routines?.stop(); calendarCalls?.stop(); watchdog.stop(); memoryUpkeep.pause(); },
-    resume: () => { routines?.start(); calendarCalls?.start(); watchdog.start(); memoryUpkeep.resume(); },
+    pause: () => { routines?.stop(); objectRoutines?.stop(); calendarCalls?.stop(); watchdog.stop(); memoryUpkeep.pause(); },
+    resume: () => { routines?.start(); objectRoutines?.start(); calendarCalls?.start(); watchdog.start(); memoryUpkeep.resume(); },
     flush: async () => {
       if (assignedJobFolders) await checkpointAssignedFolders(process.env.LATERDOG_WORK_FOLDER_CHECKPOINT_SOCKET);
       await Promise.all([flushAllProfileHistory(), flushAllMemoryJournals(), flushUsageLedger(DATA_DIR), flushDecisionLog(DATA_DIR), flushAdminActivity(DATA_DIR)]);
@@ -14367,9 +14385,18 @@ ROUTES.push(createSearchIndexRoutes({
 if (searchIndex) searchIndex.setMode(readSearchIndexMode(DATA_DIR));
 ROUTES.push(createCoordinatorRoutes({
   available: () => Boolean(CLOUD_HOME),
-  read: () => ({ ...coordinatorSetting, mirror: historyMirror ? { pending: historyMirror.pending(), ...historyMirror.state } : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
-  change: (change) => {
+  read: () => ({ ...coordinatorSetting, routineClient: objectRoutines ? objectRoutines.state : null, mirror: historyMirror ? { pending: historyMirror.pending(), ...historyMirror.state } : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
+  change: async (change) => {
+    const before = coordinatorSetting;
     coordinatorSetting = mergeCoordinatorSetting(coordinatorSetting, change);
+    if (objectRoutines) {
+      for (const bot of store.bots) {
+        const was = dogPartModeFor(before.routines, bot.id);
+        const now = dogPartModeFor(coordinatorSetting.routines, bot.id);
+        if (was === "object" && now === "container") await objectRoutines.handBack(bot.id).catch((error) => console.warn(`object routines: hand back for ${bot.id} failed, the home's own schedule resumes: ${String(error)}`));
+        if (now === "object") objectRoutines.changed(bot.id);
+      }
+    }
     saveCoordinatorSetting(DATA_DIR, coordinatorSetting);
     if (historyMirror) historyMirror.enabled = coordinatorSetting.history === "shadow";
     return coordinatorSetting;
@@ -22764,6 +22791,7 @@ server.listen(PORT, "127.0.0.1", async () => {
     if (companyShutdown) return;
   }
   routines!.start();
+  objectRoutines?.start();
   memoryUpkeep.start();
   const waiting = limitHold.resume();
   if (waiting.length) console.log(`token battery: ${waiting.length} conversation(s) waiting on a usage limit from a previous run`);
@@ -22794,6 +22822,7 @@ const gracefulShutdown = createGracefulShutdown({
       vps.closeAllVpsDesktopTunnels();
       watchdog.stop();
       routines?.stop();
+      objectRoutines?.stop();
       calendarCalls?.stop();
       memoryUpkeep.stop();
       webhookIngress?.server.close();
