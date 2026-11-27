@@ -1,9 +1,11 @@
-import { ftsQuery, rangeClause, substringSnippet } from "../../../../shared/search-index-query.ts";
+import { ftsQuery, rangeClause, substringSnippet, textSum } from "../../../../shared/search-index-query.ts";
 import {
   INDEX_FEED_MAX_ITEMS,
   INDEX_SCOPE_MAX,
   INDEX_TEXT_MAX_CHARS,
   type IndexFeedBatch,
+  type IndexHasAnswer,
+  type IndexHasRequest,
   type IndexMemoryHit,
   type IndexMemoryRequest,
   type IndexMessage,
@@ -50,21 +52,16 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS messages_chat_at ON messages(chat, at);
   CREATE INDEX IF NOT EXISTS messages_at ON messages(at);
   CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text, content='messages', content_rowid='rid', tokenize='unicode61');
-  CREATE VIRTUAL TABLE IF NOT EXISTS messages_tri USING fts5(text, content='messages', content_rowid='rid', tokenize='trigram');
   CREATE VIRTUAL TABLE IF NOT EXISTS messages_vocab USING fts5vocab('messages_fts', 'row');
   CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
     INSERT INTO messages_fts(rowid, text) VALUES (new.rid, CASE WHEN new.kind = 'activity' THEN NULL ELSE new.text END);
-    INSERT INTO messages_tri(rowid, text) SELECT new.rid, new.text WHERE new.kind IN ('text', 'activity');
   END;
   CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
     INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.rid, CASE WHEN old.kind = 'activity' THEN NULL ELSE old.text END);
-    INSERT INTO messages_tri(messages_tri, rowid, text) SELECT 'delete', old.rid, old.text WHERE old.kind IN ('text', 'activity');
   END;
   CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
     INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.rid, CASE WHEN old.kind = 'activity' THEN NULL ELSE old.text END);
-    INSERT INTO messages_tri(messages_tri, rowid, text) SELECT 'delete', old.rid, old.text WHERE old.kind IN ('text', 'activity');
     INSERT INTO messages_fts(rowid, text) VALUES (new.rid, CASE WHEN new.kind = 'activity' THEN NULL ELSE new.text END);
-    INSERT INTO messages_tri(rowid, text) SELECT new.rid, new.text WHERE new.kind IN ('text', 'activity');
   END;
   CREATE TABLE IF NOT EXISTS memory (
     rid INTEGER PRIMARY KEY,
@@ -85,6 +82,20 @@ const SCHEMA = `
   CREATE TRIGGER IF NOT EXISTS memory_au AFTER UPDATE OF text ON memory BEGIN
     INSERT INTO memory_fts(memory_fts, rowid, text) VALUES ('delete', old.rid, old.text);
     INSERT INTO memory_fts(rowid, text) VALUES (new.rid, new.text);
+  END;
+`;
+
+const SUBSTRING_SCHEMA = `
+  CREATE VIRTUAL TABLE IF NOT EXISTS messages_tri USING fts5(text, content='messages', content_rowid='rid', tokenize='trigram');
+  CREATE TRIGGER IF NOT EXISTS messages_tri_ai AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_tri(rowid, text) SELECT new.rid, new.text WHERE new.kind IN ('text', 'activity');
+  END;
+  CREATE TRIGGER IF NOT EXISTS messages_tri_ad AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_tri(messages_tri, rowid, text) SELECT 'delete', old.rid, old.text WHERE old.kind IN ('text', 'activity');
+  END;
+  CREATE TRIGGER IF NOT EXISTS messages_tri_au AFTER UPDATE ON messages BEGIN
+    INSERT INTO messages_tri(messages_tri, rowid, text) SELECT 'delete', old.rid, old.text WHERE old.kind IN ('text', 'activity');
+    INSERT INTO messages_tri(rowid, text) SELECT new.rid, new.text WHERE new.kind IN ('text', 'activity');
   END;
 `;
 
@@ -158,11 +169,18 @@ export interface SearchIndex {
   recent(request: IndexRecentRequest): IndexRecallHit[];
   memory(request: IndexMemoryRequest): IndexMemoryHit[];
   search(request: IndexSearchRequest): IndexSearchHit[];
+  has(request: IndexHasRequest): IndexHasAnswer;
   stats(): IndexStats;
 }
 
-export function searchIndex(sql: SqlPort, { broadMatches = BROAD_MATCHES } = {}): SearchIndex {
+export interface SearchIndexOptions {
+  broadMatches?: number;
+  substring?: boolean;
+}
+
+export function searchIndex(sql: SqlPort, { broadMatches = BROAD_MATCHES, substring = true }: SearchIndexOptions = {}): SearchIndex {
   sql.script(SCHEMA);
+  if (substring) sql.script(SUBSTRING_SCHEMA);
 
   function upsertMessage(raw: IndexMessage) {
     const kind = typeof raw.kind === "string" && KIND.test(raw.kind) ? raw.kind : fail("message kind is not valid");
@@ -208,13 +226,13 @@ export function searchIndex(sql: SqlPort, { broadMatches = BROAD_MATCHES } = {})
     feed(batch) {
       const messages = list<IndexMessage>(batch.messages, "messages");
       const removeMessages = list<{ chat: unknown; id: unknown }>(batch.removeMessages, "removeMessages");
-      const removeChats = list<unknown>(batch.removeChats, "removeChats");
+      const removeChats = list<{ chat: unknown }>(batch.removeChats, "removeChats");
       const memory = list<Record<string, unknown>>(batch.memory, "memory");
       const removeMemory = list<{ dog: unknown; path: unknown }>(batch.removeMemory, "removeMemory");
       const total = messages.length + removeMessages.length + removeChats.length + memory.length + removeMemory.length;
       if (total > INDEX_FEED_MAX_ITEMS) fail(`a feed batch holds at most ${INDEX_FEED_MAX_ITEMS} items`);
       sql.batch(() => {
-        for (const chat of removeChats) sql.all("DELETE FROM messages WHERE chat = ?", identifier(chat, "chat"));
+        for (const item of removeChats) sql.all("DELETE FROM messages WHERE chat = ?", identifier(item.chat, "chat"));
         for (const item of removeMessages) sql.all("DELETE FROM messages WHERE chat = ? AND id = ?", identifier(item.chat, "chat"), identifier(item.id, "id"));
         for (const item of messages) upsertMessage(item);
         for (const item of removeMemory) sql.all("DELETE FROM memory WHERE dog = ? AND path = ?", identifier(item.dog, "dog"), text(item.path, "path", 512));
@@ -290,6 +308,7 @@ export function searchIndex(sql: SqlPort, { broadMatches = BROAD_MATCHES } = {})
     },
 
     search(request) {
+      if (!substring) fail("this index has no substring search");
       const needle = text(request.query, "query", 500).trim().toLowerCase();
       if (!needle) return [];
       const chats = request.chats === undefined ? null : scope(request.chats, "chats");
@@ -317,6 +336,17 @@ export function searchIndex(sql: SqlPort, { broadMatches = BROAD_MATCHES } = {})
         ...substringSnippet(row.text, needle),
         ...(row.from_name ? { from: row.from_name } : {}),
       }));
+    },
+
+    has(request) {
+      const messages = list<{ chat: unknown; id: unknown }>(request.messages, "messages").map((item) => [identifier(item.chat, "chat"), identifier(item.id, "id")]);
+      const memory = list<{ dog: unknown; path: unknown }>(request.memory, "memory").map((item) => [identifier(item.dog, "dog"), text(item.path, "path", 512)]);
+      return {
+        messages: messages.flatMap(([chat, id]) => sql.all<{ at: number; kind: string; text: string }>("SELECT at, kind, text FROM messages WHERE chat = ? AND id = ?", chat, id)
+          .map((row) => ({ chat, id, at: row.at, kind: row.kind, sum: textSum(row.text) }))),
+        memory: memory.flatMap(([dog, path]) => sql.all<{ mtime: number; text: string }>("SELECT mtime, text FROM memory WHERE dog = ? AND path = ?", dog, path)
+          .map((row) => ({ dog, path, mtime: row.mtime, sum: textSum(row.text) }))),
+      };
     },
 
     stats() {

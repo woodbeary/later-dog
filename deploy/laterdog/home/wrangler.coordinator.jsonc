@@ -9,11 +9,13 @@
   "durable_objects": {
     "bindings": [
       { "name": "DOGS", "class_name": "Dog" },
-      { "name": "PERSON_INDEX", "class_name": "PersonIndex" }
+      { "name": "PERSON_INDEX", "class_name": "PersonIndex" },
+      { "name": "DOG_INDEX", "class_name": "DogIndex" }
     ]
   },
   "exports": {
     "Dog": { "type": "durable-object", "storage": "sqlite" },
-    "PersonIndex": { "type": "durable-object", "storage": "sqlite" }
+    "PersonIndex": { "type": "durable-object", "storage": "sqlite" },
+    "DogIndex": { "type": "durable-object", "storage": "sqlite" }
   }
 }

@@ -1,12 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import type {
   IndexFeedBatch,
+  IndexHasRequest,
   IndexMemoryRequest,
   IndexRecallRequest,
   IndexRecentRequest,
   IndexSearchRequest,
 } from "../../../../shared/search-index-protocol.ts";
-import { searchIndex, type SqlPort, type SqlValue } from "./person-index-store.ts";
+import { searchIndex, type SearchIndex, type SqlPort, type SqlValue } from "./person-index-store.ts";
 
 export function durableSql(storage: DurableObjectStorage): SqlPort {
   return {
@@ -17,8 +18,8 @@ export function durableSql(storage: DurableObjectStorage): SqlPort {
   };
 }
 
-export class PersonIndex extends DurableObject {
-  private readonly index = searchIndex(durableSql(this.ctx.storage));
+abstract class IndexObject extends DurableObject {
+  protected abstract readonly index: SearchIndex;
   feed(batch: IndexFeedBatch) {
     return this.index.feed(batch);
   }
@@ -34,7 +35,18 @@ export class PersonIndex extends DurableObject {
   search(request: IndexSearchRequest) {
     return this.index.search(request);
   }
+  has(request: IndexHasRequest) {
+    return this.index.has(request);
+  }
   stats() {
     return this.index.stats();
   }
+}
+
+export class PersonIndex extends IndexObject {
+  protected readonly index = searchIndex(durableSql(this.ctx.storage));
+}
+
+export class DogIndex extends IndexObject {
+  protected readonly index = searchIndex(durableSql(this.ctx.storage), { substring: false });
 }

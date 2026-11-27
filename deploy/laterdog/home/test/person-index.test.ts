@@ -11,7 +11,8 @@ vi.mock("cloudflare:workers", () => ({
 }));
 
 const { searchIndex } = await import("../src/person-index-store.ts");
-const { serveIndex, withinBudget } = await import("../src/index-routes.ts");
+const { serveIndex, splitFeed, withinBudget } = await import("../src/index-routes.ts");
+const { textSum } = await import("../../../../shared/search-index-query.ts");
 const { coordinate } = await import("../src/coordinator.ts");
 const { CAPABILITY_CLAIMS_HEADER } = await import("../src/edge-routes.ts");
 const { nodeSql } = await import("./node-sql.ts");
@@ -97,7 +98,7 @@ describe("person search index", () => {
     expect(index.search({ query: "orthodont" }).map((hit) => hit.messageId)).toEqual(["m1"]);
     index.feed({ messages: [message("a-main", "m6", "web_search now a reply", { kind: "text" })] });
     expect(index.recall({ query: "reply", chats: ["a-main"] }).map((hit) => hit.messageId)).toEqual(["m6"]);
-    index.feed({ removeMessages: [{ chat: "a-main", id: "m1" }], removeChats: ["b-main"], removeMemory: [{ dog: "dog-a", path: "memory/health.md" }] });
+    index.feed({ removeMessages: [{ chat: "a-main", id: "m1" }], removeChats: [{ chat: "b-main" }], removeMemory: [{ dog: "dog-a", path: "memory/health.md" }] });
     expect(index.search({ query: "orthodont" })).toEqual([]);
     expect(index.search({ query: "tuesday" })).toEqual([]);
     expect(index.memory({ query: "Rivera", dogs: ["dog-a"] })).toEqual([]);
@@ -125,6 +126,36 @@ describe("person search index", () => {
   });
 });
 
+function both(index: never) {
+  return { person: () => index, dog: () => index };
+}
+
+describe("dog shards", () => {
+  it("keep their own chats and memory without a substring index, and say what they hold", () => {
+    const index = searchIndex(nodeSql(), { substring: false });
+    index.feed({ messages: [message("a-main", "m1", "We booked the dentist appointment for Monday")], memory: [{ dog: "dog-a", path: "memory/health.md", text: "Dentist is Dr. Rivera", mtime: T0, bytes: 21 }] });
+    expect(index.recall({ query: "dentist", chats: ["a-main"] }).map((hit) => hit.messageId)).toEqual(["m1"]);
+    expect(() => index.search({ query: "dentist" })).toThrow(/no substring search/);
+    const held = index.has({ messages: [{ chat: "a-main", id: "m1" }, { chat: "a-main", id: "m9" }], memory: [{ dog: "dog-a", path: "memory/health.md" }] });
+    expect(held.messages).toEqual([{ chat: "a-main", id: "m1", at: T0 + 1_000, kind: "text", sum: textSum("We booked the dentist appointment for Monday") }]);
+    expect(held.memory).toEqual([{ dog: "dog-a", path: "memory/health.md", mtime: T0, sum: textSum("Dentist is Dr. Rivera") }]);
+  });
+
+  it("split a feed so every item reaches the person index unless told not to, and each dog it names", () => {
+    const parts = splitFeed({
+      messages: [{ ...message("a-main", "m1", "one"), dogs: ["dog-a"] }, { ...message("r-room", "m2", "two"), dogs: ["dog-a", "dog-b"] }, { ...message("r-room", "m3", "three"), dogs: ["dog-b"], person: false }],
+      removeChats: [{ chat: "old", dogs: ["dog-b"] }],
+      memory: [{ dog: "dog-a", path: "memory/a.md", text: "a", mtime: T0, bytes: 1 }],
+      removeMemory: [{ dog: "dog-b", path: "memory/b.md", person: false }],
+    });
+    const of = (dog: string | null) => parts.find((part) => part.dog === dog)?.batch;
+    expect(of(null)).toEqual({ messages: [message("a-main", "m1", "one"), message("r-room", "m2", "two")], removeChats: [{ chat: "old" }], memory: [{ dog: "dog-a", path: "memory/a.md", text: "a", mtime: T0, bytes: 1 }] });
+    expect(of("dog-a")).toEqual({ messages: [message("a-main", "m1", "one"), message("r-room", "m2", "two")], memory: [{ dog: "dog-a", path: "memory/a.md", text: "a", mtime: T0, bytes: 1 }] });
+    expect(of("dog-b")).toEqual({ messages: [message("r-room", "m2", "two"), message("r-room", "m3", "three")], removeChats: [{ chat: "old" }], removeMemory: [{ dog: "dog-b", path: "memory/b.md" }] });
+    expect(() => splitFeed({ messages: [{ ...message("a-main", "m1", "one"), dogs: ["bad dog"] }] })).toThrow(/dog ids/);
+  });
+});
+
 describe("index routes", () => {
   function request(operation: string, body: unknown, who: Claims = claims) {
     return new Request(`https://coordinator.internal/api/internal/index/${operation}`, {
@@ -135,7 +166,7 @@ describe("index routes", () => {
   it("serves the container's index kind only, per home, and maps bad requests to 400", async () => {
     const homes: string[] = [];
     const index = seeded();
-    const serve = (req: Request) => coordinate(req, () => { throw new Error("no dogs"); }, (home) => { homes.push(home); return index; });
+    const serve = (req: Request) => coordinate(req, () => { throw new Error("no dogs"); }, (home) => { homes.push(home); return { person: () => index, dog: () => index }; });
     const ok = await serve(request("recall", { query: "dentist", chats: ["a-main"] }));
     expect(ok.status).toBe(200);
     expect((await ok.json()).result.map((hit: { messageId: string }) => hit.messageId)).toEqual(["m1", "m5"]);
@@ -147,15 +178,30 @@ describe("index routes", () => {
     expect((await coordinate(request("stats", {}), () => { throw new Error("no dogs"); })).status).toBe(404);
   });
 
+  it("sends a dog's reads to that dog's shard, searches to the person, and feeds to every shard named", async () => {
+    const person = searchIndex(nodeSql());
+    const shards = new Map<string, ReturnType<typeof searchIndex>>();
+    const dog = (id: string) => shards.get(id) ?? shards.set(id, searchIndex(nodeSql(), { substring: false })).get(id)!;
+    const serve = (req: Request) => coordinate(req, () => { throw new Error("no dogs"); }, () => ({ person: () => person, dog }));
+    const fed = await serve(request("feed", { messages: [{ ...message("a-main", "m1", "dentist on Monday"), dogs: ["dog-a"] }, { ...message("b-main", "m2", "dentist on Tuesday"), dogs: ["dog-b"] }] }));
+    expect((await fed.json()).result).toEqual({ applied: 4, shards: 3 });
+    const recall = async (body: Record<string, unknown>) => ((await (await serve(request("recall", body))).json()).result as Array<{ messageId: string }>).map((hit) => hit.messageId);
+    expect(await recall({ dog: "dog-a", query: "dentist", chats: ["a-main", "b-main"] })).toEqual(["m1"]);
+    expect((await recall({ query: "dentist", chats: ["a-main", "b-main"] })).sort()).toEqual(["m1", "m2"]);
+    expect((await serve(request("search", { dog: "dog-a", query: "dentist" }))).status).toBe(200);
+    expect((await (await serve(request("stats", { dog: "dog-b" }))).json()).result.messages).toBe(1);
+    expect((await serve(request("recall", { dog: "bad dog", query: "x", chats: [] }))).status).toBe(400);
+  });
+
   it("answers unavailable inside the budget when the index is slow or broken, and the caller is not held", async () => {
     const slow = { ...seeded(), search: () => new Promise<never>(() => {}) } as never;
     const started = Date.now();
-    const response = await serveIndex(request("search", { query: "dentist" }), claims, slow, { recall: 50, recent: 50, memory: 50, search: 50, feed: 50, stats: 50 });
+    const response = await serveIndex(request("search", { query: "dentist" }), claims, both(slow), { recall: 50, recent: 50, memory: 50, search: 50, has: 50, feed: 50, stats: 50 });
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "index_unavailable", reason: "budget", budgetMs: 50 });
     expect(Date.now() - started).toBeLessThan(1_000);
     const broken = { ...seeded(), recall: () => { throw new Error("disk"); } } as never;
-    expect(await (await serveIndex(request("recall", { query: "x", chats: ["a"] }), claims, broken)).json()).toEqual({ error: "index_unavailable", reason: "failed" });
+    expect(await (await serveIndex(request("recall", { query: "x", chats: ["a"] }), claims, both(broken))).json()).toEqual({ error: "index_unavailable", reason: "failed" });
     expect(await withinBudget(Promise.resolve(7), 10)).toBe(7);
   });
 });
