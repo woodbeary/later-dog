@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { DATA_DIR } from "./config.ts";
-import { closeMessageDb, closeMessageSearch, deleteThread, insertMessage, searchMessages, searchMessagesAsync } from "./message-db.ts";
-import { MessageSearchWorker } from "./message-search-worker.ts";
+import { closeMessageDb, closeMessageSearch, deleteThread, indexMemoryFile, insertMessage, recallMemory, recallMemoryOffThread, recallMessages, recallMessagesOffThread, recentMessages, recentMessagesOffThread, searchMessages, searchMessagesAsync } from "./message-db.ts";
+import { MessageSearchWorker, SEARCH_TOO_SLOW, WITHIN_BUDGET } from "./message-search-worker.ts";
 
 beforeEach(async () => {
   await closeMessageSearch();
@@ -62,5 +62,25 @@ it("bounds a stuck worker's lifetime and rejects all waiting requests", async ()
   try {
     const results = await Promise.allSettled([worker.search("hello", 40), worker.search("hello", 40)]);
     expect(results.every(result => result.status === "rejected" && result.reason.status === 503)).toBe(true);
+  } finally { await worker.close(); }
+});
+
+it("answers session recall off the main thread with the same hits as the direct queries", async () => {
+  insertMessage("a", { id: "m3", at: 5, role: "bot", kind: "text", text: "The booking dashboard is live", from: { name: "Scout" } } as never);
+  indexMemoryFile("dog-1", "MEMORY.md", "Bookings close on Fridays", { mtimeMs: 7, bytes: 25 });
+  for (const [query, range] of [["booking dashboard", undefined], ["needle", { since: 0 }], ["absent", undefined], ["dashboard", { since: 6 }]] as const) {
+    expect(await recallMessagesOffThread(query, ["a", "b"], 5, range)).toEqual(recallMessages(query, ["a", "b"], 5, range));
+  }
+  expect(await recallMessagesOffThread("booking", [], 5)).toEqual([]);
+  expect(await recentMessagesOffThread(["a", "b"], { since: 2 }, 5)).toEqual(recentMessages(["a", "b"], { since: 2 }, 5));
+  expect(await recallMemoryOffThread("bookings fridays", ["dog-1", "dog-2"], 5)).toEqual([recallMemory("bookings fridays", "dog-1", 5), []]);
+});
+
+it("ends a read that runs past its budget with a narrower-search answer", async () => {
+  const worker = new MessageSearchWorker(join(DATA_DIR, "messages.db"), 500);
+  try {
+    const endless = { sql: `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE 1${WITHIN_BUDGET}) SELECT count(*) FROM n`, params: [] };
+    await expect(worker.read([endless])).rejects.toMatchObject({ message: SEARCH_TOO_SLOW, status: 503 });
+    expect(await worker.read([{ sql: "SELECT 1 AS one", params: [] }])).toEqual([[{ one: 1 }]]);
   } finally { await worker.close(); }
 });
