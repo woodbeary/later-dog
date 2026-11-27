@@ -128,8 +128,9 @@ async function main() {
   let resumeAfter;
   const restorePoints = upgradeKeeper(store, upgraded, { app: APP, limit: KEPT_RESTORE_POINTS, log });
   const saveStatus = saveRecorder({ write: (status) => writeSaveStatus(SAVE_STATUS_PATH, status) });
+  let restoredAll = !restoring;
   const save = ({ final = false } = {}) => {
-    if (!store) return Promise.resolve();
+    if (!store || (!final && !restoredAll)) return Promise.resolve();
     if (running) return running;
     running = restorePoints.keep()
       .then(() => {
@@ -163,6 +164,10 @@ async function main() {
       });
     return running;
   };
+  restoring?.done.then(() => {
+    restoredAll = true;
+    void save();
+  }, () => {});
   const timer = setInterval(() => void save(), INTERVAL_MS);
   const alive = () => child && child.exitCode === null && child.signalCode === null;
   let stopping = false;
