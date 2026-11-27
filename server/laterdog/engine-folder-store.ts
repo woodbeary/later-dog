@@ -42,17 +42,12 @@ function checkedEntry(entry: WorkFolderEntry): WorkFolderEntry {
 export abstract class FolderTreeReader {
   protected readonly cachedPages = new Map<string, WorkFolderNode>();
   abstract read(kind: "manifests" | "blobs", hash: string): Promise<Buffer>;
-  async prefetchPages(_hashes: string[]): Promise<void> {}
-  protected keepPage(hash: string, bytes: Buffer): void {
-    const page = JSON.parse(bytes.toString()) as WorkFolderNode;
-    if (!page || page.v !== 1) throw new Error("Invalid working folder object version");
-    this.cachedPages.set(hash, page);
-  }
   async #page(hash: string): Promise<WorkFolderNode> {
     let page = this.cachedPages.get(hash);
     if (!page) {
-      this.keepPage(hash, await this.read("manifests", hash));
-      page = this.cachedPages.get(hash)!;
+      page = JSON.parse((await this.read("manifests", hash)).toString()) as WorkFolderNode;
+      if (!page || page.v !== 1) throw new Error("Invalid working folder object version");
+      this.cachedPages.set(hash, page);
     }
     return page;
   }
@@ -68,7 +63,6 @@ export abstract class FolderTreeReader {
       page.children.length <= WORK_FOLDER_PAGE_SIZE &&
       page.children.every(validFolderHash)
     ) {
-      await this.prefetchPages(page.children);
       for (const id of page.children) yield* this.leaves(id, of, depth + 1);
     } else if (
       of === "entries" &&
@@ -112,7 +106,6 @@ export abstract class FolderTreeReader {
 export class FolderStore extends FolderTreeReader {
   #refreshing?: Promise<void>;
   #publishRouteMissing = false;
-  #pagesRouteMissing = false;
   readonly progress: () => void;
   grant: WorkFolderGrant;
   readonly #renewed: (grant: WorkFolderGrant) => void;
@@ -226,32 +219,6 @@ export class FolderStore extends FolderTreeReader {
     )
       throw new Error("Invalid working folder head");
     return h;
-  }
-
-  override async prefetchPages(wanted: string[]): Promise<void> {
-    const missing = [...new Set(wanted)].filter((hash) => validFolderHash(hash) && !this.cachedPages.has(hash));
-    const groups: string[][] = [];
-    for (let n = 0; n < missing.length; n += WORK_FOLDER_PAGE_SIZE) groups.push(missing.slice(n, n + WORK_FOLDER_PAGE_SIZE));
-    let next = 0;
-    await Promise.all(Array.from({ length: Math.min(4, groups.length) }, async () => {
-      while (next < groups.length && !this.#pagesRouteMissing) await this.#fetchPages(groups[next++]!);
-    }));
-  }
-
-  async #fetchPages(hashes: string[]): Promise<void> {
-    if (hashes.length < 2) return;
-    const r = await this.#request("/pages", "POST", JSON.stringify({ hashes }));
-    if (!r.ok) {
-      if (r.status === 404) this.#pagesRouteMissing = true;
-      await r.body?.cancel();
-      return;
-    }
-    const { pages } = (await r.json()) as { pages?: unknown };
-    if (!Array.isArray(pages) || pages.length !== hashes.length) return;
-    pages.forEach((text, n) => {
-      const bytes = Buffer.from(String(text));
-      if (folderHash(bytes) === hashes[n]) this.keepPage(hashes[n]!, bytes);
-    });
   }
 
   async read(kind: "manifests" | "blobs", hash: string): Promise<Buffer> {
