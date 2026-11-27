@@ -944,7 +944,7 @@ import { retireMemberProjects } from "./laterdog/project-member-retirement.ts";
 import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener, openEngineOnMachine, type EngineWorkFolders } from "./laterdog/engine-opener.ts";
-import { saveTaskMachineSetting, taskLineService, taskMachineOpener, taskMachineSetting } from "./laterdog/task-machines.ts";
+import { machineWaitingText, saveTaskMachineSetting, TASK_MACHINE_RESOURCE, taskLineService, taskMachineOpener, taskMachineSetting } from "./laterdog/task-machines.ts";
 import { createTaskMachineRoutes } from "./routes/task-machines.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
 import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
@@ -970,7 +970,21 @@ setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFo
   ticketClass: (botId, threadId) => startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "task" : null,
   size: (botId, threadId) => machineSizes.choose(botId, threadId, undefined).size,
   openOn: async (machineId, botId, plan, signal) => openEngineOnMachine(await boat.taskMachineComputer(machineId, signal), botId, plan, engineFolderOptions),
+  onWait: (botId, threadId, wait) => {
+    if (wait.waiting) {
+      const shown = taskMachineWaits.get(threadId);
+      if (shown !== wait.place) {
+        taskMachineWaits.set(threadId, wait.place);
+        store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: machineWaitingText(wait) } });
+      }
+      bus.publish({ ...archiveWaitEventBase(botId, threadId), type: "turn.wait_started", resource: TASK_MACHINE_RESOURCE, position: wait.place });
+      return;
+    }
+    taskMachineWaits.delete(threadId);
+    bus.publish({ ...archiveWaitEventBase(botId, threadId), type: "turn.wait_ended", resource: TASK_MACHINE_RESOURCE, waitedMs: wait.waitedMs, outcome: wait.outcome });
+  },
 }));
+const taskMachineWaits = new Map<string, number>();
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);

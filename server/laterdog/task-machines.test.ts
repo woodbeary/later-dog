@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EngineOpener } from "./engine-placement.ts";
 import type { EngineLink } from "./engine-remote.ts";
-import { saveTaskMachineSetting, taskMachineOpener, taskMachineSetting, turnEnded, type TaskLineService, type TicketView } from "./task-machines.ts";
+import { machineWaitingText, saveTaskMachineSetting, taskMachineOpener, taskMachineSetting, turnEnded, type TaskLineService, type TicketView } from "./task-machines.ts";
 
 const scratch: string[] = [];
 afterEach(() => { for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -179,5 +179,19 @@ describe("task machine opener", () => {
     expect(turnEnded(frame('pe":"result"}\n'), tail)).toBe(true);
     expect(turnEnded(frame('{"method":"turn/completed"}\n'), { text: "" })).toBe(true);
     expect(turnEnded(JSON.stringify({ type: "stderr", data: "eyJ0eXBlIjoicmVzdWx0In0=" }), { text: "" })).toBe(false);
+  });
+
+  it("tells the chat its place in line and when it got a machine", async () => {
+    const line = fakeLine(1);
+    const waits: unknown[] = [];
+    const opener = taskMachineOpener(inner(), { dataDir: dataDir(), ticketClass: () => "task", size: () => "large", service: () => line.service, openOn: async () => link(), onWait: (_bot, thread, wait) => waits.push([thread, wait]) });
+    const first = await opener.open("dog-1", plan("t1"));
+    const second = opener.open("dog-1", plan("t2"));
+    await settled();
+    expect(waits).toEqual([["t2", { waiting: true, place: 1, ahead: 0, running: 1, cap: 1, size: "large" }]]);
+    expect(machineWaitingText({ waiting: true, place: 2, ahead: 1, running: 3, cap: 3, size: "small" })).toBe("Waiting for a small machine — 2nd in line, 3 of 3 machines busy. Starts automatically when one frees up.");
+    first.emit("line", JSON.stringify({ type: "native_exit", code: 0 }));
+    await second;
+    expect(waits.at(-1)).toMatchObject(["t2", { waiting: false, outcome: "acquired" }]);
   });
 });

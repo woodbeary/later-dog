@@ -8,6 +8,7 @@ import type { EngineLink } from "./engine-remote.ts";
 import type { MachineSize } from "./machine-size-words.ts";
 
 export const TASK_LINE_WAIT_SECONDS = 20;
+export const TASK_MACHINE_RESOURCE = "task-machine";
 export const TASK_QUEUE_BUDGET_MS = 20 * 60_000;
 export const TASK_LEASE_RENEW_MS = 45_000;
 const CALL_TIMEOUT_MS = 30_000;
@@ -108,11 +109,25 @@ export interface TaskMachineOptions {
   service?: () => TaskLineService | null;
   queueBudgetMs?: number;
   renewMs?: number;
+  onWait?: (botId: string, threadId: string, wait: MachineWait) => void;
+}
+
+export type MachineWait =
+  | { waiting: true; place: number; ahead: number; running: number; cap: number; size: MachineSize }
+  | { waiting: false; waitedMs: number; outcome: "acquired" | "gave_up" | "stopped" };
+
+const ordinal = (n: number) => {
+  const mod100 = n % 100, mod10 = n % 10;
+  return `${n}${mod100 >= 11 && mod100 <= 13 ? "th" : mod10 === 1 ? "st" : mod10 === 2 ? "nd" : mod10 === 3 ? "rd" : "th"}`;
+};
+
+export function machineWaitingText(wait: Extract<MachineWait, { waiting: true }>): string {
+  return `Waiting for a ${wait.size} machine — ${ordinal(wait.place)} in line, ${wait.running} of ${wait.cap} machines busy. Starts automatically when one frees up.`;
 }
 
 export class TaskLineWaitTooLong extends Error {}
 
-async function admitted(line: TaskLineService, first: TicketView, budgetMs: number, note: (text: string) => void, signal?: AbortSignal): Promise<TicketView> {
+async function admitted(line: TaskLineService, first: TicketView, budgetMs: number, note: (text: string) => void, signal?: AbortSignal, onPlace?: (ticket: TicketView) => void): Promise<TicketView> {
   let ticket = first;
   const deadline = Date.now() + budgetMs;
   let lastPlace = ticket.place;
@@ -124,6 +139,7 @@ async function admitted(line: TaskLineService, first: TicketView, budgetMs: numb
     ticket = next;
     if (ticket.state === "queued" && ticket.place !== lastPlace) {
       lastPlace = ticket.place;
+      onPlace?.(ticket);
       note(`waiting for a machine: place ${ticket.place} (${ticket.ahead} ahead), ${ticket.running} of ${ticket.cap} running`);
     }
   }
@@ -213,13 +229,26 @@ export function taskMachineOpener(inner: EngineOpener, options: TaskMachineOptio
       }
       const size = options.size(botId, plan.threadId);
       let ticketId: string | undefined;
+      let waitedSince: number | undefined;
+      const endWait = (outcome: "acquired" | "gave_up" | "stopped") => {
+        if (waitedSince === undefined) return;
+        options.onWait?.(botId, plan.threadId, { waiting: false, waitedMs: Date.now() - waitedSince, outcome });
+        waitedSince = undefined;
+      };
       try {
         const first = await line.take({ key: `${botId}:${plan.threadId}:${randomUUID()}`, thread: plan.threadId, dog: botId, size, class: ticketClass }, signal);
         ticketId = first.id;
         note(first.state === "queued"
           ? `waiting for a ${size} machine: place ${first.place} (${first.ahead} ahead), ${first.running} of ${first.cap} running`
           : `admitted on ${first.machine?.id} (${size}${first.machine?.reused ? ", reused" : ""}), ${first.running} of ${first.cap} running`);
-        const ticket = await admitted(line, first, queueBudgetMs, note, signal);
+        const waitFor = (ticket: TicketView) => {
+          if (ticket.state !== "queued" || ticket.place === undefined) return;
+          waitedSince ??= Date.now();
+          options.onWait?.(botId, plan.threadId, { waiting: true, place: ticket.place, ahead: ticket.ahead ?? ticket.place - 1, running: ticket.running, cap: ticket.cap, size });
+        };
+        waitFor(first);
+        const ticket = await admitted(line, first, queueBudgetMs, note, signal, waitFor);
+        endWait("acquired");
         const machineId = ticket.machine!.id;
         const waited = Date.now() - began;
         const link = await options.openOn(machineId, botId, plan, signal);
@@ -228,6 +257,7 @@ export function taskMachineOpener(inner: EngineOpener, options: TaskMachineOptio
         return link;
       } catch (error) {
         if (ticketId) void line.drop(ticketId);
+        endWait(signal?.aborted ? "stopped" : "gave_up");
         if (signal?.aborted) throw error;
         note(`falls back to the dog's computer after ${Date.now() - began} ms: ${error instanceof Error ? error.message : String(error)}`);
         return inner.open(botId, plan, signal);
