@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { createAccountKeeper, due, jwtExpiry, keptAccounts, readCodexSignIn, readGrokSignIn, type KeptAccount, type SavedSignIn } from "./account-keeper.ts";
+import { createAccountKeeper, createSignInRoutes, due, jwtExpiry, keeperRenewing, keptAccounts, readCodexSignIn, readGrokSignIn, type KeptAccount, type SavedSignIn } from "./account-keeper.ts";
 
 const scratch: string[] = [];
 afterEach(() => { for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -177,3 +177,36 @@ const e = a["https://auth.x.ai"]; e.key = "new"; e.expires_at = Math.floor(Date.
   expect(saved.key).toBe("new");
   expect(saved.user_id).toBe("u");
 }, 20_000);
+
+it("only reads sign-ins while renewals are switched off", async () => {
+  const now = 1_000_000_000_000;
+  let on = false;
+  const { box, account } = fake({ expiresAt: now + HOUR, refreshable: true }, b => { b.saved = { expiresAt: now + 9 * HOUR, refreshable: true }; }, { renewsEarly: true });
+  const keeper = createAccountKeeper({ accounts: () => [account], now: () => now, renewing: () => on });
+  await keeper.check();
+  expect(box.calls).toBe(0);
+  expect(keeper.status()[0]).toMatchObject({ state: "fresh", expiresAt: now + HOUR });
+  on = true;
+  await keeper.check();
+  expect(box.calls).toBe(1);
+  expect(keeper.status()[0]?.state).toBe("renewed");
+});
+
+it("switches renewals with the owner's route and stays read-only for others", async () => {
+  const data = folder();
+  const file = join(data, "providers", "account-keeper.json");
+  const keeper = createAccountKeeper({ accounts: () => [], renewing: () => keeperRenewing(file) });
+  const route = createSignInRoutes({ keeper, file, allowed: auth => (auth as { owner?: boolean }).owner === true });
+  const call = async (method: string, owner: boolean, body?: unknown) => {
+    const out: { status?: number; body?: unknown } = {};
+    const res = { setHeader() {} } as never;
+    await route({ req: { headers: { "content-type": "application/json" } } as never, res, url: new URL("http://x/api/laterdog/sign-ins"), path: "/api/laterdog/sign-ins", method,
+      auth: { owner } as never, json: ((_: unknown, status: number, value: unknown) => { out.status = status; out.body = value; }) as never, readBody: (async () => body) as never });
+    return out;
+  };
+  expect((await call("GET", false)).status).toBe(403);
+  expect(await call("GET", true)).toEqual({ status: 200, body: { renewing: false, accounts: [] } });
+  expect((await call("PUT", true, { renew: "yes" })).status).toBe(400);
+  expect(await call("PUT", true, { renew: true })).toEqual({ status: 200, body: { renewing: true, accounts: [] } });
+  expect(keeperRenewing(file)).toBe(true);
+});

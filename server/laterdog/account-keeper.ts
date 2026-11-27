@@ -1,6 +1,7 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { writeFileAtomic } from "../atomic.ts";
 import type { InstanceConfigMap } from "../contracts.ts";
 import { codexAccountEmail, codexHome } from "../drivers/codex-identity.ts";
 import { grokHome } from "../drivers/acp/grok.ts";
@@ -122,6 +123,7 @@ export interface AccountKeeperOptions {
   leftMs?: number;
   ageMs?: number;
   retryMs?: number;
+  renewing?: () => boolean;
 }
 
 export interface AccountKeeper {
@@ -140,6 +142,7 @@ export function createAccountKeeper(options: AccountKeeperOptions): AccountKeepe
   const leftMs = options.leftMs ?? KEEPER_RENEW_WHEN_LEFT_MS;
   const ageMs = options.ageMs ?? KEEPER_RENEW_AFTER_AGE_MS;
   const retryMs = options.retryMs ?? KEEPER_RETRY_MS;
+  const renewing = options.renewing ?? (() => true);
   const statuses = new Map<string, SignInStatus>();
   const triedAt = new Map<string, number>();
   const listeners = new Set<(instanceId: string) => void>();
@@ -169,7 +172,7 @@ export function createAccountKeeper(options: AccountKeeperOptions): AccountKeepe
     const failed = previous?.failures ?? 0;
     const renewedAt = previous?.renewedAt ?? null;
     const saved = account.read();
-    if (!saved || !account.renew || !saved.refreshable || !(force || due(saved, now(), leftMs, ageMs))) {
+    if (!saved || !account.renew || !saved.refreshable || !renewing() || !(force || due(saved, now(), leftMs, ageMs))) {
       return publish(judge(account, saved, renewedAt, expiredAt(saved) ? failed : 0));
     }
     const last = triedAt.get(account.instanceId);
@@ -247,15 +250,28 @@ export function keptAccounts(instances: InstanceConfigMap, held: (instanceId: st
   return out;
 }
 
-export function createSignInRoutes(deps: { keeper: AccountKeeper; allowed(auth: RequestAuth): boolean }): RouteHandler {
-  return async ({ res, path, method, auth, json }) => {
+export function keeperRenewing(file: string): boolean {
+  return readJson(file)?.renew === true;
+}
+
+export function createSignInRoutes(deps: { keeper: AccountKeeper; file: string; allowed(auth: RequestAuth): boolean }): RouteHandler {
+  const view = () => ({ renewing: keeperRenewing(deps.file), accounts: deps.keeper.status() });
+  return async ({ req, res, path, method, auth, json, readBody }) => {
     if (path !== "/api/laterdog/sign-ins") return PASS;
     if (!deps.allowed(auth)) return json(res, 403, { error: "Only the owner can see sign-ins." });
     res.setHeader("cache-control", "no-store");
-    if (method === "GET") return json(res, 200, { accounts: deps.keeper.status() });
+    if (method === "GET") return json(res, 200, view());
     if (method === "POST") {
       await deps.keeper.check();
-      return json(res, 200, { accounts: deps.keeper.status() });
+      return json(res, 200, view());
+    }
+    if (method === "PUT") {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(res, 415, { error: "content-type must be application/json" });
+      const body = record(await readBody(req, 1024).catch(() => null));
+      if (typeof body.renew !== "boolean") return json(res, 400, { error: "renew must be true or false" });
+      mkdirSync(dirname(deps.file), { recursive: true, mode: 0o700 });
+      writeFileAtomic(deps.file, `${JSON.stringify({ renew: body.renew })}\n`, { mode: 0o600 });
+      return json(res, 200, view());
     }
     return json(res, 405, { error: "method not allowed" });
   };

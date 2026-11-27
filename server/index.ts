@@ -894,7 +894,7 @@ import { createVoiceStreams } from "./laterdog/voice-stream.ts";
 import { createTimeZoneRoutes, currentTimeZone, restoreTimeZone } from "./laterdog/time-zone.ts";
 import { withScheduleLabel } from "./laterdog/routine-schedule-label.ts";
 import { heldAccountReason } from "./laterdog/held-accounts.ts";
-import { createAccountKeeper, createSignInRoutes, keptAccounts } from "./laterdog/account-keeper.ts";
+import { createAccountKeeper, createSignInRoutes, keeperRenewing, keptAccounts } from "./laterdog/account-keeper.ts";
 import { createHomeAccountRoutes, withHandedOverEmail } from "./laterdog/home-accounts.ts";
 import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
 import { engineAnswer } from "./laterdog/person-denied.ts";
@@ -1161,7 +1161,9 @@ const HELD_ACCOUNTS_FILE = join(DATA_DIR, "providers", "held-accounts.json");
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId), snapshotFile: join(DATA_DIR, "account-snapshots.json") });
 const supportsApprovalMode = createApprovalModeSupport(registry);
 claudeSignInRefresh.onChange((instanceId) => registry.forgetSnapshot(instanceId));
+const ACCOUNT_KEEPER_FILE = join(DATA_DIR, "providers", "account-keeper.json");
 const accountKeeper = createAccountKeeper({
+  renewing: () => keeperRenewing(ACCOUNT_KEEPER_FILE),
   accounts: () => hostedModels ? [] : keptAccounts(instanceConfigs(cfg), (instanceId) => Boolean(heldAccountReason(HELD_ACCOUNTS_FILE, instanceId)), DATA_DIR),
 });
 accountKeeper.onChange((instanceId) => registry.forgetSnapshot(instanceId));
@@ -14405,7 +14407,7 @@ ROUTES.push(createMacAccountRoutes({
   exclusive: withProviderConfig,
   reload: reloadProviderInstance,
 }));
-ROUTES.push(createSignInRoutes({ keeper: accountKeeper, allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth) }));
+ROUTES.push(createSignInRoutes({ keeper: accountKeeper, file: ACCOUNT_KEEPER_FILE, allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth) }));
 ROUTES.push(createHomeAccountRoutes({
   cloudHome: Boolean(CLOUD_HOME),
   dataDir: DATA_DIR,
