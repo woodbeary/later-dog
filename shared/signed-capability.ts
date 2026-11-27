@@ -1,6 +1,6 @@
 export const SIGNED_CAPABILITY_PREFIX = "ldc1.";
 export const CAPABILITY_KEY_LABEL = "laterdog-home:capability:v1";
-export const signedCapabilityKinds = ["agents", "connectors", "computer", "browser", "hooks", "turns"] as const;
+export const signedCapabilityKinds = ["agents", "connectors", "computer", "browser", "hooks", "turns", "index"] as const;
 export type SignedCapabilityKind = (typeof signedCapabilityKinds)[number];
 
 export interface SignedCapabilityClaims {

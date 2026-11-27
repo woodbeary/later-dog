@@ -1,11 +1,17 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { validCapabilityClaims, type SignedCapabilityClaims } from "../../../../shared/signed-capability.ts";
+import { INDEX_ROUTE } from "../../../../shared/search-index-protocol.ts";
 import { CAPABILITY_CLAIMS_HEADER } from "./edge-routes.ts";
+import { serveIndex, type IndexPort } from "./index-routes.ts";
+import { PersonIndex } from "./person-index.ts";
+
+export { PersonIndex };
 
 export const COORDINATOR_PREFIX = "/api/internal/coordinator/";
 
 export interface CoordinatorEnv {
   DOGS: DurableObjectNamespace<Dog>;
+  PERSON_INDEX: DurableObjectNamespace<PersonIndex>;
 }
 
 interface TurnRecord {
@@ -73,10 +79,11 @@ function presentedClaims(request: Request): SignedCapabilityClaims | null {
   }
 }
 
-export async function coordinate(request: Request, dogFor: (home: string, dog: string) => DogTurns): Promise<Response> {
+export async function coordinate(request: Request, dogFor: (home: string, dog: string) => DogTurns, indexFor?: (home: string) => IndexPort): Promise<Response> {
   const claims = presentedClaims(request);
   if (!claims) return answer(401, { error: "capability_required" });
   const path = new URL(request.url).pathname;
+  if (path.startsWith(INDEX_ROUTE)) return indexFor ? serveIndex(request, claims, indexFor(claims.home)) : answer(404, { error: "not_found" });
   const dog = dogFor(claims.home, claims.dog);
   if (path === `${COORDINATOR_PREFIX}turns` && request.method === "POST") {
     if (claims.kind !== "turns") return answer(403, { error: "capability_wrong-kind" });
@@ -101,7 +108,11 @@ export async function coordinate(request: Request, dogFor: (home: string, dog: s
 
 export class CoordinatorApi extends WorkerEntrypoint<CoordinatorEnv> {
   override fetch(request: Request): Promise<Response> {
-    return coordinate(request, (home, dog) => this.env.DOGS.get(this.env.DOGS.idFromName(`${home}/${dog}`)));
+    return coordinate(
+      request,
+      (home, dog) => this.env.DOGS.get(this.env.DOGS.idFromName(`${home}/${dog}`)),
+      (home) => this.env.PERSON_INDEX.get(this.env.PERSON_INDEX.idFromName(home)) as unknown as IndexPort,
+    );
   }
 }
 
