@@ -10,22 +10,31 @@ vi.mock("node:fs", async importOriginal => {
   } };
 });
 
+vi.mock("node:fs/promises", async importOriginal => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...fs, readFile: (...args: Parameters<typeof fs.readFile>) => {
+    if (failure.path && args[0] === failure.path) return Promise.reject(Object.assign(new Error("working folder offline"), { code: "EIO" }));
+    return fs.readFile(...args);
+  } };
+});
+
+import { MountDown } from "./laterdog/mount-guard.ts";
 import { beginMemoryTurn, endMemoryTurn, journalMemoryWrite } from "./memory-journal.ts";
 import { memoryOverview, readMemoryDoc, writeMemoryDoc } from "./memory-store.ts";
 import { readMemoryFile, workspaceDir } from "./workspace.ts";
 
-it("keeps the file and its journal baseline when a mounted folder cannot be read", () => {
+it("keeps the file and its journal baseline when a mounted folder cannot be read", async () => {
   const bot = "storage-interruption";
   vi.stubEnv("LATERDOG_CLOUD_ROLE", "home");
   vi.stubEnv("LATERDOG_WORK_FOLDER_LAYOUT", "fixture");
   try {
-    journalMemoryWrite(bot, "MEMORY.md", "remember this", { actor: "person", via: "api" });
+    await journalMemoryWrite(bot, "MEMORY.md", "remember this", { actor: "person", via: "api" });
     beginMemoryTurn(bot, "busy");
     failure.path = join(workspaceDir(bot), "MEMORY.md");
     expect(() => memoryOverview(bot)).toThrow("working folder offline");
     expect(() => readMemoryFile(bot)).toThrow("working folder offline");
     expect(() => readMemoryDoc(bot, "MEMORY.md")).toThrow("working folder offline");
-    expect(() => writeMemoryDoc(bot, "MEMORY.md", "wrong")).toThrow("working folder offline");
+    await expect(writeMemoryDoc(bot, "MEMORY.md", "wrong")).rejects.toBeInstanceOf(MountDown);
     expect(endMemoryTurn("busy")).toEqual([]);
     failure.path = "";
     expect(readMemoryDoc(bot, "MEMORY.md").text).toBe("remember this");

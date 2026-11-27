@@ -294,13 +294,13 @@ export interface JournaledWriteOptions {
   expectedHash?: string;
 }
 
-export function journalMemoryWrite(
+export async function journalMemoryWrite(
   botId: string,
   path: string,
   text: string,
   opts: JournaledWriteOptions,
-): { doc: MemoryDoc; entry: MemoryJournalEntry | null } {
-  const result = writeMemoryDoc(botId, path, text, { expectedHash: opts.expectedHash });
+): Promise<{ doc: MemoryDoc; entry: MemoryJournalEntry | null }> {
+  const result = await writeMemoryDoc(botId, path, text, { expectedHash: opts.expectedHash });
   const entry = recordMemoryChange(botId, {
     path,
     actor: opts.actor,
@@ -312,8 +312,8 @@ export function journalMemoryWrite(
   return { doc: { path, text: result.after, hash: result.hash, exists: true }, entry };
 }
 
-export function journalMemoryDelete(botId: string, path: string, opts: Omit<JournaledWriteOptions, "expectedHash">): MemoryJournalEntry | null {
-  const result = deleteMemoryDoc(botId, path);
+export async function journalMemoryDelete(botId: string, path: string, opts: Omit<JournaledWriteOptions, "expectedHash">): Promise<MemoryJournalEntry | null> {
+  const result = await deleteMemoryDoc(botId, path);
   return recordMemoryChange(botId, { path, actor: opts.actor, via: opts.via, threadId: opts.threadId, before: result.before, after: null });
 }
 
@@ -321,20 +321,20 @@ export type RevertResult =
   | { ok: true; entry: MemoryJournalEntry | null; doc: MemoryDoc }
   | { ok: false; status: number; error: string };
 
-export function revertMemoryChange(botId: string, entryId: string, opts: { threadId?: string } = {}): RevertResult {
+export async function revertMemoryChange(botId: string, entryId: string, opts: { threadId?: string } = {}): Promise<RevertResult> {
   const entry = readMemoryJournal(botId, MAX_ROWS).find((row) => row.id === entryId);
   if (!entry) return { ok: false, status: 404, error: "no such memory change" };
   if (!entry.canRevert) return { ok: false, status: 400, error: entry.revertUnavailableReason ?? "this change cannot be reverted" };
   try {
     if (entry.kind === "created") {
       if (entry.path === MEMORY_INDEX) {
-        const written = journalMemoryWrite(botId, entry.path, "", { actor: "person", via: "revert", threadId: opts.threadId });
+        const written = await journalMemoryWrite(botId, entry.path, "", { actor: "person", via: "revert", threadId: opts.threadId });
         return { ok: true, entry: written.entry, doc: written.doc };
       }
-      const removed = journalMemoryDelete(botId, entry.path, { actor: "person", via: "revert", threadId: opts.threadId });
+      const removed = await journalMemoryDelete(botId, entry.path, { actor: "person", via: "revert", threadId: opts.threadId });
       return { ok: true, entry: removed, doc: { path: entry.path, text: "", hash: hashMemoryText(""), exists: false } };
     }
-    const written = journalMemoryWrite(botId, entry.path, entry.before ?? "", { actor: "person", via: "revert", threadId: opts.threadId });
+    const written = await journalMemoryWrite(botId, entry.path, entry.before ?? "", { actor: "person", via: "revert", threadId: opts.threadId });
     return { ok: true, entry: written.entry, doc: written.doc };
   } catch (error) {
     if (error instanceof MemoryStoreError) return { ok: false, status: error.status, error: error.message };

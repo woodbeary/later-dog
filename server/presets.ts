@@ -1,3 +1,4 @@
+import { trackMemoryWrite } from "./workspace.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -339,8 +340,8 @@ export interface PresetApplyDeps {
     installOrg(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillListing | { error: string };
   };
   memory: {
-    writeIndex(botId: string, text: string): void;
-    writeTopic(botId: string, name: string, text: string): void;
+    writeIndex(botId: string, text: string): Promise<void>;
+    writeTopic(botId: string, name: string, text: string): Promise<void>;
   };
 }
 
@@ -388,8 +389,8 @@ export function applyPresetToBot(botId: string, resolved: ResolvedPreset, deps: 
   }
   let notes = 0;
   for (const [path, value] of Object.entries(preset.seed?.memory ?? {})) {
-    if (path === "MEMORY.md") deps.memory.writeIndex(botId, value);
-    else deps.memory.writeTopic(botId, path.slice("memory/".length), value);
+    const write = path === "MEMORY.md" ? deps.memory.writeIndex(botId, value) : deps.memory.writeTopic(botId, path.slice("memory/".length), value);
+    trackMemoryWrite(write, `preset: memory note ${path} was not written`);
     notes += 1;
   }
   return { skills, notes };

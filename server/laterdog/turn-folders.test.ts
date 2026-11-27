@@ -46,3 +46,11 @@ it("keeps trying a chat folder whose first checkout is still running and the mou
   const refused = async () => { throw Object.assign(new Error("EACCES"), { code: "EACCES" }); };
   await expect(prepareTurnFolders({ workspace: "/data/.laterdog/workspaces/a", budgetMs: 5_000, gate, active: true, makeDir: refused, retryMs: 20 })).rejects.toThrow("EACCES");
 });
+
+it("seeds a missing memory file in the background and leaves an existing one alone", async () => {
+  const gate = createMountedFolderGate({ probe: async () => ({}), active: () => true });
+  const written: string[] = [];
+  const writeNew = async (path: string) => { written.push(path); if (written.length > 1) throw Object.assign(new Error("EEXIST"), { code: "EEXIST" }); };
+  await prepareTurnFolders({ workspace: "/data/.laterdog/workspaces/a", seed: { name: "MEMORY.md", text: "# Memory" }, budgetMs: 1_000, gate, active: true, makeDir: async () => {}, writeNew });
+  expect(written).toEqual(["/data/.laterdog/workspaces/a/MEMORY.md"]);
+});

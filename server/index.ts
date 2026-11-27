@@ -1,3 +1,4 @@
+import "./laterdog/file-threads.ts";
 import { homeRuntimeBuild } from "./laterdog/home-runtime-build.ts";
 import { forwardNeedsYou } from "./laterdog/delegated-needs-you.ts";
 import { createExecutionReceiptsRoute } from "./routes/execution-receipts.ts";
@@ -430,8 +431,11 @@ import { createNativeRunRoutes } from "./routes/native-runs.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { TurnResources, type TurnOwner } from "./turn-resources.ts";
 import {
-  ensureWorkspace,
-  ensureTaskWorkspace,
+  ensureWorkspaceReady,
+  ensureTaskWorkspaceReady,
+  memoryWritesSettled,
+  taskWorkspacePath,
+  MEMORY_SEED,
   workspaceLocationsPrompt,
   supportsWorkspaceFiles,
   updateMemory,
@@ -460,7 +464,7 @@ import {
   type RecallDog,
 } from "./laterdog/cross-dog-recall.ts";
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
-import { mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
+import { MOUNTED_FOLDER_ANSWER_MS, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
 import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
 import { SearchUnavailable } from "./message-search-worker.ts";
 import {
@@ -5187,6 +5191,7 @@ exchangeLookup = {
   redact: redactSecretsInText,
 };
 
+startPhases.mark("boot", "store and chat services");
 const groupUsageReader = new GroupUsageReader(DATA_DIR);
 try { groupUsageReader.refresh(); } catch {}
 function publicGroupState(record: GroupRecord): WireGroup {
@@ -9471,14 +9476,18 @@ async function startTurn(
       }
       turnPhases.mark(threadId, "connections");
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
-      if (worksInWorkspace) {
-        await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: join(TASK_WORKSPACES_DIR, bot.id, threadId), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
+      const poolTurn = instance.driverKind === "claudeAgent" && poolChosen(DATA_DIR, bot.id);
+      const poolFolders = worksInWorkspace && poolTurn && await mountedFolderGate.answers(workspaceDir(bot.id));
+      if (worksInWorkspace && poolTurn) {
+        if (poolFolders && bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
+      } else if (worksInWorkspace) {
+        await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: taskWorkspacePath(bot.id, threadId), seed: { name: "MEMORY.md", text: MEMORY_SEED }, budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
           gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
         if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while the computer woke");
-        ensureWorkspace(bot.id);
+        if (!mountedFoldersActive()) await ensureWorkspaceReady(bot.id);
         if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       }
-      const privateWorkspace = worksInWorkspace ? ensureTaskWorkspace(bot.id, threadId) : undefined;
+      const privateWorkspace = worksInWorkspace ? (poolTurn || mountedFoldersActive() ? taskWorkspacePath(bot.id, threadId) : await ensureTaskWorkspaceReady(bot.id, threadId)) : undefined;
       const skillInstructions = renderSkillInstructions(selectedSkills, {
         includeRoot: worksInWorkspace,
       });
@@ -9487,7 +9496,7 @@ async function startTurn(
           ? store.pinTaskCwd(bot.id, threadId, privateWorkspace, { privateOnly: cloudGuestOpened(threadId) })
           : null;
       const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, pinnedCwd);
-      const checkpointCwd = cwd && (mountedFolderLayout || cwd !== privateWorkspace) ? cwd : undefined;
+      const checkpointCwd = !poolTurn && cwd && (mountedFolderLayout || cwd !== privateWorkspace) ? cwd : undefined;
       turnPhases.mark(threadId, "folders");
       if (checkpointCwd) snapshotHead = earlySnapshot(
         () => checkpoints.snapshot(bot.id, checkpointCwd, `turn ${threadId.slice(0, 8)}`, undefined, { pin: dispatchClaimId }),
@@ -9825,7 +9834,7 @@ async function startTurn(
 
       turnPhases.mark(threadId, "computer and prompt");
       if (memoryHead) {
-        memoryDocs = await memoryHead;
+        memoryDocs = await Promise.race([memoryHead, new Promise<null>((resolve) => setTimeout(() => resolve(null), MOUNTED_FOLDER_ANSWER_MS).unref())]);
         turnPhases.mark(threadId, "memory snapshot wait");
       }
       if (checkpointCwd && snapshotHead) {
@@ -9887,9 +9896,11 @@ async function startTurn(
       }
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
-      const memoryText = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn });
+      const folderReads = (!poolTurn || poolFolders) && (!mountedFoldersActive() || Boolean(memoryDocs) || await mountedFolderGate.answers(workspaceDir(bot.id)));
+      if (memoryDocs) readMemoryFromSnapshot(bot.id, memoryDocs);
+      const memoryText = !folderReads ? "" : memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn });
       turnPhases.mark(threadId, "memory prompt");
-      const skillsText = privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "";
+      const skillsText = privateWorkspace && folderReads ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "";
       turnPhases.mark(threadId, "skills prompt");
       const recentText = recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() }));
       const conversation = conversationText(threadId, providerText);
@@ -9938,7 +9949,7 @@ async function startTurn(
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
       const recallReach = recallsThisTurn(dispatchContext, instance.driverKind) ? "conversations"
-        : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? "notes" : null;
+        : fromPerson && bot.memoryEnabled !== false && folderReads && memoryTrimmed(bot.id) ? "notes" : null;
       const recalled = recallReach ? await autoRecallInBackground(bot, threadId, resolvedImages.text, {
         conversations: recallReach === "conversations" && fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
@@ -10176,6 +10187,7 @@ function routineSourceOwner(run: Pick<RoutineRun, "routineId" | "webhookId" | "b
   return { bot, group: undefined, threadId: ranIn ?? bot.threadId };
 }
 
+startPhases.mark("boot", "event handlers");
 const routineCardThreads = new Map<string, string>();
 
 function routineCardIn(botId: string, runId: string, threadIds: (string | undefined)[]): { threadId: string; message: Message } | null {
@@ -11769,10 +11781,10 @@ async function runGroupMemberTurn(
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
   if (worksInWorkspace) await prepareTurnFolders({ workspace: workspaceDir(bot.id), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
     gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
-  const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
+  const workspace = worksInWorkspace ? await ensureWorkspaceReady(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
   const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, workspace && cloudGuestOpened(threadId)
-    ? ensureTaskWorkspace(bot.id, threadId)
+    ? await ensureTaskWorkspaceReady(bot.id, threadId)
     : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId)));
   {
     const drift = checkSoulDrift(bot.id, bot.soul ?? "", bot.soulHash ?? "");
@@ -15445,12 +15457,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/memory") {
         const body = await readInternalBody();
-        const result = updateMemory(internalSender.id, { action: body.action, text: body.text, oldText: body.oldText, ...(body.until !== undefined ? { until: body.until } : {}) }, { source: memorySource() });
+        const result = await updateMemory(internalSender.id, { action: body.action, text: body.text, oldText: body.oldText, ...(body.until !== undefined ? { until: body.until } : {}) }, { source: memorySource() });
         return json(res, result.ok ? 200 : result.code === "conflict" ? 409 : 400, result);
       }
       if (method === "POST" && path === "/api/internal/memory/log") {
         const body = await readInternalBody();
-        const result = appendMemoryLog(internalSender.id, body.text, { source: memorySource() });
+        const result = await appendMemoryLog(internalSender.id, body.text, { source: memorySource() });
         return json(res, result.ok ? 200 : 400, result);
       }
       if (method === "POST" && path === "/api/internal/browser/mcp") {
@@ -15493,7 +15505,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           workingFolder: assignedJobFolders ? async boxId => {
             const task = store.taskByThread(internalSender.id, internalCapability.threadId);
             if (!task) throw new Error("The task's working folder is unavailable.");
-            const selected = task.cwd ?? ensureTaskWorkspace(internalSender.id, internalCapability.threadId);
+            const selected = task.cwd ?? await ensureTaskWorkspaceReady(internalSender.id, internalCapability.threadId);
             const cwd = assignedJobFolders.path(internalSender.id, selected);
             const scope = assignedJobFolders.resolve(internalSender.id, cwd);
             if (!scope) throw new Error("The task's working folder is outside this dog's assignment.");
@@ -17698,6 +17710,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (importMode !== "add") return json(res, 400, { error: "Import backups alongside your existing dogs; project mode is only for templates" });
         try {
           const imported = importTeamBackup(store, routines!, body, await defaultSelection(), { visibility: importVisibility });
+          await memoryWritesSettled();
           const bots = imported.bots.map((bot) => publicBot(bot));
           const groups = imported.groups.map((group) => groupWithThread(group));
           for (const bot of bots) broadcast({ kind: "bot", bot });
@@ -17730,6 +17743,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ? importPackageDocument(packageDocument, { ...options, trust: "file" }, deps)
           : importTeamManifest(manifest!, options, deps);
         if (result.alreadyAdded) return json(res, 200, result);
+        await memoryWritesSettled();
         imported = result;
         if (projectCwd) {
           try { await selectProjects(cloudOwnerSession(auth), imported.groups.filter(g=>g.cwd).map(g=>({subject:"room:"+g.id,cwd:g.cwd,members:g.memberIds}))); }
@@ -18437,7 +18451,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const presetNotes = new Set(Object.keys(preset?.preset.seed?.memory ?? {}));
         for (const [file, text] of Object.entries(template.memory)) {
           if (presetNotes.has(file)) continue;
-          journalMemoryWrite(bot.id, file, text, { actor: "person", via: "api" });
+          await journalMemoryWrite(bot.id, file, text, { actor: "person", via: "api" });
         }
         if (preset) {
           applyPresetToBot(bot.id, preset, {
@@ -18445,6 +18459,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             skills: { install: installSkill, setEnabled: setSkillEnabled, installOrg: installOrgSkill },
             memory: { writeIndex: writeMemoryFile, writeTopic: writeMemoryTopic },
           });
+          await memoryWritesSettled();
         }
         for (const skill of template.skills) {
           if (presetSkills.has(skill.name)) continue;
@@ -22159,6 +22174,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   }
 };
 
+startPhases.mark("boot", "routines and turn handling");
 const server = createServer(handleRequest);
 desktopViewer.attach(server, handleRequest);
 
@@ -22404,7 +22420,7 @@ for (const row of chatFollowups()) {
   }
   settleChatFollowups([row.id], null);
 }
-startPhases.mark("boot", "routes and watchers");
+startPhases.mark("boot", "routes");
 restoreSteeredMessages();
 restoreChannelMessages();
 

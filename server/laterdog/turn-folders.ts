@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { MOUNTED_FOLDER_ANSWER_MS, MountedFolderStalled, type FolderWait, type createMountedFolderGate } from "./mounted-folder-gate.ts";
 
@@ -7,17 +7,24 @@ type Gate = Pick<ReturnType<typeof createMountedFolderGate>, "wait">;
 export interface TurnFolders {
   workspace: string;
   task?: string;
+  seed?: { name: string; text: string };
   budgetMs: number;
   gate: Gate;
   active: boolean;
   onWait?: (wait: FolderWait) => void;
   makeDir?: (path: string) => Promise<unknown>;
+  writeNew?: (path: string, text: string) => Promise<unknown>;
   noticeMs?: number;
   retryMs?: number;
   now?: () => number;
 }
 
 const STILL_OPENING = new Set(["ETIMEDOUT", "EAGAIN", "EBUSY"]);
+
+async function writeNew(path: string, text: string): Promise<void> {
+  try { await writeFile(path, text, { flag: "wx", mode: 0o600 }); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+}
 
 export async function prepareTurnFolders(input: TurnFolders): Promise<void> {
   if (!input.active) return;
@@ -49,6 +56,10 @@ export async function prepareTurnFolders(input: TurnFolders): Promise<void> {
   try {
     await input.gate.wait(input.workspace, Math.max(0, deadline - now()));
     await within(input.workspace, () => make(join(input.workspace, "memory")));
+    if (input.seed) {
+      const seed = input.seed;
+      await within(input.workspace, () => (input.writeNew ?? writeNew)(join(input.workspace, seed.name), seed.text));
+    }
     if (input.task) await within(input.task, () => make(input.task!));
     opened = true;
   } finally {

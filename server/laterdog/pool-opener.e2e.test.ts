@@ -4,11 +4,13 @@ import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
+import { killCliTree } from "../procs.ts";
 import WebSocket, { WebSocketServer } from "ws";
 import { engineScripts } from "./engine-computer.ts";
 import { claudeProjectSlug, planClaudeRemote, REMOTE_ENGINE_BASE, REMOTE_ENGINES_FILE, spawnPlacedEngine, type ClaudeRemotePlan, type EngineOpener } from "./engine-placement.ts";
 import type { EngineLink } from "./engine-remote.ts";
-import { attachPool, openOnPool, poolChosen, poolEngineOpener, poolLink, poolSetting, relayFiles, savePoolSetting, type PoolService } from "./pool-opener.ts";
+import { EventEmitter } from "node:events";
+import { attachPool, openOnPool, POOL_EXIT_LINE, poolChat, poolChosen, poolEngineOpener, poolLink, poolSetting, relayFiles, savePoolSetting, type PoolService } from "./pool-opener.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const BOOT = here("../../deploy/laterdog/computers/pool-agent/pool-relay");
@@ -24,6 +26,7 @@ afterEach(() => {
 function fakePool(root: string) {
   const server = new WebSocketServer({ port: 0 });
   const engines = new Map<string, ChildProcess>();
+  const sockets = new Map<string, WebSocket>();
   const closed: string[] = [];
   let slot = 2;
   let pending: { chat: string; slot: number } | null = null;
@@ -33,6 +36,7 @@ function fakePool(root: string) {
     mkdirSync(scratchDir, { recursive: true });
     const child = spawn(process.execPath, [BOOT], { cwd: scratchDir, env: { PATH: process.env.PATH, TMPDIR: scratchDir, LATERDOG_ENGINE_FILES: relayFiles() }, stdio: ["pipe", "pipe", "pipe"] });
     engines.set(chat, child);
+    sockets.set(chat, socket);
     socket.send(JSON.stringify({ channel: "attached", chat, buffered: 0 }));
     child.stdout.on("data", (bytes: Buffer) => socket.send(Buffer.concat([Buffer.from([1]), bytes])));
     child.stderr.on("data", (bytes: Buffer) => socket.send(Buffer.concat([Buffer.from([2]), bytes])));
@@ -48,10 +52,11 @@ function fakePool(root: string) {
       pending = { chat, slot };
       return { status: 201, slot, state: "cold" };
     },
-    async close(chat) { closed.push(chat); engines.get(chat)?.kill("SIGKILL"); },
+    async close(chat) { closed.push(chat); engines.get(chat)?.kill("SIGKILL"); return true; },
     stream(chat, signal) { return attachPool(new WebSocket(`ws://127.0.0.1:${port()}/stream?chat=${chat}`), signal); },
   };
-  return { service, closed, slots: () => slot };
+  const die = (chat: string) => { engines.get(chat)?.kill("SIGKILL"); sockets.get(chat)?.terminate(); };
+  return { service, closed, slots: () => slot, die };
 }
 
 function world() {
@@ -81,10 +86,10 @@ function world() {
   const settingsPath = join(base, "launch", "settings.json");
   writeFileSync(settingsPath, JSON.stringify({ hooks: { PostToolUse: [{ matcher: "", hooks: [{ type: "command", command: "exit 0", timeout: 5 }] }] } }));
   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: configDir };
-  const plan = (resume: boolean): ClaudeRemotePlan => {
+  const plan = (resume: boolean, freshWhenMissing = false): ClaudeRemotePlan => {
     const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--mcp-config", mcpPath, "--settings", settingsPath, resume ? "--resume" : "--session-id", SESSION];
     const planned = planClaudeRemote({ botId: "bot-1", threadId: "thread-1", sessionId: SESSION, cliCommand: join(pkg, "bin", "claude"), args, cwd, env,
-      managed: false, required: true, dataDir: join(base, "data"), proxyPath: engineScripts().proxy, remoteBase: engineBase });
+      managed: false, required: true, dataDir: join(base, "data"), proxyPath: engineScripts().proxy, remoteBase: engineBase, freshWhenMissing });
     if (!("plan" in planned)) throw new Error(planned.stay);
     return planned.plan;
   };
@@ -127,7 +132,8 @@ it("runs a chat on a pool slot with home-held tools and credentials, keeps the w
   const one = await turn(first.engine, "hello");
   const scratchDir = `${w.poolRoot}/slot-${first.slot()}/tmp`;
   expect(one.cwd).toBe(`${scratchDir}/m${w.cwd}`);
-  expect(JSON.parse(one.mcp).result).toEqual({ secret: "home-only", ran: w.cwd });
+  expect(JSON.parse(one.mcp).result).toMatchObject({ secret: "home-only" });
+  expect(JSON.parse(one.mcp).result.ran).toContain(join(w.base, "data", "engine-launch"));
   expect(one).toMatchObject({ credentialAccess: true, credentialRefresh: false, sessionLines: 1, input: null });
   const two = await turn(first.engine, "again");
   expect(two.sessionLines).toBe(2);
@@ -145,11 +151,72 @@ it("runs a chat on a pool slot with home-held tools and credentials, keeps the w
   second.engine.stdin.end();
 }, 60_000);
 
-it("delivers lines that arrive before anyone listens, and stops the pool engine when the stream ends", async () => {
+function fakeSocket() {
   const sent: Buffer[] = [];
-  const socket = Object.assign(new (await import("node:events")).EventEmitter(), { send: (bytes: Buffer) => sent.push(bytes), close: () => {} }) as unknown as WebSocket;
+  const socket = Object.assign(new EventEmitter(), { send: (bytes: Buffer) => sent.push(bytes), close: () => {}, terminate: () => {}, ping: () => {} }) as unknown as WebSocket;
+  return { socket, sent };
+}
+
+it("confirms the stop when a pool host dies under a warm chat, so the next turn can start", async () => {
+  const w = world();
+  const pool = fakePool(w.poolRoot);
+  const first = await poolEngine(w, pool, false);
+  await turn(first.engine, "hello");
+  const closed = new Promise((resolve) => first.engine.once("close", resolve));
+  pool.die(poolChat("bot-1", "thread-1"));
+  await closed;
+  expect(await killCliTree(first.engine as unknown as ChildProcess, 2_000)).toBe(true);
+  const second = await poolEngine(w, pool, true);
+  expect((await turn(second.engine, "after the host died")).sessionLines).toBe(2);
+  second.engine.stdin.end();
+}, 60_000);
+
+it("stops a pool engine in the middle of a turn with a confirmed stop, and the chat's next turn starts", async () => {
+  const w = world();
+  const pool = fakePool(w.poolRoot);
+  const first = await poolEngine(w, pool, false);
+  await turn(first.engine, "one");
+  await turn(first.engine, "two");
+  first.engine.stdin.write(message("hang"));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  expect(await killCliTree(first.engine as unknown as ChildProcess, 2_000)).toBe(true);
+  const second = await poolEngine(w, pool, true);
+  expect((await turn(second.engine, "after the stop")).sessionLines).toBeGreaterThanOrEqual(3);
+  second.engine.stdin.end();
+}, 60_000);
+
+it("starts a fresh session on the pool when a chat's saved session never reached the home, instead of refusing every later turn", () => {
+  const w = world();
+  expect(() => w.plan(true)).toThrow("the saved Claude session is missing");
+  const args = w.plan(true, true).launch.args;
+  expect(args).toContain("--session-id");
+  expect(args).not.toContain("--resume");
+});
+
+it("runs home tools for a pool chat whose working folder was never made on the home", async () => {
+  const w = world();
+  const pool = fakePool(w.poolRoot);
+  const plan = w.plan(false);
+  rmSync(w.cwd, { recursive: true, force: true });
+  let slot = 0;
+  const engine = spawnPlacedEngine(plan, async (value, signal) => {
+    const opened = await openOnPool(pool.service, "bot-1", value, engineScripts().proxy, signal, { root: w.poolRoot, engineBase: w.engineBase });
+    slot = opened.slot;
+    value.launch.env.FAKE_ENGINE_SLUG = claudeProjectSlug(`${w.poolRoot}/slot-${slot}/tmp/m${w.cwd}`);
+    return opened.link;
+  }, undefined);
+  stops.push(() => engine.kill());
+  const result = await turn(engine, "tools without a home folder");
+  expect(JSON.parse(result.mcp).result.secret).toBe("home-only");
+  expect(result.hookCode).toBe(0);
+  expect(existsSync(w.cwd)).toBe(false);
+  engine.stdin.end();
+}, 60_000);
+
+it("delivers lines that arrive before anyone listens, and confirms the stop before the link closes", async () => {
+  const { socket, sent } = fakeSocket();
   let stopped = 0;
-  const link: EngineLink = poolLink(socket, () => { stopped += 1; });
+  const link: EngineLink = poolLink(socket, async () => { stopped += 1; return true; });
   socket.emit("message", Buffer.concat([Buffer.from([1]), Buffer.from('{"type":"ready"}\n{"a"')]), true);
   socket.emit("message", Buffer.concat([Buffer.from([1]), Buffer.from(':1}\n')]), true);
   const lines: string[] = [];
@@ -162,6 +229,17 @@ it("delivers lines that arrive before anyone listens, and stops the pool engine 
   socket.emit("message", Buffer.from(JSON.stringify({ channel: "closed", reason: "memory" })), false);
   expect(await why).toBe("pool closed the engine: memory");
   expect(stopped).toBe(1);
+  expect(lines.at(-1)).toBe(POOL_EXIT_LINE);
+});
+
+it("closes a silent pool stream without claiming the engine stopped when the pool cannot confirm it", async () => {
+  const { socket } = fakeSocket();
+  const link: EngineLink = poolLink(socket, async () => false, { pingMs: 10, silentMs: 30 });
+  const lines: string[] = [];
+  link.on("line", (line) => lines.push(line));
+  const why = await new Promise((resolve) => link.once("close", resolve));
+  expect(why).toBe("the pool stream went silent");
+  expect(lines).toEqual([]);
 });
 
 it("chooses the pool only for the dogs the setting names and falls back to the dog's computer when the pool fails", async () => {
@@ -183,7 +261,7 @@ it("chooses the pool only for the dogs the setting names and falls back to the d
 
   const computerLinks: string[] = [];
   const computer: EngineOpener = { proxyPath: "/p", openBudgetMs: 1, async open(botId) { computerLinks.push(botId); return {} as EngineLink; } };
-  const failing: PoolService = { open: async () => ({ status: 503, refusal: "host_full: full" }), close: async () => {}, stream: async () => { throw new Error("unused"); } };
+  const failing: PoolService = { open: async () => ({ status: 503, refusal: "host_full: full" }), close: async () => true, stream: async () => { throw new Error("unused"); } };
   const plan = w.plan(false);
   plan.launch.cli = `${REMOTE_ENGINE_BASE}/cli/claude-code-9.9.9/node_modules/.bin/claude`;
   const before = JSON.stringify(plan.launch.roots);

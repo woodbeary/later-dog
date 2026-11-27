@@ -1,3 +1,4 @@
+import { MountDown } from "../laterdog/mount-guard.ts";
 import { z } from "zod";
 import type { ServerResponse } from "node:http";
 
@@ -35,7 +36,7 @@ export interface BotMemoryRouteDeps {
 
 export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
   function replyMemoryError(res: ServerResponse, error: unknown) {
-    if (mountedWorkspaceUnavailable(error)) return json(res, 503, { error: "The working folder is temporarily unavailable. Try again.", code: "unavailable" });
+    if (error instanceof MountDown || mountedWorkspaceUnavailable(error)) return json(res, 503, { error: "The working folder is temporarily unavailable. Try again.", code: "unavailable" });
     if (!(error instanceof MemoryStoreError)) throw error;
     if (error.code === "conflict") {
       return json(res, error.status, { error: error.message, code: error.code, currentHash: error.currentHash, current: error.current });
@@ -75,7 +76,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (!parsed.success) return json(res, 400, { error: "text must be a string" });
       try {
         const botId = m[1];
-        const { doc } = journalMemoryWrite(botId, MEMORY_INDEX, parsed.data.text, { actor: "person", via: "api" });
+        const { doc } = await journalMemoryWrite(botId, MEMORY_INDEX, parsed.data.text, { actor: "person", via: "api" });
         return json(res, 200, { ok: true, hash: doc.hash, truncated: memoryCapacity(doc.text).truncated });
       } catch (error) {
         if (error instanceof MemoryStoreError && error.code === "too-large") return json(res, 400, { error: error.message });
@@ -99,7 +100,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (!parsed.success) return json(res, 400, { error: "text must be a string; path and expectedHash are optional strings" });
       try {
         const botId = m[1];
-        const { doc, entry } = journalMemoryWrite(botId, parsed.data.path, parsed.data.text, {
+        const { doc, entry } = await journalMemoryWrite(botId, parsed.data.path, parsed.data.text, {
           actor: "person",
           via: "ui",
           expectedHash: parsed.data.expectedHash,
@@ -114,7 +115,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       const file = url.searchParams.get("path") ?? "";
       try {
         const botId = m[1];
-        const entry = journalMemoryDelete(botId, file, { actor: "person", via: "ui" });
+        const entry = await journalMemoryDelete(botId, file, { actor: "person", via: "ui" });
         return json(res, 200, { ok: true, path: file, entry: entry ? journalEntryForClient(m[1], entry) : null, overview: memoryOverview(m[1]) });
       } catch (error) {
         return replyMemoryError(res, error);
@@ -133,7 +134,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });
       await flushMemoryJournal(m[1]);
       const botId = m[1], changeId = m[2];
-      const result = revertMemoryChange(botId, changeId);
+      const result = await revertMemoryChange(botId, changeId);
       if (!result.ok) return json(res, result.status, { error: result.error });
       return json(res, 200, { ok: true, ...result.doc, entry: result.entry ? journalEntryForClient(m[1], result.entry) : null, overview: memoryOverview(m[1]) });
     }

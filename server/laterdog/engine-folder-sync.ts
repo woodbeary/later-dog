@@ -236,6 +236,7 @@ export async function syncFolder(
   signal?: AbortSignal,
   progress = () => {},
   dataRoot = "/data",
+  purpose: "checkout" | "save" = "checkout",
 ): Promise<{ revision: string; manifest: string; changed: boolean }> {
   const dir = guestFolderDir(binding.path, state);
   ensureRealDirectory(dir);
@@ -328,13 +329,15 @@ export async function syncFolder(
       if (!committed) continue;
       current = committed;
     }
+    if (!current.manifest) throw new Error("Working folder head disappeared");
+    if (purpose === "save" && !equalTree(local.tree, next))
+      return { revision: current.revision, manifest: current.manifest, changed: current.revision !== head.revision };
     await applyFolder(store, binding.path, local, next, linkFor);
     const final = await visitFolder(binding.path, local, progress, next, aliases, linkFor);
     if (!equalTree(final.tree, next))
       throw new Error(
         "Working folder changed while the durable checkout was arriving. Its current contents are retained.",
       );
-    if (!current.manifest) throw new Error("Working folder head disappeared");
     write(snapshot, {
       version: 1,
       uri: binding.grant.baseUrl,
