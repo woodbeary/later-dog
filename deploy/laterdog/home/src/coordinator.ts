@@ -4,6 +4,10 @@ import { INDEX_ROUTE } from "../../../../shared/search-index-protocol.ts";
 import { CAPABILITY_CLAIMS_HEADER } from "./edge-routes.ts";
 import { serveIndex, type IndexPort, type IndexShardPorts } from "./index-routes.ts";
 import { DogIndex, PersonIndex } from "./person-index.ts";
+import { dogRoutines, type DogRoutinesPort } from "./dog-routines.ts";
+import { dogInbox, type DogInboxPort } from "./dog-inbox.ts";
+import { serveInbox, serveRoutines, type DogObjectPort } from "./dog-routes.ts";
+import { INBOX_ROUTE, ROUTINES_ROUTE, type InboxLetter, type ObjectRoutine, type OccurrenceState } from "../../../../shared/dog-object-protocol.ts";
 import { ChatQueue, dogSlots, validHistoryRow, validQueueRow, validSlot, QUEUE_ROW_STATUSES, type ChatHistoryPort, type ChatQueuePort, type DogSlot, type DogSlotsPort, type QueueRowStatus } from "./chat-queue.ts";
 
 export { ChatQueue, DogIndex, PersonIndex };
@@ -56,9 +60,53 @@ export function dogTurns(storage: TurnStorage): DogTurns {
   };
 }
 
-export class Dog extends DurableObject<CoordinatorEnv> implements DogTurns, DogSlotsPort {
+export class Dog extends DurableObject<CoordinatorEnv> implements DogTurns, DogSlotsPort, DogObjectPort {
   private readonly turns = dogTurns(this.ctx.storage);
   private readonly held = dogSlots(this.ctx.storage);
+  private routinesPart: DogRoutinesPort | null = null;
+  private inboxPart: DogInboxPort | null = null;
+  private get routines(): DogRoutinesPort {
+    return this.routinesPart ??= dogRoutines(this.ctx.storage.sql, {
+      set: (at) => this.ctx.storage.setAlarm(at),
+      clear: () => this.ctx.storage.deleteAlarm(),
+    });
+  }
+  private get inbox(): DogInboxPort {
+    return this.inboxPart ??= dogInbox(this.ctx.storage.sql);
+  }
+  override async alarm() {
+    await this.routines.fireRoutines();
+  }
+  putRoutines(timeZone: string, routines: ObjectRoutine[]) {
+    return this.routines.putRoutines(timeZone, routines);
+  }
+  claimRoutines() {
+    return this.routines.claimRoutines();
+  }
+  settleRoutine(id: string, state: Exclude<OccurrenceState, "due">, runId: string) {
+    return this.routines.settleRoutine(id, state, runId);
+  }
+  exportRoutines() {
+    return this.routines.exportRoutines();
+  }
+  fireRoutines() {
+    return this.routines.fireRoutines();
+  }
+  nextAlarmAt() {
+    return this.routines.nextAlarmAt();
+  }
+  inboxPut(letter: InboxLetter) {
+    return this.inbox.inboxPut(letter);
+  }
+  inboxPull(after: number, limit: number) {
+    return this.inbox.inboxPull(after, limit);
+  }
+  inboxAck(clientIds: string[]) {
+    return this.inbox.inboxAck(clientIds);
+  }
+  inboxStatus(clientIds: string[]) {
+    return this.inbox.inboxStatus(clientIds);
+  }
   slots() {
     return this.held.slots();
   }
@@ -154,7 +202,7 @@ export async function serveQueue(body: Record<string, unknown>, claims: SignedCa
   }
 }
 
-export async function coordinate(request: Request, dogFor: (home: string, dog: string) => DogTurns, indexFor?: (home: string) => IndexShardPorts, queues?: QueuePorts): Promise<Response> {
+export async function coordinate(request: Request, dogFor: (home: string, dog: string) => DogTurns, indexFor?: (home: string) => IndexShardPorts, queues?: QueuePorts, dogObjects?: (home: string, dog: string) => DogObjectPort): Promise<Response> {
   const claims = presentedClaims(request);
   if (!claims) return answer(401, { error: "capability_required" });
   const path = new URL(request.url).pathname;
@@ -165,6 +213,15 @@ export async function coordinate(request: Request, dogFor: (home: string, dog: s
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body || typeof body !== "object") return answer(400, { error: "bad_body" });
     return path.endsWith("/queue") ? serveQueue(body, claims, queues) : serveHistory(body, claims, queues);
+  }
+  if ((path === ROUTINES_ROUTE || path === INBOX_ROUTE) && request.method === "POST") {
+    if (claims.kind !== "turns") return answer(403, { error: "capability_wrong-kind" });
+    if (!dogObjects) return answer(404, { error: "not_found" });
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object") return answer(400, { error: "bad_body" });
+    return path === ROUTINES_ROUTE
+      ? serveRoutines(body, claims, dogObjects(claims.home, claims.dog))
+      : serveInbox(body, claims, (dog) => dogObjects(claims.home, dog));
   }
   const dog = dogFor(claims.home, claims.dog);
   if (path === `${COORDINATOR_PREFIX}turns` && request.method === "POST") {
@@ -201,6 +258,7 @@ export class CoordinatorApi extends WorkerEntrypoint<CoordinatorEnv> {
         dog: (home, dog) => this.env.DOGS.get(this.env.DOGS.idFromName(`${home}/${dog}`)),
         chat: (home, chat) => this.env.CHATS.get(this.env.CHATS.idFromName(`${home}/${chat}`)),
       },
+      (home, dog) => this.env.DOGS.get(this.env.DOGS.idFromName(`${home}/${dog}`)) as unknown as DogObjectPort,
     );
   }
 }
