@@ -132,7 +132,8 @@ it("runs a chat on a pool slot with home-held tools and credentials, keeps the w
   const one = await turn(first.engine, "hello");
   const scratchDir = `${w.poolRoot}/slot-${first.slot()}/tmp`;
   expect(one.cwd).toBe(`${scratchDir}/m${w.cwd}`);
-  expect(JSON.parse(one.mcp).result).toEqual({ secret: "home-only", ran: w.cwd });
+  expect(JSON.parse(one.mcp).result).toMatchObject({ secret: "home-only" });
+  expect(JSON.parse(one.mcp).result.ran).toContain(join(w.base, "data", "engine-launch"));
   expect(one).toMatchObject({ credentialAccess: true, credentialRefresh: false, sessionLines: 1, input: null });
   const two = await turn(first.engine, "again");
   expect(two.sessionLines).toBe(2);
@@ -191,6 +192,26 @@ it("starts a fresh session on the pool when a chat's saved session never reached
   expect(args).toContain("--session-id");
   expect(args).not.toContain("--resume");
 });
+
+it("runs home tools for a pool chat whose working folder was never made on the home", async () => {
+  const w = world();
+  const pool = fakePool(w.poolRoot);
+  const plan = w.plan(false);
+  rmSync(w.cwd, { recursive: true, force: true });
+  let slot = 0;
+  const engine = spawnPlacedEngine(plan, async (value, signal) => {
+    const opened = await openOnPool(pool.service, "bot-1", value, engineScripts().proxy, signal, { root: w.poolRoot, engineBase: w.engineBase });
+    slot = opened.slot;
+    value.launch.env.FAKE_ENGINE_SLUG = claudeProjectSlug(`${w.poolRoot}/slot-${slot}/tmp/m${w.cwd}`);
+    return opened.link;
+  }, undefined);
+  stops.push(() => engine.kill());
+  const result = await turn(engine, "tools without a home folder");
+  expect(JSON.parse(result.mcp).result.secret).toBe("home-only");
+  expect(result.hookCode).toBe(0);
+  expect(existsSync(w.cwd)).toBe(false);
+  engine.stdin.end();
+}, 60_000);
 
 it("delivers lines that arrive before anyone listens, and confirms the stop before the link closes", async () => {
   const { socket, sent } = fakeSocket();

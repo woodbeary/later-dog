@@ -207,6 +207,7 @@ export function poolLaunch(plan: ClaudeRemotePlan, slot: number, computerProxy: 
     const swapped = swap(text);
     if (swapped !== text) writeFileSync(file, swapped, { mode: 0o600 });
   }
+  launch.homeCwd = plan.stagingDir;
   launch.socketPath = rebase(launch.socketPath);
   launch.stateFile = rebase(launch.stateFile);
   launch.lockFile = rebase(launch.lockFile);

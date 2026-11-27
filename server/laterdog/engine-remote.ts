@@ -47,6 +47,7 @@ export interface RemoteLaunch {
   hooks: string[];
   hookEnv: Record<string, string>;
   proxyEnv?: Record<string, string>;
+  homeCwd?: string;
   socketPath: string;
   stateFile: string;
   lockFile: string;
@@ -351,7 +352,7 @@ export class RemoteSession extends EventEmitter {
   #openProxy(id: string, name: string): void {
     const spec = Object.hasOwn(this.#launch.mcp, name) ? this.#launch.mcp[name] : undefined;
     if (!spec) { this.#send({ type: "proxy_exit", id, code: 1 }); return; }
-    const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.cwd, env: { ...(this.#launch.proxyEnv ?? this.#launch.hookEnv), ...spec.env }, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.homeCwd ?? this.#launch.cwd, env: { ...(this.#launch.proxyEnv ?? this.#launch.hookEnv), ...spec.env }, stdio: ["pipe", "pipe", "pipe"] });
     this.#proxies.set(id, child);
     child.stdin.on("error", () => {});
     child.stdout.on("data", (bytes) => this.#send({ type: "proxy_stdout", id, data: Buffer.from(bytes).toString("base64") }));
@@ -363,7 +364,7 @@ export class RemoteSession extends EventEmitter {
   async #runHook(id: string, index: number, payload: unknown): Promise<void> {
     const command = this.#launch.hooks[index];
     if (!command) { this.#send({ type: "hook_result", id, body: { stdout: "", code: 0 } }); return; }
-    const child = spawn("/bin/sh", ["-c", command], { cwd: this.#launch.cwd, env: this.#launch.hookEnv, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("/bin/sh", ["-c", command], { cwd: this.#launch.homeCwd ?? this.#launch.cwd, env: this.#launch.hookEnv, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = ""; let stderr = "";
     child.stdout.on("data", (bytes) => { if (stdout.length < 1024 * 1024) stdout += bytes; });
     child.stderr.on("data", (bytes) => { if (stderr.length < 64 * 1024) stderr += bytes; });
