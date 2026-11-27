@@ -1148,7 +1148,7 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
       if (!identified.ok) return identified.response;
       const owner = identified.caller;
       return await boxRequest(box, request, { boxes: env.BOX, state: env.BOX_STATE }, {
-        person: registryName(owner), trial: trialLimited(owner),
+        person: registryName(owner), trial: trialLimited(owner) && !owner.home,
         computers: async () => await owner.registry.list(), computer: (id) => computer(env, id),
       });
     }
