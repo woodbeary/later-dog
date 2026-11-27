@@ -857,6 +857,10 @@ export class AccountBattery {
       .flatMap((account) => this.limitsOf(account, accounts).map((rest) => [account.instanceId, rest.model ?? "", rest.until])).sort());
   }
 
+  restsNow(accounts: readonly BatteryAccount[]): Record<string, Rest> {
+    return this.resting(accounts);
+  }
+
   private resting(accounts: readonly BatteryAccount[]): Record<string, Rest> {
     return withReadings(this.state.resting, accounts, this.options.usage, this.now());
   }

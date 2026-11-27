@@ -20,7 +20,7 @@ const QUESTION_TOOLS = /(?:^|__)(?:AskUserQuestion|request_user_input)$/;
 
 const HELPER_TOOLS = new Set(["Agent", "Task"]);
 const OPENING_TOOLS = /(?:^|__)react$/;
-const FREE_TOOLS = /(?:^|__)(?:react|AskUserQuestion|TodoWrite|set_plan|coordinate_bots|start_tasks|list_bots|memory_update|memory_log|request_[a-z_]+|propose_[a-z_]+)$/;
+const FREE_TOOLS = /(?:^|__)(?:react|AskUserQuestion|TodoWrite|set_plan|coordinate_bots|start_tasks|start_swarm|list_bots|memory_update|memory_log|request_[a-z_]+|propose_[a-z_]+)$/;
 
 type Turn = TurnShapeStart & { replied: boolean; rounds: number; resultSince: boolean; handedOff: boolean; held: number };
 

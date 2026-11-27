@@ -12,6 +12,7 @@ const TEAM_TOOLS: Record<string, (input: Record<string, unknown>, nameOf: NameOf
   change_on_phone: (input) => changingOnThePhone(input),
   nearby_places: (input) => (typeof input.what === "string" && input.what.trim() ? `looking for ${clipName(input.what.trim())} nearby` : "looking for places nearby"),
   start_tasks: (input) => startingTasks(input),
+  start_swarm: (input) => `starting a swarm of ${Array.isArray(input.parts) ? input.parts.length : 0} parts`,
   send_text: () => "sending a text",
   read_texts: (input) => (typeof input.with === "string" && input.with.trim() ? `reading texts with ${clipName(input.with)}` : "reading your texts"),
   send_email: () => "sending an email",

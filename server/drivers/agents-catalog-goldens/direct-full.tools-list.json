@@ -363,6 +363,63 @@
       }
     },
     {
+      "name": "start_swarm",
+      "description": "Only when the person asks for a swarm: split one big job into 2-8 parallel parts, each a task on its own machine and account. Each part sees only its instruction. Results come back here in one message; then answer.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          },
+          "parts": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60
+                },
+                "instruction": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                },
+                "size": {
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "large"
+                  ]
+                }
+              },
+              "required": [
+                "title",
+                "instruction"
+              ]
+            }
+          },
+          "gather": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "goal",
+          "parts",
+          "gather"
+        ]
+      }
+    },
+    {
       "name": "list_bots",
       "description": "List the other dogs you can ask with coordinate_bots, with their team, model and whether they are free, and the group chats you are in, with their ids.",
       "inputSchema": {

@@ -52,16 +52,16 @@ const MAC_MESSAGE_TOOLS = ["send_text", "read_texts", "send_email"];
 const CLOUD_HOME_ONLY = [...MAC_MESSAGE_TOOLS, "run_on_computer", "connect_google", "gmail_search", "gmail_read", "gmail_code_to_vault"];
 
 const BUDGET_BASELINE: Record<string, number> = {
-  "direct": 43570,
-  "direct+voice": 44311,
-  "direct+shared": 48599,
-  "direct+shared+voice": 49340,
+  "direct": 44630,
+  "direct+voice": 45371,
+  "direct+shared": 49659,
+  "direct+shared+voice": 50400,
   "direct+skills": 45623,
   "direct+skills+voice": 46364,
   "direct+skills+shared": 50652,
   "direct+skills+shared+voice": 51393,
-  "direct+skills+shared+voice+cloud-home": 57438,
-  "direct+skills+shared+voice+cloud-home+phone": 61468,
+  "direct+skills+shared+voice+cloud-home": 59184,
+  "direct+skills+shared+voice+cloud-home+phone": 63214,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';

@@ -37,6 +37,7 @@ export const RARE_AGENT_TOOLS: readonly string[] = [
   "delete_bot",
   "restore_bot",
   "dog_queue",
+  "start_swarm",
   "dog_accounts",
   "request_device_approval",
   "read_phone",

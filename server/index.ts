@@ -132,6 +132,8 @@ import { PhoneCrashes } from "./laterdog/phone-crashes.ts";
 import { PhonePerformance } from "./laterdog/phone-perf.ts";
 import { createPhonePerformanceRoutes } from "./routes/phone-perf.ts";
 import { createDogTaskRoute } from "./routes/dog-tasks.ts";
+import { createSwarmRoute } from "./routes/swarm.ts";
+import { gatherText, spreadParts, SwarmBook, SWARM_SETTLE_RETRIES_MS, SWARM_WATCH_MS } from "./laterdog/swarm.ts";
 import { briefStep, pageViewOf, SHOWN_PAGE_ROW_CAP, shownPageStart, type PageView } from "./message-pages.ts";
 import { requestedPageSize, snapshotPageSize } from "./laterdog/snapshot-page.ts";
 import { helperSelection, startedFromTask } from "./laterdog/dog-tasks.ts";
@@ -14529,6 +14531,71 @@ INTERNAL_ROUTES.push(createDogTaskRoute({
     run: (taskThreadId, instruction) => startTurn(sender.id, instruction, { threadId: taskThreadId }),
   }),
 }));
+const swarmBook = new SwarmBook(join(DATA_DIR, "swarms.json"));
+
+function swarmPartReply(threadId: string, since: number): string | undefined {
+  return store.activePath(threadId).findLast((message) => message.role === "bot" && message.kind === "text" && (message.at ?? 0) >= since)?.text;
+}
+
+function swarmPartSettled(threadId: string): void {
+  const record = swarmBook.partOf(threadId);
+  if (!record || record.gatheredAt !== undefined || threadBusy(record.botId, threadId)) return;
+  const reply = swarmPartReply(threadId, record.startedAt);
+  swarmBook.ended(threadId, reply ? "done" : "failed", reply);
+  gatherDueSwarms();
+}
+
+function gatherDueSwarms(): void {
+  for (const record of swarmBook.due()) {
+    const bot = store.bot(record.botId);
+    if (!bot) { swarmBook.gathered(record.id); continue; }
+    if (threadBusy(record.botId, record.parentThreadId)) continue;
+    swarmBook.gathered(record.id);
+    const finished = record.parts.filter((part) => part.state !== "running").length;
+    store.appendMessage(record.parentThreadId, { role: "bot", kind: "activity",
+      tool: { name: `Swarm results in: ${finished} of ${record.parts.length} parts, writing the answer`, ok: true } });
+    markInternalTurn(record.parentThreadId);
+    void startTurn(record.botId, gatherText(record, Date.now()), { threadId: record.parentThreadId, cardContinuation: true, commsDepth: MAX_COMMS_DEPTH })
+      .catch((error) => console.warn(`swarm: gather turn for ${record.id} failed: ${(error as Error).message}`));
+  }
+}
+
+const swarmWatch = setInterval(() => {
+  for (const record of swarmBook.open()) {
+    for (const part of record.parts) {
+      if (part.state === "running" && !threadBusy(record.botId, part.threadId) && swarmPartReply(part.threadId, record.startedAt)) swarmPartSettled(part.threadId);
+    }
+  }
+  gatherDueSwarms();
+}, SWARM_WATCH_MS);
+swarmWatch.unref();
+
+INTERNAL_ROUTES.push(createSwarmRoute({
+  book: swarmBook,
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  insideTask: (sender, threadId) => startedFromTask(store.taskByThread(sender.id, threadId)?.openedBy, sender.id),
+  selections: (sender, threadId, input) => {
+    const parent = (store.projectBotForTask(sender.id, threadId) ?? sender).modelSelection;
+    const accounts = batteryAccounts();
+    const routed = accountBattery.route(parent, accounts, threadId);
+    return spreadParts({ parent: routed, count: input.parts.length, accounts, usage: latestPlanRow, resting: accountBattery.restsNow(accounts),
+      now: Date.now(), ...(accountBattery.preferredFor(threadId) ? { preferred: accountBattery.preferredFor(threadId) } : {}) });
+  },
+  starter: (sender, threadId) => ({
+    open: (title, selection, size) => {
+      const task = store.createTask(sender.id, title, false, undefined, { botId: sender.id, name: sender.name, kind: "work", threadId, at: Date.now() }, undefined,
+        selection.instanceId === sender.modelSelection.instanceId && selection.model === sender.modelSelection.model ? undefined : selection);
+      if (!task) return null;
+      if (size) machineSizes.setTaskSize(sender.id, task.threadId, size);
+      threadStarters.set(task.threadId, openerFrom(threadId));
+      return task.threadId;
+    },
+    run: (partThreadId, instruction, settled) => startTurn(sender.id, instruction, { threadId: partThreadId, onTurnSettled: settled }),
+  }),
+  settled: (partThreadId) => { for (const delay of SWARM_SETTLE_RETRIES_MS) setTimeout(() => swarmPartSettled(partThreadId), delay).unref(); },
+  accountName: (instanceId) => batteryAccounts().find((account) => account.instanceId === instanceId)?.displayName ?? instanceId,
+}));
+
 function accountUsageInputs(): AccountUsageInput[] {
   const plans = new Map(planAccountsFromInstances(instanceConfigs(cfg)).map((account) => [account.id, account]));
   const accounts = batteryAccounts();
