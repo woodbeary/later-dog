@@ -8,6 +8,7 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
+import { poolChosen } from "../laterdog/pool-opener.ts";
 import { acceptedEnginePlacement, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
@@ -1596,7 +1597,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }
           try {
             remote = planClaudeRemote({ botId: botId!, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand,
-              args, cwd, env, managed: Boolean(config.managed), required, dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase });
+              args, cwd, env, managed: Boolean(config.managed), required, dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase, freshWhenMissing: poolChosen(DATA_DIR, botId!) });
           } catch (error) { remote = { stay: `launch could not be mirrored: ${(error as Error).message}` }; }
           if (required && "stay" in remote) throw new Error(`Claude could not start on this dog's computer. ${remote.stay}. No prompt was sent.`);
           if ("stay" in remote) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`);

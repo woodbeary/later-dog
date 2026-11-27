@@ -10,6 +10,7 @@ import {
   type PoolSettings,
   START_PATIENCE_MS,
   hourlyCost,
+  nearlyFull,
   hostHourlyUsd,
   observe,
   place,
@@ -233,6 +234,12 @@ export class PoolLine extends DurableObject<Env> {
         const warm = answer.status === 200;
         console.log(`laterdog computers: [pool] ${warm ? "warm" : "cold"} ${spec.chat} on ${id} in ${Date.now() - began} ms${target.sticky && warm ? " (sticky)" : ""}`);
         await this.arm(Date.now() + CHECK_MS);
+        const now = this.hosts();
+        const live = now.filter((host) => host.state !== "draining");
+        if (!now.some((host) => host.state === "starting") && live.length < this.settings.maxHosts && nearlyFull(live.filter((host) => host.state === "ready"))) {
+          void this.addHost().catch(() => undefined);
+          scaledOut = true;
+        }
         return { value: { chat: spec.chat, host: id, state: warm ? "warm" : "cold", sticky: target.sticky && warm, placeMs: Date.now() - began, engine, scaledOut, stream: streamPath(spec.chat) } };
       }
       if (answer && answer.status === 400) {

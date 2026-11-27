@@ -6,6 +6,7 @@ const RECORD = "pool-host";
 const AGENT = "/usr/local/bin/laterdog-pool-agent";
 const AGENT_TIMEOUT_MS = 10_000;
 const ALWAYS_ON_MS = 5 * 60 * 60_000;
+export const KEEP_AWAKE_MS = 10_000;
 
 interface HostRecord {
   id: string;
@@ -65,6 +66,19 @@ export function agentEnv(env: Env): Record<string, string> {
 }
 
 export class PoolHost extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    const container = ctx.container;
+    if (!container?.running) return;
+    void ctx.blockConcurrencyWhile(async () => {
+      try {
+        await container.setInactivityTimeout(ALWAYS_ON_MS);
+      } catch (error) {
+        console.error(`laterdog computers: [pool] could not re-arm the inactivity timeout: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+  }
+
   private load(): HostRecord | undefined {
     return this.ctx.storage.kv.get<HostRecord>(RECORD);
   }
@@ -95,7 +109,13 @@ export class PoolHost extends DurableObject<Env> {
       labels: { pool: next.id, generation: String(next.generation) },
     });
     await container.setInactivityTimeout(ALWAYS_ON_MS);
+    const started = Date.now();
+    void Promise.resolve().then(() => container.monitor()).then(
+      () => console.error(`laterdog computers: [pool] ${next.id} generation ${next.generation} stopped after ${Date.now() - started} ms`),
+      (error: unknown) => console.error(`laterdog computers: [pool] ${next.id} generation ${next.generation} failed after ${Date.now() - started} ms: ${error instanceof Error ? error.message : String(error)}`),
+    );
     console.log(`laterdog computers: [pool] start ${next.id} (generation ${next.generation})`);
+    await this.ctx.storage.setAlarm(Date.now() + KEEP_AWAKE_MS);
     return { started: true, generation: next.generation };
   }
 
@@ -133,8 +153,15 @@ export class PoolHost extends DurableObject<Env> {
   async remove(): Promise<void> {
     const record = this.load();
     if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => undefined);
+    await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
     console.log(`laterdog computers: [pool] removed ${record?.id ?? "a host"}`);
+  }
+
+  override async alarm(): Promise<void> {
+    if (!this.load() || !this.ctx.container?.running) return;
+    await this.status();
+    await this.ctx.storage.setAlarm(Date.now() + KEEP_AWAKE_MS);
   }
 
   override async fetch(request: Request): Promise<Response> {

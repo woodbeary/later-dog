@@ -7,9 +7,16 @@ import { ENGINE_FOLDER_STATE, guestFolderDir, retireEmptyGuestFolder, syncFolder
 
 const entry = fileURLToPath(import.meta.url);
 
-async function runLocked(path: string, state: string, input: string): Promise<void> {
+export const LOCK_WAIT_MS = 2 * 60_000;
+
+export class FolderBusy extends Error {
+  constructor(path: string) { super("Another checkout still holds this working folder: " + path); }
+}
+
+async function runLocked(path: string, state: string, input: string, waitMs = LOCK_WAIT_MS, action: "locked" | "save-locked" = "locked"): Promise<void> {
   const dir = guestFolderDir(path, state);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const giveUpAt = Date.now() + waitMs;
   for (;;) {
     const code = await new Promise<number | null>((ok, fail) => {
       const child = spawn(
@@ -23,7 +30,7 @@ async function runLocked(path: string, state: string, input: string): Promise<vo
           join(dir, "checkout.lock"),
           process.execPath,
           entry,
-          "locked",
+          action,
           path,
           state,
         ],
@@ -36,7 +43,7 @@ async function runLocked(path: string, state: string, input: string): Promise<vo
     });
     if (code === 0) return;
     if (code !== 74) throw new Error("Working folder checkout did not complete");
-    process.stderr.write("folder-progress\n");
+    if (Date.now() >= giveUpAt) throw new FolderBusy(path);
   }
 }
 
@@ -72,18 +79,23 @@ async function main() {
       const binding = JSON.parse(readFileSync(file, "utf8")) as EngineWorkFolder;
       if (guestFolderDir(binding.path) !== join(ENGINE_FOLDER_STATE, name))
         throw new Error("Invalid guest working folder registration");
-      await runLocked(binding.path, ENGINE_FOLDER_STATE, "");
+      try {
+        await runLocked(binding.path, ENGINE_FOLDER_STATE, "", LOCK_WAIT_MS, "save-locked");
+      } catch (error) {
+        if (!(error instanceof FolderBusy)) throw error;
+        process.stderr.write(`skipped a working folder another checkout holds; its saved copy stays in durable storage: ${binding.path}\n`);
+      }
     }
     return;
   }
-  if (!["locked", "hydrate", "checkpoint"].includes(action) || !path)
+  if (!["locked", "save-locked", "hydrate", "checkpoint"].includes(action) || !path)
     throw new Error("Unknown working folder operation");
   let input = "";
   for await (const bytes of process.stdin) {
     input += bytes.toString();
     if (input.length > 32768) throw new Error("Working folder capability is too large");
   }
-  if (action === "locked") {
+  if (action === "locked" || action === "save-locked") {
     const file = join(guestFolderDir(path, state), "grant.json");
     if (!input && (!existsSync(file) || !lstatSync(path, { throwIfNoEntry: false }) && await retireEmptyGuestFolder(path, state, true))) return;
     const payload = input ? JSON.parse(input) : undefined;
@@ -106,7 +118,7 @@ async function main() {
         process.stderr.write("folder-progress\n");
         last = Date.now();
       }
-    });
+    }, "/data", action === "save-locked" ? "save" : "checkout");
     process.stdout.write(JSON.stringify(result) + "\n");
   } else await runLocked(path, state, input);
 }
