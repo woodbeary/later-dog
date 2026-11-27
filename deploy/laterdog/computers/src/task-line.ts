@@ -233,7 +233,7 @@ export class TaskLine extends DurableObject<Env> {
     const fresh = { now: Date.now(), settings: this.settings(), tickets: this.tickets(), machines: this.machines() };
     const result = settle(fresh, (ticket) => names.get(ticket.id)!);
     this.apply(result, fresh.now);
-    for (const machine of result.newMachines) await this.startMachine(machine, settings, home);
+    for (const machine of result.newMachines) void this.startMachine(machine, settings, home);
     this.ctx.storage.sql.exec("DELETE FROM tickets WHERE state NOT IN ('queued', 'admitted') AND ended_at < ?", now - ENDED_KEPT_MS);
     for (const id of result.stop) void this.stopMachine(id);
     const next = nextCheckAt({ now: fresh.now, settings, tickets: this.tickets(), machines: this.machines() });
