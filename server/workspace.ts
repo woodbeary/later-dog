@@ -7,11 +7,10 @@ import { indexMemoryFile, indexedMemoryFiles, recallMemory, removeMemoryFile, ty
 import { redactSecretsInText } from "./redact.ts";
 import { isRecallMemoryFile } from "./laterdog/cross-dog-recall.ts";
 
-import { DATA_DIR } from "./config.ts";
-import { createMountGuard, mountFiles, MountDown } from "./laterdog/mount-guard.ts";
+import { MountDown } from "./laterdog/mount-guard.ts";
+import { dogFiles, dogFoldersMounted, mountGuard, TASK_WORKSPACES_DIR, WORKSPACES_DIR } from "./laterdog/dog-mounts.ts";
 
-export const WORKSPACES_DIR = join(DATA_DIR, "workspaces");
-export const TASK_WORKSPACES_DIR = join(DATA_DIR, "task-workspaces");
+export { dogFiles, mountGuard, TASK_WORKSPACES_DIR, WORKSPACES_DIR };
 
 export function supportsWorkspaceFiles(driverKind: string): boolean {
   return !["grok", "openai-compat", "minimax", "mistral", "cerebras"].includes(driverKind);
@@ -24,8 +23,6 @@ export function taskWorkspacePath(botId: string, threadId: string): string {
   return join(TASK_WORKSPACES_DIR, botId, threadId);
 }
 
-export const mountGuard = createMountGuard({ roots: () => [WORKSPACES_DIR, TASK_WORKSPACES_DIR] });
-export const dogFiles = mountFiles(mountGuard);
 
 export async function ensureTaskWorkspaceReady(botId: string, threadId: string): Promise<string> {
   const dir = taskWorkspacePath(botId, threadId);
@@ -81,10 +78,6 @@ export function workspaceDir(botId: string): string {
 let regularMemoryFilesOnly = false;
 export function readMemoryOnlyFromRegularFiles(): void {
   regularMemoryFilesOnly = true;
-}
-
-function dogFoldersMounted(): boolean {
-  return process.env.LATERDOG_CLOUD_ROLE === "home" && Boolean(process.env.LATERDOG_WORK_FOLDER_LAYOUT);
 }
 
 export interface MemoryFileRead {

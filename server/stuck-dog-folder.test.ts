@@ -32,6 +32,9 @@ import { beginMemoryTurnInBackground } from "./memory-journal.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { dispatchRoutes } from "./routes/table.ts";
 import { MEMORY_SEED, workspaceDir } from "./workspace.ts";
+import { DATA_DIR } from "./config.ts";
+import { permissionLaunchCwd } from "./drivers/permission-command.ts";
+import { botFolderPresent } from "./laterdog/engine-placement.ts";
 
 const STUCK = `stuck-${process.pid}`;
 const WAKING = waking.slice("/workspaces/".length);
@@ -122,6 +125,8 @@ it("a turn's folder phase on a dog whose folder hangs does not hold the event lo
       mountedFolderGate.answers(workspaceDir(WAKING)),
       prepareTurnFolders({ workspace: workspaceDir(WAKING), task: join(workspaceDir(WAKING), "..", "..", "task-workspaces", WAKING, "thread"), seed: { name: "MEMORY.md", text: MEMORY_SEED }, budgetMs: 2_000, gate: mountedFolderGate, active: true }),
       beginMemoryTurnInBackground(WAKING, "waking-thread"),
+      botFolderPresent(DATA_DIR, WAKING),
+      Promise.resolve(permissionLaunchCwd(workspaceDir(WAKING))()),
     ]);
   } finally {
     clearInterval(sampler);
@@ -131,6 +136,8 @@ it("a turn's folder phase on a dog whose folder hangs does not hold the event lo
   expect(steps[0]).toEqual({ status: "fulfilled", value: false });
   expect(steps[1]!.status).toBe("rejected");
   expect(steps[2]).toEqual({ status: "fulfilled", value: null });
+  expect(steps[3]).toEqual({ status: "fulfilled", value: false });
+  expect(steps[4]).toEqual({ status: "fulfilled", value: undefined });
   expect(phaseMs).toBeLessThan(ANSWERS_AFTER_MS);
   expect(worst).toBeLessThan(300);
 }, 30_000);

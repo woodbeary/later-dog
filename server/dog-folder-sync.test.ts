@@ -27,6 +27,13 @@ const backup = await import("./team-backup.ts");
 const { createBotMemoryRoutes } = await import("./routes/bot-memory.ts");
 const { dispatchRoutes } = await import("./routes/table.ts");
 const { json, readBody } = await import("./harness/http.ts");
+const placement = await import("./laterdog/engine-placement.ts");
+const codex = await import("./laterdog/codex-placement.ts");
+const claudeProject = await import("./laterdog/claude-project.ts");
+const { permissionLaunchCwd } = await import("./drivers/permission-command.ts");
+const { guardMountedFolders } = await import("./laterdog/dog-mounts.ts");
+const { DATA_DIR } = await import("./config.ts");
+const { join } = await import("node:path");
 
 const bot = `dog-folder-sync-${process.pid}`;
 let server: Server;
@@ -38,7 +45,10 @@ beforeAll(async () => {
   await workspace.writeMemoryLog(bot, "2026-11-27.md", "- 01:00 · met the person\n");
   vi.stubEnv("LATERDOG_CLOUD_ROLE", "home");
   vi.stubEnv("LATERDOG_WORK_FOLDER_LAYOUT", "fixture");
-  roots.push(workspace.WORKSPACES_DIR, workspace.TASK_WORKSPACES_DIR);
+  const project = join(DATA_DIR, "..", `project-${process.pid}`);
+  (await vi.importActual<typeof import("node:fs")>("node:fs")).mkdirSync(project, { recursive: true });
+  guardMountedFolders([workspace.WORKSPACES_DIR, project]);
+  roots.push(workspace.WORKSPACES_DIR, workspace.TASK_WORKSPACES_DIR, project);
   const routes = [createBotMemoryRoutes({
     bot: (id) => (id === bot ? { id, memoryUpkeep: false } : undefined), taskByThread: () => undefined,
     upkeep: { status: () => ({ modelSteps: false }), tidy: async () => ({}) as never },
@@ -54,10 +64,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise((done) => server.close(done));
+  const project = roots[2];
   roots.length = 0;
   vi.unstubAllEnvs();
+  guardMountedFolders([]);
+  if (project) (await vi.importActual<typeof import("node:fs")>("node:fs")).rmSync(project, { recursive: true, force: true });
   const { rmSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
   rmSync(workspace.workspaceDir(bot), { recursive: true, force: true });
+  rmSync(workspace.taskWorkspacePath(bot, "launch"), { recursive: true, force: true });
 });
 
 const call = async (method: string, path: string, body?: unknown) => {
@@ -91,6 +105,23 @@ describe("server code that reads or writes a dog's mounted folder", () => {
     expect((await store.memoryOverview(bot)).logs).toHaveLength(1);
     await workspace.appendMemoryLogInBackground(bot, "a later note");
 
+    expect(touched).toEqual([]);
+  });
+
+  it("launches an engine on a dog or project folder without a synchronous call on it", async () => {
+    const dog = workspace.workspaceDir(bot);
+    const project = roots[2]!;
+    const task = await workspace.ensureTaskWorkspaceReady(bot, "launch");
+    expect(await placement.botFolderPresent(DATA_DIR, bot)).toBe(true);
+    expect(placement.botFolderRoot(DATA_DIR, bot, task, "/config", "/staging", true)?.path).toBe(dog);
+    for (const cwd of [dog, task, project]) {
+      const resolved = permissionLaunchCwd(cwd);
+      await new Promise((settle) => setTimeout(settle, 20));
+      expect(resolved()).toBeTruthy();
+      expect(claudeProject.physicalClaudePath(cwd)).toBe(cwd);
+      expect(claudeProject.claudeSessionWorkspace(cwd, "/no-config", "11111111-2222-3333-4444-555555555555").physical).toBe(cwd);
+    }
+    expect(await codex.codexComputerWorkspace(DATA_DIR, bot, "launch", task)).toBe(true);
     expect(touched).toEqual([]);
   });
 

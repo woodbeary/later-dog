@@ -1,5 +1,6 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { onMountedFolder } from "./dog-mounts.ts";
 
 export const claudeProjectSlug = (cwd: string): string => cwd.replace(/[^a-zA-Z0-9]/g, "-");
 
@@ -10,7 +11,7 @@ export function onMountedDogFolder(path: string, env: NodeJS.ProcessEnv = proces
 }
 
 export function physicalClaudePath(path: string): string {
-  if (onMountedDogFolder(path)) return path;
+  if (onMountedDogFolder(path) || onMountedFolder(path)) return path;
   try { return realpathSync(path); } catch { return path; }
 }
 

@@ -468,6 +468,7 @@ import {
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 import { MOUNTED_FOLDER_ANSWER_MS, MountedFolderStalled, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
 import { MountDown } from "./laterdog/mount-guard.ts";
+import { guardMountedFolders } from "./laterdog/dog-mounts.ts";
 import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
 import { SearchUnavailable } from "./message-search-worker.ts";
 import {
@@ -22264,6 +22265,7 @@ function janitorThread(botId: string, threadId: string): ReaperThreadState {
 }
 
 const mountedHomePaths = homeMountPaths(DATA_DIR, homedir());
+guardMountedFolders(mountedHomePaths);
 
 function janitorWorkspaces(): WorkspaceTask[] {
   if (mountedHomePaths.length) return [];
