@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { appRelease, keepRestorePoint, pruneRestorePoints, restorePointName, storeLacksRestorePoints, upgradeFrom, upgradeKeeper } from "../runtime/restore-points.mjs";
-import { collectGarbage, createHttpStore, referencedBlobs, restore, snapshot, StoreRefused } from "../runtime/sync.mjs";
+import { collectGarbage, createHttpStore, referencedBlobs, snapshot, StoreRefused } from "../runtime/sync.mjs";
+import { restore } from "../runtime/restore-engine.mjs";
 import { handleState, type StateBucket } from "../src/state.ts";
 
 const CONTAINER = "a".repeat(64);

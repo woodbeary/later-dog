@@ -5,8 +5,16 @@ WORKDIR /src
 COPY deploy/laterdog/work-folder-mount/ ./
 RUN mkdir -p /out && ./build.sh /out/laterdog-work-folder-mount
 
+FROM --platform=$BUILDPLATFORM rust:1.97.0-bookworm AS restore-builder
+ARG TARGETARCH
+WORKDIR /src
+COPY deploy/laterdog/home-restore/ ./
+RUN case "$TARGETARCH" in amd64) rustup target add x86_64-unknown-linux-musl ;; arm64) rustup target add aarch64-unknown-linux-musl ;; esac \
+ && mkdir -p /out && ./build.sh /out/laterdog-restore
+
 FROM ${BASE_IMAGE}
 COPY --from=work-folder-builder /out/laterdog-work-folder-mount /app/cloud/bin/laterdog-work-folder-mount
+COPY --from=restore-builder /out/laterdog-restore /app/cloud/bin/laterdog-restore
 COPY deploy/laterdog/work-folder-mount/LICENSE.dependencies /app/cloud/bin/LICENSE.work-folder-mount
 USER root
 COPY deploy/laterdog/home/Caddyfile /app/cloud/Caddyfile
@@ -22,6 +30,8 @@ RUN if [ -n "$LATERDOG_BUILD" ]; then printf '%s\n' "$LATERDOG_BUILD" > /app/clo
  && LATERDOG_CLOUD_PUBLIC_HOST=validate-home.later.dog caddy validate --config /app/cloud/Caddyfile --adapter caddyfile \
  && node --check /app/cloud/runtime/run.mjs \
  && node --check /app/cloud/runtime/restore-until-done.mjs \
+ && node --check /app/cloud/runtime/restore-engine.mjs \
+ && node --check /app/cloud/runtime/launcher-switch.mjs \
  && node --check /app/cloud/runtime/restore-signals.mjs \
  && node --check /app/cloud/runtime/dev-code.mjs \
  && node --check /app/cloud/runtime/archive.mjs \

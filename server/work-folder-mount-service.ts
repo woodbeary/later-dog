@@ -10,6 +10,7 @@ import { WorkFolderMountRouter } from "./laterdog/work-folder-mount-router.ts";
 import { GUEST_FOLDER_HELPER } from "./laterdog/engine-folder-process.ts";
 import { guestFolderDir } from "./laterdog/engine-folder-sync.ts";
 import { jobComputer } from "./computers.ts";
+import { coldViews } from "./laterdog/cold-views.ts";
 import { DurableFolderRead } from "./laterdog/work-folder-durable-read.ts";
 import { syncComputerWorkFolder } from "./laterdog/engine-opener.ts";
 import { withOperationDeadline } from "./laterdog/work-folder-op-deadline.ts";
@@ -81,11 +82,11 @@ async function main() {
     const committed = await call("/commit", { method: "POST", body: JSON.stringify({ parent: head.revision, manifest: null }) });
     if (!committed.ok) throw folderError(committed.status === 409 ? "EBUSY" : "EIO");
   };
-  const router = new WorkFolderMountRouter(names, open, remove, uid, gid, message => console.error(message), async scope => {
-    const guest = await jobComputer(scope.owner);
-    if (guest.state !== "asleep" && guest.state !== "gone") return null;
-    return new DurableFolderRead(workFolderBaseUrl(origin, scope.owner, scope.id), await workFolderAuthority(secret, scope.owner, scope.id), uid, gid);
-  }, (scope, inside, target) => projectLink(layout, dataDir, scope, inside, target), makeRoot);
+  const coldView = coldViews(
+    async (scope: FolderScope) => { const guest = await jobComputer(scope.owner); return guest.state === "asleep" || guest.state === "gone"; },
+    async (scope: FolderScope) => new DurableFolderRead(workFolderBaseUrl(origin, scope.owner, scope.id), await workFolderAuthority(secret, scope.owner, scope.id), uid, gid),
+  );
+  const router = new WorkFolderMountRouter(names, open, remove, uid, gid, message => console.error(message), coldView, (scope, inside, target) => projectLink(layout, dataDir, scope, inside, target), makeRoot);
   const http = createServer(async (request, response) => {
     if (request.method !== "POST" || request.url !== "/v1/fs") { response.writeHead(404).end(); return; }
     try {
