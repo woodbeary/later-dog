@@ -22,6 +22,16 @@ default); a task over that limit is reported back and the dog does the work
 itself. A task cannot start more tasks. Replies stay in the task; the main
 conversation only says what was started.
 
+Each task may also name its `machine`: `large` for code, builds, tests and app
+work, `small` for errands, research, writing and messages. Without one,
+`server/laterdog/machine-size.ts` picks from the task's folder: large when it is
+a code project (a lockfile, a package manifest, a git origin, or a linked
+project), else small. A task's own choice beats a per-dog size, which beats the
+folder. A heavy command on a small machine, or an out-of-memory or disk-full
+stop, makes that conversation's machine large for good. The choices are kept in
+`machine-sizes.json` in the data folder; the short-lived task machines of
+Step 4 read them.
+
 Code: `server/laterdog/dog-tasks.ts`, `server/routes/dog-tasks.ts`, the tool in
 `server/drivers/agents-catalog.ts`. End-to-end check:
 `server/dog-tasks.e2e.test.ts`.
