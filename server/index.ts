@@ -469,6 +469,7 @@ import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemo
 import { MOUNTED_FOLDER_ANSWER_MS, MountedFolderStalled, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
 import { MountDown } from "./laterdog/mount-guard.ts";
 import { dogFoldersMounted, guardMountedFolders } from "./laterdog/dog-mounts.ts";
+import { armSyncTripwire, onMountedSyncCall } from "./laterdog/sync-tripwire.ts";
 import { skillsCall, skillsPromptReady } from "./skills-thread.ts";
 import type { SkillPackageStamp } from "./skills.ts";
 import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
@@ -489,7 +490,6 @@ import {
   SECTION_CONTEXT_MAX_BYTES,
 } from "./section-context.ts";
 import {
-  installOrgSkill,
   SKILL_FILE_MAX_BYTES,
   resolveBotSkills,
   parseSkillMd,
@@ -497,8 +497,7 @@ import {
   listSkills,
   listStagedSkillWrites,
   isSkillName,
-  setSkillEnabled,
-  skillPackageStamps,
+  storedSkillPackageStamps,
   skillsSystemPrompt,
 } from "./skills.ts";
 import { fetchSkillFromSource } from "./skill-fetch.ts";
@@ -3943,20 +3942,20 @@ async function selectProjects(owner: boolean, selections: ProjectSelection[], re
 
 hostedModels?.reconcile(store);
 if (skillsLibraryEnabled(cfg)) {
-  try {
-    const sweep = runSkillsLibraryBootSweep({
-      bots: store.bots,
-      patch: (botId, assignedSkills) => {
-        store.patchBot(botId, { assignedSkills });
-      },
-    });
+  void runSkillsLibraryBootSweep({
+    bots: store.bots,
+    patch: (botId, assignedSkills) => {
+      store.patchBot(botId, { assignedSkills });
+    },
+    migrate: (botId, root) => skillsCall(botId, "migrateBotSkillsToLibrary", botId, root),
+  }).then((sweep) => {
     const applied = sweep.outcomes.filter((outcome) => outcome.outcome !== "skipped").length;
     if (sweep.outcomes.length) {
       console.log(`[skills-library] boot sweep: ${applied} skill(s) migrated or deduplicated, ${sweep.outcomes.length - applied} skipped`);
     }
-  } catch (error) {
+  }, (error: unknown) => {
     console.error(`[skills-library] boot sweep failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  });
 }
 let browserCleanupReferencesReconciled = true;
 try {
@@ -10480,7 +10479,7 @@ orgLibrary = new OrgLibrary({
   dataDir: DATA_DIR,
   store,
   routines: routines!,
-  skills: { list: listSkills, stamps: skillPackageStamps, setEnabled: setSkillEnabled, installOrg: installOrgSkill },
+  skills: { list: (botId) => skillsCall(botId, "listSkills", botId), stamps: storedSkillPackageStamps, setEnabled: dogSkillWrites.setEnabled, installOrg: dogSkillWrites.installOrg },
   presets: presetStore,
   postState: (message) => utilityParentPort?.postMessage(message),
 });
@@ -17687,7 +17686,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (method === "GET" && path === "/api/org-library/skills") {
       const botId = url.searchParams.get("botId") ?? undefined;
-      return json(res, 200, orgLibrary?.offeredSkills(botId) ?? { organization: null, skills: [] });
+      return json(res, 200, await orgLibrary?.offeredSkills(botId) ?? { organization: null, skills: [] });
     }
     if (method === "POST" && path === "/api/org-library/skills") {
       const body = await readBody(req);
@@ -17695,7 +17694,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         .safeParse(body);
       if (!parsed.success) return json(res, 400, { error: "Choose a dog and a trick from your organization's library." });
       if (!orgLibrary) return json(res, 404, { error: "This package is not in your organization's library.", code: "not_listed" });
-      const outcome = orgLibrary.addOfferedSkill(parsed.data.botId, parsed.data.installId, parsed.data.name);
+      const outcome = await orgLibrary.addOfferedSkill(parsed.data.botId, parsed.data.installId, parsed.data.name);
       return outcome.ok ? json(res, 201, { skill: outcome.value }) : json(res, outcome.status, { error: outcome.error, code: outcome.code });
     }
     if (method === "POST" && path === "/api/teams/import") {
@@ -22285,6 +22284,16 @@ function janitorThread(botId: string, threadId: string): ReaperThreadState {
 
 const mountedHomePaths = homeMountPaths(DATA_DIR, homedir());
 guardMountedFolders(mountedHomePaths);
+if (process.env.LATERDOG_SYNC_TRIPWIRE === "log") {
+  const told = new Set<string>();
+  onMountedSyncCall((hit) => {
+    const at = hit.stack.split("\n").slice(2, 5).map((line) => line.trim()).join(" < ");
+    if (told.has(at) || told.size > 200) return;
+    told.add(at);
+    console.error(`[mount guard] synchronous ${hit.call} on ${hit.path} from ${at}`);
+  });
+  armSyncTripwire();
+}
 
 function janitorWorkspaces(): WorkspaceTask[] {
   if (mountedHomePaths.length) return [];

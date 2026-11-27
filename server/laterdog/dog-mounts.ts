@@ -2,6 +2,7 @@ import { join, resolve } from "node:path";
 
 import { DATA_DIR } from "../config.ts";
 import { createMountGuard, mountFiles } from "./mount-guard.ts";
+import { watchMountedPaths } from "./sync-tripwire.ts";
 
 export const WORKSPACES_DIR = join(DATA_DIR, "workspaces");
 export const TASK_WORKSPACES_DIR = join(DATA_DIR, "task-workspaces");
@@ -23,6 +24,8 @@ export function dogFoldersMounted(): boolean {
 export function onMountedFolder(path: string): boolean {
   return dogFoldersMounted() && mountGuard.folderOf(resolve(path)) !== null;
 }
+
+watchMountedPaths(onMountedFolder);
 
 export async function realFolderPath(path: string): Promise<string | undefined> {
   try { return await dogFiles.realpath(path); } catch { return undefined; }
