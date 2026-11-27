@@ -277,6 +277,12 @@ export function autoCompactWindow(env: NodeJS.ProcessEnv, tuned = false): string
   return String(Math.min(1_000_000, Math.max(100_000, Math.floor(parsed))));
 }
 
+export function turnCompactWindow(standing: string | null, handoff: number | undefined): string | null {
+  if (standing === null || handoff === undefined || !Number.isFinite(handoff)) return standing;
+  const asked = Math.min(1_000_000, Math.max(100_000, Math.floor(handoff)));
+  return standing === "auto" || asked < Number(standing) ? String(asked) : standing;
+}
+
 export function nativeCompactWindow(env: NodeJS.ProcessEnv, tuned = false): number | undefined {
   const own = (env.CLAUDE_CODE_AUTO_COMPACT_WINDOW ?? "").trim();
   if (own) return /^\d+$/.test(own) && Number(own) > 0 ? Number(own) : undefined;
@@ -1295,7 +1301,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!turn.mcpFromUserConfig && claudeCliSupports(cliVersion, "--strict-mcp-config")) args.push("--strict-mcp-config");
         if (claudeCliSupports(cliVersion, "--setting-sources")) args.push("--setting-sources", "project");
       }
-      const compactWindow = autoCompactWindow(turnEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed));
+      const compactWindow = turnCompactWindow(autoCompactWindow(turnEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed)), turn.compactWindow);
       if (compactWindow && cliHasAutocompact === true) {
         args.push("--autocompact", compactWindow);
       }

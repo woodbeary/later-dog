@@ -122,6 +122,7 @@ export interface SendTurnInput {
   cwd?: string;
   mcpFromUserConfig?: boolean;
   mcpCallTimeoutMs?: number;
+  compactWindow?: number;
 }
 
 export interface StdioMcpSpec {
