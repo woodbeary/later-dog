@@ -506,14 +506,18 @@ export class EngineProcess extends EventEmitter {
     return this.placement === "computer" && this.#remote !== null && this.#remote.selectTranscript(id, name);
   }
 
+  #remoteGone(): boolean {
+    return !this.#remote || this.#remote.exitConfirmed || !this.#remote.launchSent;
+  }
+
   async stopTree(timeoutMs: number, stopLocal: (child: ChildProcess, timeoutMs: number) => Promise<boolean>): Promise<boolean> {
-    if (this.exitCode !== null || this.signalCode !== null) return !this.#remote || this.#remote.exitConfirmed;
+    if (this.exitCode !== null || this.signalCode !== null) return this.#remoteGone();
     this.#stopRequested = true;
     if (this.#local) return stopLocal(this.#local, timeoutMs);
     if (this.#remote && !this.#remote.launchSent) {
       this.#remote.close();
       await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
-      return !this.#remote || this.#remote.exitConfirmed;
+      return this.#remoteGone();
     }
     this.#remote?.stop();
     const stoppedAt = Date.now();
