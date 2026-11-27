@@ -941,7 +941,7 @@ import { createAntigravityLeftoverRoutes } from "./routes/antigravity-leftovers.
 import { findAntigravityLeftovers, removeAntigravityLeftovers } from "./drivers/antigravity-temp.ts";
 import { createLiveRoutes } from "./routes/live.ts";
 import { withScopeHint } from "./connector-scope-hint.ts";
-import { remoteEngineChoice, remoteEngineDefault, setRemoteEngineDefault, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
+import { notePlacement, remoteEngineChoice, remoteEngineDefault, setRemoteEngineDefault, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
 import { preToolGuardDecision } from "./laterdog/placed-threads.ts";
 import { carryClaudeSession } from "./laterdog/session-carry.ts";
 import { createEnginePlacementRoutes } from "./routes/engine-placement.ts";
@@ -950,8 +950,9 @@ import { retireMemberProjects } from "./laterdog/project-member-retirement.ts";
 import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener, openEngineOnMachine, type EngineWorkFolders } from "./laterdog/engine-opener.ts";
-import { saveTaskMachineSetting, taskLineService, taskMachineOpener, taskMachineSetting } from "./laterdog/task-machines.ts";
+import { machineWaitingText, saveTaskMachineSetting, TASK_MACHINE_RESOURCE, taskLineService, taskMachineOpener, taskMachineSetting } from "./laterdog/task-machines.ts";
 import { createTaskMachineRoutes } from "./routes/task-machines.ts";
+import { taskMachineLoss } from "./laterdog/task-machine-loss.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
 import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
@@ -976,7 +977,33 @@ setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFo
   ticketClass: (botId, threadId) => startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "task" : null,
   size: (botId, threadId) => machineSizes.choose(botId, threadId, undefined).size,
   openOn: async (machineId, botId, plan, signal) => openEngineOnMachine(await boat.taskMachineComputer(machineId, signal), botId, plan, engineFolderOptions),
+  onWait: (botId, threadId, wait) => {
+    if (wait.waiting) {
+      const shown = taskMachineWaits.get(threadId);
+      if (shown !== wait.place) {
+        taskMachineWaits.set(threadId, wait.place);
+        store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: machineWaitingText(wait) } });
+      }
+      bus.publish({ ...archiveWaitEventBase(botId, threadId), type: "turn.wait_started", resource: TASK_MACHINE_RESOURCE, position: wait.place });
+      return;
+    }
+    taskMachineWaits.delete(threadId);
+    bus.publish({ ...archiveWaitEventBase(botId, threadId), type: "turn.wait_ended", resource: TASK_MACHINE_RESOURCE, waitedMs: wait.waitedMs, outcome: wait.outcome });
+  },
+  onLost: (botId, threadId, machineId) => {
+    void pickUpLostTaskMachine(botId, threadId, machineId).then(
+      (outcome) => notePlacement(DATA_DIR, `[task-line] ${botId.slice(0, 8)} ${threadId.slice(0, 8)} pickup after losing ${machineId}: ${outcome}`),
+      (error: Error) => notePlacement(DATA_DIR, `[task-line] ${botId.slice(0, 8)} ${threadId.slice(0, 8)} pickup after losing ${machineId} failed: ${error.message}`),
+    );
+  },
 }));
+const taskMachineWaits = new Map<string, number>();
+const pickUpLostTaskMachine = taskMachineLoss({
+  busy: (botId, threadId) => threadBusy(botId, threadId),
+  request: (threadId) => store.activePath(threadId).findLast((message) => message.role === "user")?.id,
+  start: (botId, threadId, prompt, requestMessageId) => startContinuation(botId, threadId, prompt, requestMessageId),
+  note: (threadId, text) => { store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: text } }); },
+});
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);

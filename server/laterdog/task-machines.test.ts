@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EngineOpener } from "./engine-placement.ts";
 import type { EngineLink } from "./engine-remote.ts";
-import { saveTaskMachineSetting, taskMachineOpener, taskMachineSetting, turnEnded, type TaskLineService, type TicketView } from "./task-machines.ts";
+import { machineWaitingText, saveTaskMachineSetting, taskMachineOpener, taskMachineSetting, turnEnded, type TaskLineService, type TicketView } from "./task-machines.ts";
 
 const scratch: string[] = [];
 afterEach(() => { for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -112,6 +112,10 @@ describe("task machine opener", () => {
       await opener.open("dog-1", plan("t1"));
       expect(computer.opened).toEqual(["t1"]);
     }
+    const computer = inner();
+    const opener = taskMachineOpener(computer, { dataDir: dataDir(), ticketClass: () => "task", size: () => "small", service: () => line.service, openOn: async () => { throw new Error("not here"); } });
+    await opener.open("dog-1", { threadId: "t9", guestRuntime: { kind: "node" } } as Parameters<EngineOpener["open"]>[1]);
+    expect(computer.opened).toEqual(["t9"]);
     expect(line.rows).toEqual([]);
   });
 
@@ -179,5 +183,36 @@ describe("task machine opener", () => {
     expect(turnEnded(frame('pe":"result"}\n'), tail)).toBe(true);
     expect(turnEnded(frame('{"method":"turn/completed"}\n'), { text: "" })).toBe(true);
     expect(turnEnded(JSON.stringify({ type: "stderr", data: "eyJ0eXBlIjoicmVzdWx0In0=" }), { text: "" })).toBe(false);
+  });
+
+  it("tells the chat its place in line and when it got a machine", async () => {
+    const line = fakeLine(1);
+    const waits: unknown[] = [];
+    const opener = taskMachineOpener(inner(), { dataDir: dataDir(), ticketClass: () => "task", size: () => "large", service: () => line.service, openOn: async () => link(), onWait: (_bot, thread, wait) => waits.push([thread, wait]) });
+    const first = await opener.open("dog-1", plan("t1"));
+    const second = opener.open("dog-1", plan("t2"));
+    await settled();
+    expect(waits).toEqual([["t2", { waiting: true, place: 1, ahead: 0, running: 1, cap: 1, size: "large" }]]);
+    expect(machineWaitingText({ waiting: true, place: 2, ahead: 1, running: 3, cap: 3, size: "small" })).toBe("Waiting for a small machine — 2nd in line, 3 of 3 machines busy. Starts automatically when one frees up.");
+    first.emit("line", JSON.stringify({ type: "native_exit", code: 0 }));
+    await second;
+    expect(waits.at(-1)).toMatchObject(["t2", { waiting: false, outcome: "acquired" }]);
+  });
+
+  it("reports a machine lost in the middle of a turn, but not one the home closed or one between turns", async () => {
+    const line = fakeLine(3);
+    const lost: string[] = [];
+    const opener = taskMachineOpener(inner(), { dataDir: dataDir(), ticketClass: () => "task", size: () => "small", service: () => line.service, openOn: async () => link(), onLost: (_bot, thread, machine) => lost.push(`${thread}:${machine}`) });
+    const a = await opener.open("dog-1", plan("t1"));
+    a.emit("close", "The computer was deleted.");
+    const b = await opener.open("dog-1", plan("t2"));
+    b.close();
+    const c = await opener.open("dog-1", plan("t3"));
+    c.emit("line", JSON.stringify({ type: "native_exit", code: 0 }));
+    await settled();
+    c.emit("close", "gone");
+    await settled();
+    expect(lost).toEqual(["t1:cmp_t1"]);
+    expect(line.running()).toBe(0);
   });
 });
