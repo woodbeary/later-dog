@@ -12,6 +12,8 @@ const VCPU_SECOND_USD = 0.00002;
 export const AGENT_PORT = 7171;
 export const CHECK_MS = 30_000;
 export const START_PATIENCE_MS = 90_000;
+export const ENGINES_PER_HOST = 12;
+export const HEADROOM_ENGINES = 8;
 
 export type HostState = "starting" | "ready" | "draining";
 
@@ -87,7 +89,7 @@ export function place(hosts: PoolHostRecord[], chat: string, stickyHost: string 
   const sticky = stickyHost ? hosts.find((host) => host.id === stickyHost && host.state !== "starting" && !skip.has(host.id)) : undefined;
   if (sticky && sticky.load?.warm.includes(chat)) return { host: sticky.id, sticky: true, scaleOut: false };
   const ready = hosts.filter((host) => host.state === "ready" && !skip.has(host.id) && host.load).sort(byRoom);
-  const fits = ready.find((host) => roomFor(host.load) >= host.load!.estimateBytes);
+  const fits = ready.find((host) => host.load!.engines < ENGINES_PER_HOST && roomFor(host.load) >= host.load!.estimateBytes);
   if (fits) return { host: fits.id, sticky: false, scaleOut: false };
   const evictable = ready.find((host) => host.load!.engines > host.load!.busy);
   if (evictable) return { host: evictable.id, sticky: false, scaleOut: true };
@@ -108,6 +110,10 @@ export function observe(host: PoolHostRecord, load: HostLoad, now: number, setti
   return next;
 }
 
+export function nearlyFull(ready: PoolHostRecord[]): boolean {
+  return ready.length > 0 && ready.every((host) => (host.load?.engines ?? 0) >= HEADROOM_ENGINES);
+}
+
 export function planScale(hosts: PoolHostRecord[], now: number, settings: PoolSettings): ScalePlan {
   const plan: ScalePlan = { add: 0, drain: [], remove: [] };
   const live = hosts.filter((host) => host.state !== "draining");
@@ -115,7 +121,7 @@ export function planScale(hosts: PoolHostRecord[], now: number, settings: PoolSe
   const starting = live.filter((host) => host.state === "starting");
   if (live.length < settings.minHosts) plan.add = settings.minHosts - live.length;
   const allHigh = ready.length > 0 && ready.every((host) => host.highSince !== undefined && now - host.highSince >= settings.scaleOutAfterMs);
-  if (allHigh && starting.length === 0 && live.length + plan.add < settings.maxHosts) plan.add += 1;
+  if ((allHigh || nearlyFull(ready)) && starting.length === 0 && live.length + plan.add < settings.maxHosts) plan.add += 1;
   for (const host of hosts) {
     if (host.state === "draining" && (host.load?.busy ?? 0) === 0) plan.remove.push(host.id);
   }

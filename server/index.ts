@@ -9474,14 +9474,17 @@ async function startTurn(
       }
       turnPhases.mark(threadId, "connections");
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
-      if (worksInWorkspace) {
+      const poolTurn = instance.driverKind === "claudeAgent" && poolChosen(DATA_DIR, bot.id);
+      if (worksInWorkspace && poolTurn) {
+        if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
+      } else if (worksInWorkspace) {
         await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: taskWorkspacePath(bot.id, threadId), seed: { name: "MEMORY.md", text: MEMORY_SEED }, budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
           gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
         if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while the computer woke");
         if (!mountedFoldersActive()) ensureWorkspace(bot.id);
         if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       }
-      const privateWorkspace = worksInWorkspace ? (mountedFoldersActive() ? taskWorkspacePath(bot.id, threadId) : ensureTaskWorkspace(bot.id, threadId)) : undefined;
+      const privateWorkspace = worksInWorkspace ? (poolTurn || mountedFoldersActive() ? taskWorkspacePath(bot.id, threadId) : ensureTaskWorkspace(bot.id, threadId)) : undefined;
       const skillInstructions = renderSkillInstructions(selectedSkills, {
         includeRoot: worksInWorkspace,
       });
@@ -9490,7 +9493,7 @@ async function startTurn(
           ? store.pinTaskCwd(bot.id, threadId, privateWorkspace, { privateOnly: cloudGuestOpened(threadId) })
           : null;
       const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, pinnedCwd);
-      const checkpointCwd = cwd && (mountedFolderLayout || cwd !== privateWorkspace) ? cwd : undefined;
+      const checkpointCwd = !poolTurn && cwd && (mountedFolderLayout || cwd !== privateWorkspace) ? cwd : undefined;
       turnPhases.mark(threadId, "folders");
       if (checkpointCwd) snapshotHead = earlySnapshot(
         () => checkpoints.snapshot(bot.id, checkpointCwd, `turn ${threadId.slice(0, 8)}`, undefined, { pin: dispatchClaimId }),
