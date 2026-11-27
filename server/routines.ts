@@ -212,6 +212,14 @@ const webhookRunReceiptSchema = z.object({
 });
 type WebhookRunReceipt = z.infer<typeof webhookRunReceiptSchema>;
 const WEBHOOK_RETRY_WINDOW_MS = 7 * 24 * 60 * 60_000;
+export const ROUTINE_STARTS_PER_TICK = 2;
+export const ROUTINE_SPREAD_MS = 90_000;
+
+export function routineSpreadMs(runId: string): number {
+  let hash = 0;
+  for (const char of runId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return hash % ROUTINE_SPREAD_MS;
+}
 const MAX_WEBHOOK_RECEIPTS = 20_000;
 
 export type RoutineRequestOwner = Pick<RoutineRequestReceipt, "requestId" | "messageId" | "botId" | "threadId">;
@@ -1398,10 +1406,17 @@ export class RoutineManager {
         if (run.status === "missed") this.options.onRunFailed?.(cloneRun(run));
       }
 
+      let scheduledStarts = 0;
+      const dueTogether = (run: RoutineRun) => this.runs.filter((other) => other.status === "queued" && (other.triggerSource ?? (other.manual ? "manual" : "schedule")) === "schedule" &&
+        Math.abs(other.scheduledFor - run.scheduledFor) < ROUTINE_SPREAD_MS).length;
       for (const id of this.runs.map((run) => run.id)) {
         const run = this.runs.find((candidate) => candidate.id === id);
         if (!run || run.status !== "queued") continue;
         const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
+        if (triggerSource === "schedule") {
+          if (scheduledStarts >= ROUTINE_STARTS_PER_TICK) continue;
+          if (dueTogether(run) > ROUTINE_STARTS_PER_TICK && now < run.scheduledFor + routineSpreadMs(run.id)) continue;
+        }
         const definition = triggerSource === "schedule"
           ? this.routines.find((routine) => routine.id === run.routineId)
           : undefined;
@@ -1453,6 +1468,7 @@ export class RoutineManager {
           continue;
         }
         const threadId = conversation;
+        if (triggerSource === "schedule") scheduledStarts += 1;
         run.threadId = threadId;
         run.startedAt = startedAt;
         run.status = "running";

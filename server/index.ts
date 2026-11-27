@@ -152,7 +152,8 @@ import { createJobWake } from "./laterdog/job-wake.ts";
 import { waitCapMs } from "./laterdog/run-wait.ts";
 import { HelperTurnBudget } from "./laterdog/turn-budget.ts";
 import { DECIDE_YOURSELF, REPLY_FIRST_HELD, TurnShape } from "./laterdog/turn-shape.ts";
-import { DogRestStore, findRest, purgeDue, REST_REFUSALS, restRefusal } from "./laterdog/dog-rest.ts";
+import { DOG_PURGE_AFTER_MS, DogRestStore, findRest, purgeDue, REST_REFUSALS, restRefusal } from "./laterdog/dog-rest.ts";
+import { createRecentlyDeletedRoutes } from "./routes/recently-deleted.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
@@ -184,7 +185,7 @@ import { connectorCallFromFrame, connectorRefusalText, connectorUnrecognizedText
 import { connectorCardText } from "./connector-card-text.ts";
 import { withMainDogRouting } from "./laterdog/main-dog-prompt.ts";
 import { MAIN_DOG_DELETE_REFUSAL, MAIN_DOG_REQUIRED } from "../shared/main-dog.ts";
-import { buildRecall } from "./recall.ts";
+import { buildRecall, buildRecallInBackground } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
 import { appendAboutMe, commitLearned, holdLearned, listPendingLearned, planLearned } from "./profile-learned.ts";
 import { canAccessTeam, canReachPeer, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, PEERS_PROMPT, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomRosterLine } from "./peer-roster.ts";
@@ -323,7 +324,7 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
-import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
+import { readMessageText, recallMemoryOffThread, recallMessagesOffThread, recentMessagesOffThread, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { IncidentLedger, incidentChip, type Incident, type IncidentKind } from "./incidents.ts";
@@ -437,6 +438,7 @@ import {
   appendMemoryLog,
   appendMemoryLogInBackground,
   memorySystemPrompt,
+  syncMemoryIndexFrom,
   readMemoryFromSnapshot,
   memoryTrimmed,
   memorySourceLabel,
@@ -457,12 +459,15 @@ import {
   safeRecallText,
   type RecallDog,
 } from "./laterdog/cross-dog-recall.ts";
-import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
-import { mountedFolderGate } from "./laterdog/mounted-folder-gate.ts";
+import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
+import { mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
+import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
+import { SearchUnavailable } from "./message-search-worker.ts";
 import {
   beginMemoryTurn,
   beginMemoryTurnInBackground,
   endMemoryTurnInBackground,
+  memorySnapshotFiles,
   flushAllMemoryJournals,
   journalMemoryWrite,
   type MemoryJournalEntry,
@@ -772,6 +777,8 @@ import { createDeskPrompts, createDeskVerifier, deskDogs, deskReplyFrom } from "
 import { createDeskBrainRoute, recordDeskExchange } from "./laterdog/desk-exchange.ts";
 import { createTurnTiming } from "./laterdog/turn-timing.ts";
 import { createTurnPhases, earlySnapshot, type EarlySnapshot } from "./laterdog/turn-head-start.ts";
+import { engineWaitEvent } from "./laterdog/engine-waiting.ts";
+import { watchEventLoop } from "./laterdog/loop-watch.ts";
 import { keepWarm } from "./laterdog/keep-warm.ts";
 import { instanceTouchedBy } from "./laterdog/snapshot-cache.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
@@ -845,7 +852,7 @@ import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createStallWatch, handoffWorking, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
-import { createPickupStops, keepsNewerTurn } from "./laterdog/pickup-stops.ts";
+import { createPickupStops, keepsNewerTurn, persistPickupStop } from "./laterdog/pickup-stops.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
 import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
@@ -933,6 +940,8 @@ import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
+import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
+import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
 const folderBootstrap = BOOT_CLOUD_SECRETS.LATERDOG_CLOUD_BOOTSTRAP_SECRET ?? process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
@@ -940,7 +949,7 @@ const projectAccess = mountedFolderLayout ? new ProjectAccessController(mountedF
 const changingProjectMembers = new Set<string>();
 const projectSelectionLocks = new Set<string>();
 if (projectAccess?.layout.projects.length) await projectAccess.refresh();
-setEngineOpener(computerEngineOpener(mountedFolderLayout ? {
+setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
   workFolders: async input => {
     if (changingProjectMembers.has(input.botId)) throw new Error("This dog's shared project access is being updated.");
     const folders = engineFolderScopes(mountedFolderLayout, DATA_DIR, input);
@@ -948,7 +957,7 @@ setEngineOpener(computerEngineOpener(mountedFolderLayout ? {
       process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, scope, input.botId, input.computerId,
     ) })));
   },
-} : {}));
+} : {}), DATA_DIR));
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);
@@ -1037,6 +1046,9 @@ const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivit
 })) : null;
 const turnTiming = createTurnTiming({ log: (line) => console.log(line) });
 const turnPhases = createTurnPhases({ log: (line) => console.log(line) });
+const startPhases = createTurnPhases({ log: (line) => console.log(line), name: "server start" });
+startPhases.begin("boot");
+if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () => turnPhases.current() });
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
 const deskBrainRoute = deskVerify && deskPrompts ? createDeskBrainRoute({
@@ -1991,6 +2003,44 @@ function autoRecallPrompt(bot: BotRecord, threadId: string, message: string, opt
   }
 }
 
+async function autoRecallInBackground(bot: BotRecord, threadId: string, message: string, opts: { conversations: boolean; userName: string; docs: ReadonlyMap<string, string> | null }): Promise<string> {
+  if (bot.memoryEnabled === false || !autoRecallEnabled(cfg)) return "";
+  const roomByThread = new Map<string, GroupRecord>();
+  if (opts.conversations) {
+    for (const group of store.groups) {
+      if (!group.memberIds.includes(bot.id) || !roomFeedsBot(group, bot)) continue;
+      roomByThread.set(group.threadId, group);
+      for (const task of group.tasks ?? []) roomByThread.set(task.threadId, group);
+    }
+  }
+  const threadIds = opts.conversations
+    ? [...new Set([bot.threadId, ...(bot.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])].filter((id) => id !== threadId)
+    : [];
+  try {
+    if (opts.docs) syncMemoryIndexFrom(bot.id, memorySnapshotFiles(bot.id));
+    const recalled = await buildRecallInBackground({
+      botId: bot.id,
+      message,
+      threadIds,
+      docs: opts.docs ?? undefined,
+      mayShow: (id) => !CLOUD_HOME || cloudOwnerOnlyThread(id),
+      label: (id) => {
+        const room = roomByThread.get(id);
+        if (room) return `room ${JSON.stringify(room.name)}`;
+        const task = store.taskByThread(bot.id, id);
+        if (task) return `chat ${JSON.stringify(task.title)}`;
+        return id === bot.threadId ? "your main chat" : "an earlier chat";
+      },
+      author: (hit) => (hit.role === "user" ? hit.peer ?? opts.userName : hit.from ?? bot.name),
+    });
+    if (recalled) console.log(`auto-recall: ${bot.name} (${bot.id}) got ${recalled.notes} note and ${recalled.conversations} conversation passage(s) in ${threadId}`);
+    return recalled?.text ?? "";
+  } catch (err) {
+    console.warn(`auto-recall failed for ${bot.id}: ${(err as Error).message}`);
+    return "";
+  }
+}
+
 function withRecalled(recalled: string, text: string): string {
   return recalled ? `${recalled}\n\n${text}` : text;
 }
@@ -2263,7 +2313,9 @@ function resyncOpenCodeProviderKeys(): void {
       .then(() => broadcast({ kind: "config", ...configStatus() }), () => {});
   }
 }
+startPhases.mark("boot", "settings and secrets");
 await registry.load(providerConfigs(), decorateHostedProvider);
+startPhases.mark("boot", "engines");
 const availableSkills = () => loadUserSkills(join(DATA_DIR, "skills"));
 
 const listBotSkills = (bot: BotRecord) =>
@@ -3053,6 +3105,9 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
     store.setTaskActivity(botId, threadId, "idle");
   }
   if (options?.by === "person") pickupStops.stop(threadId);
+  if (options?.by === "person" || options?.by === "api") {
+    persistPickupStop(store.activePath(threadId), (messageId) => store.patchMessage(threadId, messageId, { requestCancelled: true }));
+  }
   const requestOwner = directRequestOwners.get(threadId);
   if (requestOwner) {
     requestOwner.stopped = true;
@@ -3805,12 +3860,14 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 let bootSelection = { instanceId: "", model: "" };
 let enginesRead: Promise<void> | null = null;
 const presetStore = createPresetStore();
+startPhases.mark("boot", "services");
 const store = new Store(
   () => bootSelection,
   (selection) => withNewBotEffort(selection, cfg.newBots?.effort, offeredEffortLevels(registry.get(selection.instanceId), selection.model)),
   (instanceId) => registry.cliTarget(instanceId)?.driverKind,
   () => newDogComputer(Boolean(CLOUD_HOME)),
 );
+startPhases.mark("boot", "chats loaded");
 const teamComputers = new TeamComputers(join(DATA_DIR, "team-computers.json"), ENVIRONMENT_ID);
 let followupsReady = false;
 const sendSequencer = new SendSequencer();
@@ -5896,11 +5953,11 @@ async function restDog(bot: BotRecord, by: string): Promise<void> {
   console.log(`[dogs] ${by.slice(0, 8)} moved dog ${bot.id.slice(0, 8)} to Recently deleted`);
 }
 
-function restoreDog(botId: string): BotRecord | null {
+function restoreDog(botId: string, show = false): BotRecord | null {
   const rest = dogRests.take(botId);
   const bot = store.bot(botId);
   if (!rest || !bot) return null;
-  const shown = store.patchBot(botId, { hidden: rest.hiddenBefore });
+  const shown = store.patchBot(botId, { hidden: show ? false : rest.hiddenBefore });
   for (const id of rest.routines) routines!.update(id, { enabled: true });
   for (const id of rest.webhooks) webhooks.update(id, { enabled: true });
   if (shown) broadcast({ kind: "bot", bot: wireBot(shown) });
@@ -8585,11 +8642,12 @@ function drainQueuedSends() {
 }
 
 async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "api" | "call") {
-  const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId));
+  const queuedAhead = hasQueuedSteeredMessages(botId, threadId);
+  const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && queuedAhead);
   const off = switchedOffNow(threadId);
   const decision = admit("direct", {}, {
     atCapacity: botAtThreadCapacity(botId),
-    threadBusy: threadBusy(botId, threadId) || behindHeld || off,
+    threadBusy: threadBusy(botId, threadId) || behindHeld || off || queuedAhead,
     groupTurn: Boolean(activeGroupTurnForBot(botId)),
     parksBehindCoordination: parksBehindCoordination(botId, threadId),
   });
@@ -8607,7 +8665,7 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
     else if (behindHeld && !batteryContinuationPending(threadId)) {
       limitHold.release(threadId);
       queueMicrotask(drainQueuedSends);
-    }
+    } else if (queuedAhead && !behindHeld) queueMicrotask(drainQueuedSends);
     return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason: decision.reason };
   }
   const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender, trigger, via });
@@ -8725,6 +8783,7 @@ async function acceptDirectSend(
         const receipt = steerReceipt(threadId);
         const busyAdmission = admit("direct-busy", {
           waitsForTurn: waitsForTurn(deliver),
+          queuedAhead: hasQueuedSteeredMessages(botId, threadId),
           carriesImages,
           pendingComputerSelection: Boolean(computerSelectionTurns.get(threadId)?.selected),
           engineCanSteer: Boolean(instance?.adapter.capabilities.queueing && instance.adapter.steer),
@@ -9259,7 +9318,7 @@ async function startTurn(
     let snapshotHead: EarlySnapshot<string> | null = null;
     let memoryHead: Promise<ReadonlyMap<string, string> | null> | null = null;
     let memoryDocs: ReadonlyMap<string, string> | null = null;
-    if (mountedFolderLayout && remoteEngineChoice(DATA_DIR, bot.id).computer) void boat.engineComputer(bot.id).catch(() => {});
+    if (mountedFolderLayout && remoteEngineChoice(DATA_DIR, bot.id).computer && !poolChosen(DATA_DIR, bot.id)) void boat.engineComputer(bot.id).catch(() => {});
     try {
       if (logArchive && !await logArchive.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
         throw new DirectTurnSetupCancelled("turn stopped while saved logs were restored");
@@ -9413,7 +9472,9 @@ async function startTurn(
       turnPhases.mark(threadId, "connections");
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
       if (worksInWorkspace) {
-        await mountedFolderGate.require(workspaceDir(bot.id));
+        await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: join(TASK_WORKSPACES_DIR, bot.id, threadId), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
+          gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
+        if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while the computer woke");
         ensureWorkspace(bot.id);
         if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       }
@@ -9876,13 +9937,14 @@ async function startTurn(
       runningTurnEngines.set(threadId, instance);
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
-      const recalled = recallsThisTurn(dispatchContext, instance.driverKind) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: fromPerson,
+      const recallReach = recallsThisTurn(dispatchContext, instance.driverKind) ? "conversations"
+        : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? "notes" : null;
+      const recalled = recallReach ? await autoRecallInBackground(bot, threadId, resolvedImages.text, {
+        conversations: recallReach === "conversations" && fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
-      }) : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: false,
-        userName: cfg.profile?.name?.trim() || "User",
+        docs: memoryDocs,
       }) : "";
+      if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while recalling notes");
       turnShape.begin(threadId, {
         questions: threadId === bot.threadId && Date.now() - (bot.createdAt ?? 0) < DOG_SETUP_QUESTIONS_MS,
         replyFirst: fromPerson && !fromLocalTool,
@@ -11705,7 +11767,8 @@ async function runGroupMemberTurn(
   const text = `${roomContext}\n\n(Reply to the conversation above as ${bot.name}.)${cardContinuation ? `\n\n${cardContinuation}` : ""}${coordinationReminder}${liveRosterBlock}`;
 
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
-  if (worksInWorkspace) await mountedFolderGate.require(workspaceDir(bot.id));
+  if (worksInWorkspace) await prepareTurnFolders({ workspace: workspaceDir(bot.id), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
+    gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
   const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, workspace && cloudGuestOpened(threadId)
@@ -14061,6 +14124,7 @@ ROUTES.push(createEnginePlacementRoutes({
   read: (id) => remoteEngineChoice(DATA_DIR, id),
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
 }));
+ROUTES.push(createEnginePoolRoutes({ read: () => poolSetting(DATA_DIR), save: (setting) => savePoolSetting(DATA_DIR, setting) }));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
 ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
 ROUTES.push(createHomeLogRoutes({ dir: () => (CLOUD_HOME ? join(DATA_DIR, HOME_SERVER_LOG_DIR) : null) }));
@@ -14150,6 +14214,11 @@ ROUTES.push(createMacAccessRoutes({
     return true;
   },
   view: () => macAccessView(),
+}));
+ROUTES.push(createRecentlyDeletedRoutes({
+  mayRestore: (auth) => !CLOUD_HOME || cloudOwnerSession(auth),
+  list: () => dogRests.list().filter((rest) => store.bot(rest.botId)).map((rest) => ({ id: rest.botId, name: rest.name, at: rest.at, purgeAt: rest.at + DOG_PURGE_AFTER_MS })),
+  restore: (botId) => Boolean(restoreDog(botId, true)),
 }));
 ROUTES.push(createFullAccessAllRoutes({
   cloudHome: Boolean(CLOUD_HOME),
@@ -15743,7 +15812,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           tool: { name: recallCrossingLabel(bot.name, crossing.count), ok: true },
         });
       };
-      if (method === "GET" && path === "/api/internal/session-search") {
+      if (method === "GET" && path === "/api/internal/session-search") try {
         const fromBotId = String(url.searchParams.get("fromBotId") ?? "");
         const from = store.bot(fromBotId);
         if (!from) return json(res, 403, { error: "unknown sender" });
@@ -15769,6 +15838,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (scope !== "all" && scope !== "conversations" && scope !== "memory") {
           return json(res, 400, { error: "scope must be all, conversations, or memory" });
         }
+        const lending = cloudLendingView(internalCapability);
+        const searchShown = async (threadIds: string[]) => {
+          const wanted = lending ? Math.min(limit * 4, 100) : limit;
+          const found = q ? await recallMessagesOffThread(q, threadIds, wanted, range) : await recentMessagesOffThread(threadIds, range ?? {}, wanted);
+          if (!lending) return found;
+          const shown = new Map<string, boolean>();
+          return found.filter((hit) => {
+            if (!shown.has(hit.threadId)) shown.set(hit.threadId, cloudOwnerOnlyThread(hit.threadId));
+            return shown.get(hit.threadId);
+          }).slice(0, limit);
+        };
         const askedBot = String(url.searchParams.get("bot") ?? "").trim();
         if (askedBot) {
           const dogs = store.bots.filter((bot) => !bot.hidden);
@@ -15777,14 +15857,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (!(picked.length === 1 && picked[0]!.id === from.id)) {
             if (!crossDogRecallAllowed(from, fromThreadId)) return json(res, 403, { error: CROSS_DOG_REFUSAL });
             const chats = crossDogChats(dogs.map(recallDog), store.groups, new Set(picked.map((dog) => dog.id)));
-            const lending = cloudLendingView(internalCapability);
-            const threadIds = [...chats.keys()].filter(lending ? cloudOwnerOnlyThread : () => true);
-            const crossMemory = scope === "conversations" || !q
-              ? []
-              : interleave(picked.filter((dog) => dog.memoryEnabled !== false).map((dog) =>
-                searchMemoryFiles(dog.id, q, limit).map((hit) => ({ ...hit, bot: dog.name, botId: dog.id, snippet: redactSecretsInText(hit.snippet) }))), limit);
+            const memoryDogs = scope === "conversations" || !q ? [] : picked.filter((dog) => dog.memoryEnabled !== false);
+            if (!mountedFoldersActive()) for (const dog of memoryDogs) syncMemoryIndex(dog.id);
+            const crossMemory = interleave((await recallMemoryOffThread(q, memoryDogs.map((dog) => dog.id), limit)).map((found, index) =>
+              found.map((hit) => ({ ...hit, bot: memoryDogs[index]!.name, botId: memoryDogs[index]!.id, snippet: redactSecretsInText(hit.snippet) }))), limit);
             if (scope === "memory") return json(res, 200, { cross: true, hits: [], memoryHits: crossMemory });
-            const crossFound = q ? recallMessages(q, threadIds, limit, range) : recentMessages(threadIds, range ?? {}, limit);
+            const crossFound = await searchShown([...chats.keys()]);
             const crossHits = crossFound.map((hit) => {
               const chat = chats.get(hit.threadId);
               return { ...hit, snippet: redactSecretsInText(hit.snippet), bot: chat?.dog ?? "a dog", chat: chat?.chat ?? "a chat", current: hit.threadId === fromThreadId };
@@ -15803,10 +15881,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           roomByThread.set(group.threadId, group);
           for (const task of group.tasks ?? []) roomByThread.set(task.threadId, group);
         }
-        const ownThreads = [...new Set([from.threadId, ...(from.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])]
-          .filter(cloudLendingView(internalCapability) ? cloudOwnerOnlyThread : () => true);
+        const ownThreads = [...new Set([from.threadId, ...(from.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])];
         const inRoom = Boolean(store.groupByThread(fromThreadId));
-        const found = q ? recallMessages(q, ownThreads, limit, range) : recentMessages(ownThreads, range ?? {}, limit);
+        const found = await searchShown(ownThreads);
         const hits = found.map((hit) => {
           const room = roomByThread.get(hit.threadId);
           return {
@@ -15823,6 +15900,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           discloseRecall(from, fromThreadId, hits.filter((hit) => hit.crossed).map((hit) => hit.threadId));
         }
         return json(res, 200, { hits, memoryHits });
+      } catch (error) {
+        if (error instanceof SearchUnavailable) return json(res, error.status, { error: error.message });
+        throw error;
       }
       if (method === "GET" && path === "/api/internal/session-read") {
         const fromBotId = String(url.searchParams.get("fromBotId") ?? "");
@@ -18628,6 +18708,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       for (const key of ["unread", "cloudBackend", "color", "mascotExpression", "mascotBody", "pinned", "hidden"] as const) {
         if (body[key] !== undefined) patch[key] = body[key];
       }
+      if (body.hidden === false && dogRests.get(m[1])) restoreDog(m[1], true);
       Object.assign(patch, store.pinRankFor(m[1], body.pinned));
       const computerSpecified = Object.prototype.hasOwnProperty.call(body, "computer");
       let requestedComputer = existingBot?.computer;
@@ -22323,6 +22404,7 @@ for (const row of chatFollowups()) {
   }
   settleChatFollowups([row.id], null);
 }
+startPhases.mark("boot", "routes and watchers");
 restoreSteeredMessages();
 restoreChannelMessages();
 
@@ -22352,7 +22434,9 @@ try {
   if (movedAutoPins) console.log(`Works on: moved ${movedAutoPins} auto-pinned thread(s) to their bot's current Works on`);
 }
 
+startPhases.mark("boot", "interrupted work restored");
 server.listen(PORT, "127.0.0.1", async () => {
+  startPhases.end("boot", "listening");
   companyRuntimeReady();
   void connectedRepositories.refresh();
   console.log(`later.dog server on http://127.0.0.1:${PORT}`);

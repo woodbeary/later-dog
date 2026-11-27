@@ -10,7 +10,7 @@ import type { UsageTrigger } from "./usage-ledger.ts";
 import { ReplyDiskReserve } from "./laterdog/reply-disk-reserve.ts";
 import { rollbackQuietly } from "./laterdog/safe-rollback.ts";
 import { ensureNativeRuns, deleteNativeRuns } from "./laterdog/native-run-store.ts";
-import { MessageSearchWorker } from "./message-search-worker.ts";
+import { MessageSearchWorker, WITHIN_BUDGET, type ReadQuery } from "./message-search-worker.ts";
 import { searchMessagesInDatabase, type SearchHit } from "./message-search-query.ts";
 export type { SearchHit } from "./message-search-query.ts";
 
@@ -20,6 +20,7 @@ const replyReserve = new ReplyDiskReserve();
 let handle: DatabaseSync | null = null;
 let handlePath: string | null = null;
 let searchWorker: MessageSearchWorker | null = null;
+let recallWorker: MessageSearchWorker | null = null;
 let closingSearch: Promise<void> = Promise.resolve();
 
 function open(): DatabaseSync {
@@ -610,31 +611,36 @@ function rangeClause(range: RecallRange | undefined, column: string): { sql: str
   return { sql: parts.map((part) => ` AND ${part}`).join(""), params };
 }
 
-export function recallMessages(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): RecallHit[] {
+type RecallRow = {
+  thread_id: string;
+  id: string;
+  at: number;
+  role: string;
+  kind: string;
+  from_name: string | null;
+  peer_name: string | null;
+  head: string;
+  snippet: string;
+};
+
+function recallRead(query: string, threadIds: readonly string[], limit: number, range: RecallRange | undefined, mode: SearchMode, guard = ""): ReadQuery | null {
   const match = ftsQuery(query, mode);
-  if (!match || !threadIds.length) return [];
+  if (!match || !threadIds.length) return null;
   const placeholders = threadIds.map(() => "?").join(", ");
   const window = rangeClause(range, "m.at");
-  const rows = db()
-    .prepare(
+  return {
+    sql:
       "SELECT m.thread_id, m.id, m.at, m.role, m.kind, json_extract(m.json, '$.from.name') AS from_name, " +
-        `json_extract(m.json, '$.peerAsk.name') AS peer_name, substr(m.text, 1, ${PEER_NOTE_HEAD_CHARS}) AS head, ` +
-        `snippet(messages_fts, 0, '[', ']', '…', ${SNIPPET_TOKENS}) AS snippet ` +
-        "FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid " +
-        `WHERE messages_fts MATCH ? AND m.kind IN ('text', 'digest') AND m.thread_id IN (${placeholders})${window.sql} ` +
-        "ORDER BY (m.kind = 'digest'), bm25(messages_fts), m.at DESC LIMIT ?",
-    )
-    .all(match, ...threadIds, ...window.params, limit) as Array<{
-    thread_id: string;
-    id: string;
-    at: number;
-    role: string;
-    kind: string;
-    from_name: string | null;
-    peer_name: string | null;
-    head: string;
-    snippet: string;
-  }>;
+      `json_extract(m.json, '$.peerAsk.name') AS peer_name, substr(m.text, 1, ${PEER_NOTE_HEAD_CHARS}) AS head, ` +
+      `snippet(messages_fts, 0, '[', ']', '…', ${SNIPPET_TOKENS}) AS snippet ` +
+      "FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid " +
+      `WHERE messages_fts MATCH ? AND m.kind IN ('text', 'digest') AND m.thread_id IN (${placeholders})${window.sql}${guard} ` +
+      "ORDER BY (m.kind = 'digest'), bm25(messages_fts), m.at DESC LIMIT ?",
+    params: [match, ...threadIds, ...window.params, limit],
+  };
+}
+
+function recallHits(rows: RecallRow[]): RecallHit[] {
   return rows.map((row) => {
     const peer = peerAuthor(row.peer_name, row.head);
     return {
@@ -650,28 +656,51 @@ export function recallMessages(query: string, threadIds: readonly string[], limi
   });
 }
 
+function readHere<T>(read: ReadQuery | null): T[] {
+  return read ? db().prepare(read.sql).all(...read.params) as T[] : [];
+}
+
+export const RECALL_BUDGET_MS = 3_000;
+
+async function readOffThread<T>(read: ReadQuery | null): Promise<T[]> {
+  if (!read) return [];
+  return (await readAllOffThread([read]))[0] as T[];
+}
+
+function readAllOffThread(reads: ReadQuery[]): Promise<unknown[][]> {
+  if (!reads.length) return Promise.resolve([]);
+  db();
+  recallWorker ??= new MessageSearchWorker(DB_FILE(), RECALL_BUDGET_MS);
+  return recallWorker.read(reads);
+}
+
+export function recallMessages(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): RecallHit[] {
+  return recallHits(readHere<RecallRow>(recallRead(query, threadIds, limit, range, mode)));
+}
+
+export async function recallMessagesOffThread(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): Promise<RecallHit[]> {
+  return recallHits(await readOffThread<RecallRow>(recallRead(query, threadIds, limit, range, mode, WITHIN_BUDGET)));
+}
+
 const RECENT_HEAD_CHARS = 240;
 
-export function recentMessages(threadIds: readonly string[], range: RecallRange, limit = 12): RecallHit[] {
-  if (!threadIds.length) return [];
+type RecentRow = { thread_id: string; id: string; at: number; role: string; from_name: string | null; peer_name: string | null; head: string };
+
+function recentRead(threadIds: readonly string[], range: RecallRange, limit: number, guard = ""): ReadQuery | null {
+  if (!threadIds.length) return null;
   const placeholders = threadIds.map(() => "?").join(", ");
   const window = rangeClause(range, "m.at");
-  const rows = db()
-    .prepare(
+  return {
+    sql:
       "SELECT m.thread_id, m.id, m.at, m.role, json_extract(m.json, '$.from.name') AS from_name, " +
-        `json_extract(m.json, '$.peerAsk.name') AS peer_name, substr(m.text, 1, ${Math.max(PEER_NOTE_HEAD_CHARS, RECENT_HEAD_CHARS)}) AS head ` +
-        `FROM messages m WHERE m.kind = 'text' AND m.text IS NOT NULL AND m.thread_id IN (${placeholders})${window.sql} ` +
-        "ORDER BY m.at DESC LIMIT ?",
-    )
-    .all(...threadIds, ...window.params, limit) as Array<{
-    thread_id: string;
-    id: string;
-    at: number;
-    role: string;
-    from_name: string | null;
-    peer_name: string | null;
-    head: string;
-  }>;
+      `json_extract(m.json, '$.peerAsk.name') AS peer_name, substr(m.text, 1, ${Math.max(PEER_NOTE_HEAD_CHARS, RECENT_HEAD_CHARS)}) AS head ` +
+      `FROM messages m WHERE m.kind = 'text' AND m.text IS NOT NULL AND m.thread_id IN (${placeholders})${window.sql}${guard} ` +
+      "ORDER BY m.at DESC LIMIT ?",
+    params: [...threadIds, ...window.params, limit],
+  };
+}
+
+function recentHits(rows: RecentRow[]): RecallHit[] {
   return rows.map((row) => {
     const peer = peerAuthor(row.peer_name, row.head);
     const folded = row.head.replace(/\s+/g, " ").trim();
@@ -685,6 +714,14 @@ export function recentMessages(threadIds: readonly string[], range: RecallRange,
       ...(peer ? { peer } : {}),
     };
   });
+}
+
+export function recentMessages(threadIds: readonly string[], range: RecallRange, limit = 12): RecallHit[] {
+  return recentHits(readHere<RecentRow>(recentRead(threadIds, range, limit)));
+}
+
+export async function recentMessagesOffThread(threadIds: readonly string[], range: RecallRange, limit = 12): Promise<RecallHit[]> {
+  return recentHits(await readOffThread<RecentRow>(recentRead(threadIds, range, limit, WITHIN_BUDGET)));
 }
 
 export interface ThreadLatest {
@@ -748,26 +785,42 @@ export interface MemoryHit {
   at: number;
 }
 
-export function recallMemory(query: string, botId: string, limit = 12, mode: SearchMode = "all"): MemoryHit[] {
+type MemoryRow = { path: string; mtime_ms: number; snippet: string };
+
+function memoryRead(query: string, botId: string, limit: number, mode: SearchMode, guard = ""): ReadQuery | null {
   const match = ftsQuery(query, mode);
-  if (!match) return [];
-  const rows = db()
-    .prepare(
+  if (!match) return null;
+  return {
+    sql:
       "SELECT f.path, f.mtime_ms, " +
-        `snippet(memory_fts, 0, '[', ']', '…', ${SNIPPET_TOKENS}) AS snippet ` +
-        "FROM memory_fts JOIN memory_files f ON f.rowid = memory_fts.rowid " +
-        "WHERE memory_fts MATCH ? AND f.bot_id = ? " +
-        (mode === "any" ? "AND f.path NOT IN ('MEMORY.md', 'memory/archive.md') AND f.path NOT LIKE 'memory/log/%' " : "") +
-        "ORDER BY bm25(memory_fts), f.mtime_ms DESC LIMIT ?",
-    )
-    .all(match, botId, limit) as Array<{ path: string; mtime_ms: number; snippet: string }>;
+      `snippet(memory_fts, 0, '[', ']', '…', ${SNIPPET_TOKENS}) AS snippet ` +
+      "FROM memory_fts JOIN memory_files f ON f.rowid = memory_fts.rowid " +
+      `WHERE memory_fts MATCH ? AND f.bot_id = ?${guard} ` +
+      (mode === "any" ? "AND f.path NOT IN ('MEMORY.md', 'memory/archive.md') AND f.path NOT LIKE 'memory/log/%' " : "") +
+      "ORDER BY bm25(memory_fts), f.mtime_ms DESC LIMIT ?",
+    params: [match, botId, limit],
+  };
+}
+
+function memoryHits(rows: MemoryRow[]): MemoryHit[] {
   return rows.map((row) => ({ file: row.path, at: row.mtime_ms, snippet: row.snippet.replace(/\s+/g, " ").trim() }));
 }
 
+export function recallMemory(query: string, botId: string, limit = 12, mode: SearchMode = "all"): MemoryHit[] {
+  return memoryHits(readHere<MemoryRow>(memoryRead(query, botId, limit, mode)));
+}
+
+export async function recallMemoryOffThread(query: string, botIds: readonly string[], limit = 12, mode: SearchMode = "all"): Promise<MemoryHit[][]> {
+  const reads = botIds.map((botId) => memoryRead(query, botId, limit, mode, WITHIN_BUDGET));
+  if (reads.some((read) => !read)) return botIds.map(() => []);
+  return (await readAllOffThread(reads as ReadQuery[])).map((rows) => memoryHits(rows as MemoryRow[]));
+}
+
 export async function closeMessageSearch(): Promise<void> {
-  const worker = searchWorker;
+  const workers = [searchWorker, recallWorker].filter((worker) => worker !== null);
   searchWorker = null;
-  if (worker) closingSearch = Promise.all([closingSearch, worker.close()]).then(() => {});
+  recallWorker = null;
+  if (workers.length) closingSearch = Promise.all([closingSearch, ...workers.map((worker) => worker.close())]).then(() => {});
   await closingSearch;
 }
 

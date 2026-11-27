@@ -192,6 +192,16 @@ export class FolderStore extends FolderTreeReader {
         await this.#renew();
         continue;
       }
+      if (response?.status === 429 && attempt < RATE_LIMITED_TRIES) {
+        const after = Number(response.headers.get("retry-after"));
+        const wait = after > 0 ? Math.min(after * 1000, RATE_LIMITED_WAIT_MS) : RATE_LIMITED_DEFAULT_MS;
+        await response.body?.cancel();
+        for (let waited = 0; waited < wait; waited += 5_000) {
+          this.progress();
+          await delay(Math.min(5_000, wait - waited), undefined, { signal: this.#signal });
+        }
+        continue;
+      }
       if (response && ((response.status < 500 && response.status !== 429) || attempt >= 2)) return response;
       await response?.body?.cancel();
       await delay(250 * (attempt + 1), undefined, { signal: this.#signal });
@@ -304,6 +314,9 @@ export class FolderStore extends FolderTreeReader {
 }
 
 const PUBLISH_PAGES = 256;
+const RATE_LIMITED_TRIES = 8;
+const RATE_LIMITED_WAIT_MS = 65_000;
+const RATE_LIMITED_DEFAULT_MS = 30_000;
 
 export async function folderManifestPages(of: Category, items: string[] | WorkFolderEntry[], putPage: (node:WorkFolderNode) => Promise<string>): Promise<string> {
     let pending: string[] = [];

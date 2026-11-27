@@ -10,6 +10,10 @@ export const CODEX_UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const ROLLOUT = /^(?:\d{4}\/\d{2}\/\d{2}\/rollout-[a-zA-Z0-9_.-]+)-([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\.jsonl$/;
 const BLOCK = 1024 * 1024;
 
+export class MissingCodexSession extends Error {
+  constructor() { super("The saved Codex session is missing from its selected account. Restore the chat’s native history before retrying."); }
+}
+
 export function validatedCodexRollout(name: string, cursor: string): string {
   if (!CODEX_UUID.test(cursor) || ROLLOUT.exec(name)?.[1] !== cursor) throw new Error("Codex returned an unexpected checkpoint path.");
   return name;
@@ -33,7 +37,7 @@ export async function findSelectedCodexRollout(root: EngineFileRoot, cursor: str
   engineFilePath(root, cursor);
   try { await visit("", 0); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  if (!found) throw new Error("The saved Codex session is missing from its selected account. Restore the chat’s native history before retrying.");
+  if (!found) throw new MissingCodexSession();
   return found;
 }
 

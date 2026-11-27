@@ -147,6 +147,92 @@ clone and the first package install are already done.
   and no longer used. A failed build is retried after an hour.
 - **Free trial.** Not offered; a trial's computers start from the image as before.
 
+### Task line
+
+One `TaskLine` Durable Object (SQLite) per home key decides which task conversations get a short-lived machine now and
+which wait. It keeps the books only: starting, stopping and saving a task machine belong to the task kind of computer.
+
+| Call | Answer |
+| --- | --- |
+| `GET /v1/task-line` | `{ line: { settings, max, running, waiting } }` |
+| `GET /v1/task-line/settings` | `{ settings: { cap, idleMinutes, sizes }, max }` |
+| `PUT /v1/task-line/settings` `{ cap?, idleMinutes?, sizes? }` | the line after the change; a raised cap admits waiting work at once, a lowered one lets running work finish |
+| `POST /v1/task-line/tickets` `{ key, thread, dog?, size, class }` | 201 `{ ticket }`, `admitted` with `machine: { id, size, computerSize, reused }` or `queued` with `place` and `ahead`; the same `key` answers 200 with the same ticket |
+| `GET /v1/task-line/tickets/:id?wait=20` | the ticket; with `wait`, held up to 25 s until its state or place changes. Polling renews an admitted ticket's 2-minute lease |
+| `DELETE /v1/task-line/tickets/:id` | `cancelled` while queued (Stop while waiting); `released` once admitted, and its machine turns idle |
+
+- **Admission.** While machines are fewer than `cap` (default 20, at most `TASK_MACHINES_MAX`, 100). The person's own
+  messages (`person`) go first, then dog-started tasks and swarm parts (`task`), then routines (`routine`); first come,
+  first served inside a class.
+- **One machine per thread.** A thread's machine is named from the home, dog, thread and size, shaped like a computer id.
+  A thread whose machine is idle gets it back at once, even at the cap; a new size replaces it.
+- **Reclaim.** At the cap with work waiting, the longest-idle machine nobody in line is waiting for is stopped first.
+  A machine idle for `idleMinutes` (default 5, 2 to 30) is stopped too.
+- **Expiry.** A queued ticket nobody polled for 60 s is dropped; an admitted ticket whose lease ran out turns its machine
+  idle. An alarm every 30 s, while anything waits or runs, does both.
+
+### Warm engine pool
+
+A chat's engine runs on a pool host that stays on, so a reply never waits for a dog's computer to wake. One `PoolLine`
+Durable Object (SQLite) per home keeps the hosts and which host each chat's engine is warm on; each `PoolHost` is a
+`standard-3` container (2 vCPU, 8 GiB, 16 GB) started from the pool image with `laterdog-pool-agent serve` as its
+entrypoint. Pool hosts are placed by their own load, outside the task line's cap.
+
+| Call | Answer |
+| --- | --- |
+| `GET /v1/pool` | `{ pool: { settings, hosts: [{ id, state, face, bootMs, load, hourlyUsd }], chats, hourlyUsd } }`; `face` is `waking`, `live` or `parking` |
+| `POST /v1/pool` | starts the first host if there is none |
+| `DELETE /v1/pool` | stops and removes every host |
+| `POST /v1/pool/engines` `{ chat, command, env?, wait? }` | 200 `warm` (the same engine again), 201 `cold` (started now), or 202 `waking` with `wait: false` while a host starts; each names `host` and `stream` |
+| `GET /v1/pool/engines/:chat/stream` (WebSocket) | the warm engine's input and output; 404 `not_warm` when it was closed |
+| `DELETE /v1/pool/engines/:chat` | closes that chat's engine |
+
+- **Sticky.** A chat goes back to the host where its engine is warm. If that engine idled out, the chat starts cold on
+  the host with the most memory to spare. A caller keeps the route from `open`, and on `not_warm` opens again once.
+- **Scale.** Out by one host when every host has been above 80% memory for 2 minutes, or when no host can take a chat
+  because every engine on it is in a turn; in by draining one host that has been below 30% for 15 minutes, removed
+  once none of its engines is in a turn. Never fewer than one host, never more than `POOL_HOSTS_MAX` (4).
+- **Health.** The line checks every host's agent every 30 s. A starting host turns `live` when its agent first answers;
+  a live host that misses three checks is started again and its chats start cold.
+- **Cost.** Memory and disk are billed while a host runs, CPU only when used: about $0.076 an hour per idle host, plus
+  $0.072 per busy vCPU-hour.
+
+The engine command must start a program installed under `/home/dog/.laterdog-engine/cli/`; the engine's input and
+output are the stream. The stream speaks WebSocket frames: binary frames from the client are the engine's input; binary
+frames to the client start with `1` (output) or `2` (errors); text frames are `{ channel: "attached" }`, `{ channel:
+"exit", code }`, `{ channel: "closed", reason }` (`idle`, `memory`, `scratch_full`, `replaced`, `closed`), and a client
+may send `{ channel: "detach" }`. Output written while nobody is attached is kept (up to 1 MB) and sent on the next attach.
+
+### The pool agent
+
+`pool-agent/` is a small Rust program (`laterdog-pool-agent`, a 750 KB static binary) that runs on every pool host on
+port 7171 and keeps one engine per chat warm:
+
+- **One user per engine.** Each engine runs as its own user (uid 20001 and up, no sudo) in its own scratch folder,
+  `/pool/slot-N` (`home`, `work`, `tmp`), wiped when the engine closes.
+- **Memory.** An engine's memory is the proportional set size of every process its user runs, sampled every 3 s. The
+  host's use is its cgroup working set. Engines are closed least recently used first while the host is above 75% of its
+  memory, and before a new engine starts when it would not fit; an engine attached to a stream is never closed. When
+  every engine is in a turn, `open` answers 503 `host_full` and the line places the chat elsewhere.
+- **Idle.** An engine nobody is attached to closes after 10 minutes (`POOL_IDLE_SECONDS`).
+- **Limits on an engine's own tools.** Files up to 512 MB each and a scratch folder up to 512 MB (over it, the engine
+  closes with `scratch_full`); every shell command runs through the agent as `bash`, which stops it after 60 seconds or
+  512 MB of memory; package installs are off (`PIP_NO_INDEX`, offline package managers, no sudo). A program an engine
+  starts without a shell is not held to the 60 seconds.
+
+Measured on Nov 26, 2026 on a throwaway Worker (pool image = task image plus the agent, engine started with no
+sign-in): a pool host answered 12.2 s after the start (7.7 s for the next one); the agent used 0.8 MB of memory; an
+idle warm engine 113 to 177 MB (proportional, so engines that share pages count less); opening a new engine took
+120 to 180 ms end to end and reopening a warm one 84 ms (33 ms inside the Worker); the stream attached in 243 ms and
+the engine's first output came 85 ms after the input. Two engines closed together 121 s after their last use with
+`POOL_IDLE_SECONDS` at 120; with the budget at 10% the line added a second host and each host closed its least
+recently used engine (`memory`) to start a new one. The host's cost at the measured 2% to 5% CPU is $0.076 to $0.079
+an hour. The 60-second and 512 MB command limits and the scratch limit were not exercised live.
+
+`node scripts/pool-image.mjs --base <task image> --to registry.cloudflare.com/<account>/<repository>:<tag>` builds the
+agent for `x86_64-unknown-linux-musl` (cargo with `rust-lld`, no other toolchain) and appends it to the task image as one
+layer. `cargo test` in `pool-agent/` runs its own tests.
+
 ### MCP
 
 `POST /mcp` is the same computers and decisions as nine MCP tools (`computer_list`, `computer_create`, `computer_wake`,

@@ -34,6 +34,9 @@ export function createTurnPhases(options: { log: (line: string) => void; now?: (
       turn.parts.push(`${phase} ${((at - turn.last) / 1000).toFixed(1)} s`);
       turn.last = at;
     },
+    current(): string {
+      return [...turns].map(([threadId, turn]) => `${threadId.slice(0, 8)} after ${turn.parts.at(-1)?.replace(/ [0-9.]+ s$/, "") ?? "start"}`).join(", ") || "no turn starting";
+    },
     end(threadId: string, phase: string): void {
       this.mark(threadId, phase);
       const turn = turns.get(threadId);
