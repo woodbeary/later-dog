@@ -22,6 +22,7 @@ RUN if [ -n "$LATERDOG_BUILD" ]; then printf '%s\n' "$LATERDOG_BUILD" > /app/clo
  && LATERDOG_CLOUD_PUBLIC_HOST=validate-home.later.dog caddy validate --config /app/cloud/Caddyfile --adapter caddyfile \
  && node --check /app/cloud/runtime/run.mjs \
  && node --check /app/cloud/runtime/restore-until-done.mjs \
+ && node --check /app/cloud/runtime/restore-signals.mjs \
  && node --check /app/cloud/runtime/dev-code.mjs \
  && node --check /app/cloud/runtime/archive.mjs \
  && node --input-type=module -e 'import { archiveCompatible } from "/app/cloud/runtime/archive-capability.mjs"; if (!await archiveCompatible("/app/dist-server/cloud-home-start.js", {workFolders:true})) throw new Error("home server lacks safe log restoration")' \

@@ -17,6 +17,7 @@ export interface EngineFileRoot {
   transcript?: boolean;
   streamedTree?: boolean;
   logicalPath?: string;
+  remotePath?: string;
 }
 export type EngineFilePrefix = { size: number; hash: string };
 export interface EngineFile { root: string; path: string; hash: string; size: number; mode: number; link?: string; directory?: true }
