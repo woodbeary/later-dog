@@ -14734,6 +14734,11 @@ INTERNAL_ROUTES.push(createDogFolderRoute({
   owns: (botId, threadId) => connectorThread(botId, threadId) !== null,
   folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
   run: (path, op) => mountGuard.run(path, op),
+  ...(mountedFolderLayout ? { ready: async (botId: string, threadId: string) => {
+    await boat.engineComputer(botId);
+    await prepareTurnFolders({ workspace: workspaceDir(botId), task: taskWorkspacePath(botId, threadId), seed: { name: "MEMORY.md", text: MEMORY_SEED },
+      budgetMs: boat.ENGINE_BOOT_BUDGET_MS, gate: mountedFolderGate, active: mountedFoldersActive() });
+  } } : {}),
 }));
 INTERNAL_ROUTES.push(createReactRoute({
   activePath: (threadId) => store.activePath(threadId),
