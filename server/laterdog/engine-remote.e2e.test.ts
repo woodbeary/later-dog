@@ -272,6 +272,7 @@ it("recovers a later guest transcript before dispatch and preserves both copies 
   const diagnostics: string[] = [];
   conflict.engine.stderr.on("data", chunk => diagnostics.push(String(chunk)));
   expect(await closed(conflict.engine)).toBe(1);
+  expect(await killCliTree(conflict.engine as unknown as ChildProcess, 0)).toBe(true);
   expect(diagnostics.join("")).toContain("Both copies were preserved");
   expect(readFileSync(w.sessionFile, "utf8")).toBe("home revision");
   expect(readFileSync(guest, "utf8")).toBe("computer revision");

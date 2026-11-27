@@ -221,6 +221,8 @@ interface RunResult {
   timedOut: boolean;
 }
 
+export const FOLDER_FLUSH_LIMIT_MS = 20 * MINUTE;
+
 export class DogComputer extends DurableObject<Env> {
   private readonly policy = idlePolicy(this.env);
   private readonly trialIdle: IdlePolicy = { ...idlePolicy(this.env), idleSleepMs: trialPolicy(this.env).idleSleepMs };
@@ -1297,12 +1299,13 @@ export class DogComputer extends DurableObject<Env> {
     const stderr = collect(progress, 4096);
     const exit = child.exitCode;
     const stallMs = 3 * MINUTE;
+    const giveUpAt = Date.now() + FOLDER_FLUSH_LIMIT_MS;
     let code: number | undefined;
     while (code === undefined) {
-      const left = activeAt + stallMs - Date.now();
+      const left = Math.min(activeAt + stallMs, giveUpAt) - Date.now();
       if (left <= 0) {
         try {child.kill(9);} catch {}
-        throw new Error("The assigned working folder stopped making progress before sleep");
+        throw new Error(Date.now() >= giveUpAt ? "The assigned working folder save ran past its time limit before sleep" : "The assigned working folder stopped making progress before sleep");
       }
       code = await within(exit,left);
     }

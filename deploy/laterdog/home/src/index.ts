@@ -4,7 +4,8 @@ import type { FolderCensusRequest } from "./work-folder-census.ts";
 import { ContainerProxy } from "@cloudflare/containers";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { CloudHomeHost, CloudHomeHostLarge, type HomeSummary, type PairOutcome } from "./host.ts";
-import { homeIdentity, machineFromHost } from "./identity.ts";
+import { bootstrapSecret, homeIdentity, machineFromHost } from "./identity.ts";
+import { handleWorkFolder, servedAtEdge } from "./work-folder-store.ts";
 import { homeNamespace, largeHomes, type HomeSize } from "./size.ts";
 
 export { CloudHomeHost, CloudHomeHostLarge, ContainerProxy };
@@ -91,6 +92,8 @@ export default {
     const url = new URL(request.url);
     const machineId = machineFromHost(url.hostname, env.HOME_HOST_SUFFIX);
     if (!machineId) return new Response("Not found", { status: 404 });
+    if (servedAtEdge(request))
+      return handleWorkFolder(request, env.STATE, env.HOMES.idFromName(machineId).toString(), `https://${machineId}${env.HOME_HOST_SUFFIX}`, await bootstrapSecret(env.HOME_SECRET, machineId));
     const headers = new Headers(request.headers);
     headers.set(CLIENT_IP_HEADER, request.headers.get("cf-connecting-ip") ?? "");
     const stub = await hostForMachine(env, machineId);
