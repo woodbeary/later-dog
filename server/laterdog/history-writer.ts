@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { capabilitySecret, signCapabilitySync } from "./signed-capability-node.ts";
 import {
   chatsAwaitingClear,
+  clearCoverageOutside,
   coveredHistory,
   fillFromObject,
   localHistoryPage,
@@ -43,6 +44,7 @@ export interface HistoryWriterOptions {
   ownerOf(threadId: string): string | null;
   knownChats(): string[];
   filled?(threadId: string): void;
+  inScope?(threadId: string): boolean;
   fetch?: typeof fetch;
   now?: () => number;
   log?: (line: string) => void;
@@ -99,6 +101,11 @@ export class HistoryWriter {
     return this.current === "object-writer";
   }
 
+  rescope(): void {
+    this.options.database.write((db) => clearCoverageOutside(db, (threadId) => this.covers(threadId)));
+    if (this.current !== "off") void this.reconcileAll(this.current === "object-writer" ? "record" : "copy");
+  }
+
   setMode(mode: HistoryMode): void {
     const before = this.current;
     this.current = mode;
@@ -150,8 +157,12 @@ export class HistoryWriter {
     }
   }
 
+  private covers(threadId: string): boolean {
+    return historyIdOk(threadId) && (this.options.inScope?.(threadId) ?? true);
+  }
+
   async ensureChat(threadId: string): Promise<void> {
-    if (this.current !== "object-writer" || !historyIdOk(threadId)) return;
+    if (this.current !== "object-writer" || !this.covers(threadId)) return;
     if (this.options.database.read(coveredHistory).has(threadId)) return;
     await Promise.race([
       this.reconcile(threadId, "record").catch(() => false),
@@ -186,7 +197,7 @@ export class HistoryWriter {
   }
 
   private async flushChat(chat: OutboxChat): Promise<void> {
-    if (!historyIdOk(chat.threadId)) {
+    if (!this.covers(chat.threadId)) {
       this.options.database.write((db) => settleOutbox(db, chat));
       return;
     }
@@ -230,7 +241,7 @@ export class HistoryWriter {
       const covered = db.read(coveredHistory);
       const clearing = db.read(chatsAwaitingClear);
       const chats = [...new Set([...this.options.knownChats(), ...db.read(localHistoryThreads)])]
-        .filter((id) => historyIdOk(id) && !clearing.has(id) && (kind === "reverse" || !covered.has(id)));
+        .filter((id) => this.covers(id) && !clearing.has(id) && (kind === "reverse" || !covered.has(id)));
       this.pass = { started: this.now(), finished: null, chats: chats.length };
       this.log(`[history] ${kind} pass over ${chats.length} chat(s)`);
       let next = 0;

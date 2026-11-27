@@ -68,12 +68,12 @@ function write(database: DatabaseSync, threadId: string, id: string, text: strin
   noteHistoryChat(database, threadId, false);
 }
 
-function writer(database: DatabaseSync, remote: ReturnType<typeof objects>, known: string[] = []) {
+function writer(database: DatabaseSync, remote: ReturnType<typeof objects>, known: string[] = [], inScope?: (threadId: string) => boolean) {
   let outbox = false;
   const filled: string[] = [];
   const instance = new HistoryWriter({
     origin: "https://home.example", home: HOME, bootstrapSecret: SECRET, database: port(database),
-    keepOutbox: (on) => { outbox = on; }, ownerOf: () => "bot-1", knownChats: () => known, filled: (id) => filled.push(id), fetch: remote.fetcher,
+    keepOutbox: (on) => { outbox = on; }, ownerOf: () => "bot-1", knownChats: () => known, filled: (id) => filled.push(id), fetch: remote.fetcher, inScope,
   });
   return { instance, outbox: () => outbox, filled };
 }
@@ -189,5 +189,23 @@ describe("history writer", () => {
     await off.instance.idle();
     expect(fresh.prepare("SELECT COUNT(*) AS n FROM messages WHERE thread_id = 'chat-f'").get()).toEqual({ n: 1 });
     expect(off.outbox()).toBe(false);
+  });
+
+  it("leaves chats of dogs outside the scope alone until the scope widens", async () => {
+    const database = localDatabase();
+    const remote = objects();
+    const scope = new Set(["chat-in"]);
+    const { instance } = writer(database, remote, [], (threadId) => scope.has(threadId));
+    write(database, "chat-in", "m1", "in");
+    write(database, "chat-out", "m1", "out");
+    instance.setMode("shadow");
+    await instance.idle();
+    expect((await remote.chatFor(HOME, "chat-in").stats()).count).toBe(1);
+    expect((await remote.chatFor(HOME, "chat-out").stats()).count).toBe(0);
+    expect(port(database).read(outboxSize)).toBe(0);
+    scope.add("chat-out");
+    instance.rescope();
+    await instance.idle();
+    expect((await remote.chatFor(HOME, "chat-out").stats()).count).toBe(1);
   });
 });

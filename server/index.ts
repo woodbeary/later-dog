@@ -333,7 +333,7 @@ import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
-import { readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
+import { historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
 import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
 import { SkillsPromptCache, skillsPromptWorker } from "./skills-prompt-cache.ts";
 import { readMessageText, recallMemoryOffThread, recallMessagesOffThread, recentMessagesOffThread, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
@@ -1074,6 +1074,7 @@ const historyWriter = CLOUD_HOME ? new HistoryWriter({
   ownerOf: (threadId) => store.botByThread(threadId)?.id ?? (store.groupByThread(threadId) ? `room-${store.groupByThread(threadId)!.id}` : null),
   knownChats: () => store.knownThreadIds(),
   filled: (threadId) => store.forgetCachedThread(threadId),
+  inScope: (threadId) => historyCovers(coordinatorSetting, store.botByThread(threadId)?.id ?? (store.groupByThread(threadId) ? `room-${store.groupByThread(threadId)!.id}` : null)),
   log: (line) => console.log(line),
 }) : null;
 const queuesInObject = (botId: string) => Boolean(objectQueue) && queueModeFor(coordinatorSetting, botId) === "object";
@@ -14375,6 +14376,7 @@ ROUTES.push(createCoordinatorRoutes({
   change: (change) => {
     coordinatorSetting = mergeCoordinatorSetting(coordinatorSetting, change);
     saveCoordinatorSetting(DATA_DIR, coordinatorSetting);
+    if (change.historyDogs && historyWriter?.mode === coordinatorSetting.history) historyWriter.rescope();
     historyWriter?.setMode(coordinatorSetting.history);
     return coordinatorSetting;
   },

@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { HISTORY_MODES, type HistoryMode } from "./history-writer.ts";
 
 export const CAPABILITY_MODES = ["random", "signed"] as const;
 export const QUEUE_MODES = ["container", "object"] as const;
-import { HISTORY_MODES, type HistoryMode } from "./history-writer.ts";
 
 export { HISTORY_MODES, type HistoryMode };
 export type CapabilityMode = (typeof CAPABILITY_MODES)[number];
@@ -15,6 +15,7 @@ export interface CoordinatorSetting {
   capabilities: CapabilityMode;
   queue: Record<string, QueueMode>;
   history: HistoryMode;
+  historyDogs: string[];
 }
 
 const FILE = "coordinator.json";
@@ -24,9 +25,10 @@ export const coordinatorSettingSchema = z.object({
   capabilities: z.enum(CAPABILITY_MODES).optional(),
   queue: z.record(z.string().regex(DOG_KEY), z.enum(QUEUE_MODES).nullable()).optional(),
   history: z.enum(HISTORY_MODES).optional(),
+  historyDogs: z.array(z.string().regex(DOG_KEY)).min(1).max(500).optional(),
 }).strict();
 
-export const OFF: CoordinatorSetting = { capabilities: "random", queue: {}, history: "off" };
+export const OFF: CoordinatorSetting = { capabilities: "random", queue: {}, history: "off", historyDogs: [EVERY_DOG] };
 
 export function readCoordinatorSetting(dataDir: string): CoordinatorSetting {
   const file = join(dataDir, FILE);
@@ -46,7 +48,7 @@ export function mergeCoordinatorSetting(current: CoordinatorSetting, change: z.i
     if (mode === null) delete queue[dog];
     else queue[dog] = mode;
   }
-  return { capabilities: change.capabilities ?? current.capabilities, queue, history: change.history ?? current.history };
+  return { capabilities: change.capabilities ?? current.capabilities, queue, history: change.history ?? current.history, historyDogs: change.historyDogs ?? current.historyDogs };
 }
 
 export function saveCoordinatorSetting(dataDir: string, setting: CoordinatorSetting): void {
@@ -57,4 +59,8 @@ export function saveCoordinatorSetting(dataDir: string, setting: CoordinatorSett
 
 export function queueModeFor(setting: CoordinatorSetting, dogId: string): QueueMode {
   return setting.queue[dogId] ?? setting.queue[EVERY_DOG] ?? "container";
+}
+
+export function historyCovers(setting: CoordinatorSetting, dogId: string | null): boolean {
+  return setting.historyDogs.includes(EVERY_DOG) || (dogId !== null && setting.historyDogs.includes(dogId));
 }

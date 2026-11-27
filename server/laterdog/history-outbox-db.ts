@@ -181,3 +181,15 @@ function parsed(json: string): { role: string; kind: string; text: string | null
     text: typeof message.text === "string" ? message.text : null,
   };
 }
+
+export function clearCoverageOutside(database: DatabaseSync, covers: (threadId: string) => boolean): number {
+  const rows = database.prepare("SELECT thread_id FROM history_coverage").all() as Array<{ thread_id: string }>;
+  const drop = database.prepare("DELETE FROM history_coverage WHERE thread_id = ?");
+  let dropped = 0;
+  for (const { thread_id: threadId } of rows) {
+    if (covers(threadId)) continue;
+    drop.run(threadId);
+    dropped += 1;
+  }
+  return dropped;
+}
