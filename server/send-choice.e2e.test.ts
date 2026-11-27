@@ -120,6 +120,26 @@ posixOnly("choosing how a message reaches a working dog", () => {
     ]);
   }, 40_000);
 
+  it("a plain message sent after a queued one waits behind it instead of steering past it", async () => {
+    const created = await workingBot();
+    try {
+      const queued = await api("POST", `/api/bots/${created.id}/messages`, { text: "after that", threadId: created.threadId, deliver: "queue" });
+      expect(queued.body).toMatchObject({ ok: true, queued: true });
+      const plain = await api("POST", `/api/bots/${created.id}/messages`, { text: "and this too", threadId: created.threadId });
+      expect(plain.status).toBe(202);
+      expect(plain.body).toMatchObject({ ok: true, queued: true });
+      expect(plain.body.steered).toBeUndefined();
+      expect(await texts(created.id)).not.toContain("user:and this too");
+    } finally {
+      writeFileSync(gate, "finish");
+    }
+    await waitFor(async () => (await texts(created.id)).includes("user:and this too"), "the queued words to run");
+    await waitFor(async () => (await getBot(created.id)).busy === false, "the queued turn to settle");
+    const said = await texts(created.id);
+    expect(said.indexOf("user:after that")).toBeGreaterThan(said.indexOf("bot:reply to: first"));
+    expect(said.indexOf("user:and this too")).toBeGreaterThan(said.indexOf("user:after that"));
+  }, 40_000);
+
   it("Stop and send ends the running turn and runs the words next", async () => {
     const created = await workingBot();
     const stopped = await api("POST", `/api/bots/${created.id}/messages`, { text: "do this instead", threadId: created.threadId, deliver: "stop" });

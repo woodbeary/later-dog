@@ -10,6 +10,7 @@ import { directoryAttr, folderError, WorkFolderNamespace } from "./work-folder-n
 type Channel = { scope: FolderScope; access: Promise<GuestFolderAccess>; handles: number; writers: number; active: number; timer?: NodeJS.Timeout; dirty: number; saved: number; saving?: Promise<void> };
 type ColdCursor = { view: DurableFolderRead; leaf: Awaited<ReturnType<DurableFolderRead["lookup"]>> };
 type Cursor = ColdCursor | { names: string[]; path: string } | { remote: string; channel: Channel; path: string; writable: boolean };
+export const IDLE_CHANNEL_KEPT_MS = 10 * 60_000;
 const changed = new Set(["write", "mkdir", "create", "unlink", "rmdir", "rename", "link", "symlink", "setattr"]);
 
 export class WorkFolderMountRouter {
@@ -101,9 +102,14 @@ export class WorkFolderMountRouter {
       delete channel.timer;
       try {
         await this.save(channel);
-        if (!channel.handles && !channel.active && channel.saved === channel.dirty && this.channels.get(channel.scope.path) === channel) {
-          this.channels.delete(channel.scope.path);
-          (await channel.access).channel.close();
+        if (!channel.handles && !channel.active && channel.saved === channel.dirty && this.channels.get(channel.scope.path) === channel && !channel.timer) {
+          channel.timer = setTimeout(() => {
+            delete channel.timer;
+            if (channel.handles || channel.active || channel.saved !== channel.dirty || this.channels.get(channel.scope.path) !== channel) return;
+            this.channels.delete(channel.scope.path);
+            void channel.access.then((access) => access.channel.close(), () => {});
+          }, IDLE_CHANNEL_KEPT_MS);
+          channel.timer.unref();
         }
       } catch (error) {
         this.report("Work folder checkpoint pending: " + String(error));

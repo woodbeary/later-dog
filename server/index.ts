@@ -460,6 +460,7 @@ import {
 } from "./laterdog/cross-dog-recall.ts";
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 import { mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
+import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
 import { SearchUnavailable } from "./message-search-worker.ts";
 import {
   beginMemoryTurn,
@@ -774,6 +775,8 @@ import { createDeskPrompts, createDeskVerifier, deskDogs, deskReplyFrom } from "
 import { createDeskBrainRoute, recordDeskExchange } from "./laterdog/desk-exchange.ts";
 import { createTurnTiming } from "./laterdog/turn-timing.ts";
 import { createTurnPhases, earlySnapshot, type EarlySnapshot } from "./laterdog/turn-head-start.ts";
+import { engineWaitEvent } from "./laterdog/engine-waiting.ts";
+import { watchEventLoop } from "./laterdog/loop-watch.ts";
 import { keepWarm } from "./laterdog/keep-warm.ts";
 import { instanceTouchedBy } from "./laterdog/snapshot-cache.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
@@ -847,7 +850,7 @@ import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createStallWatch, handoffWorking, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
-import { createPickupStops, keepsNewerTurn } from "./laterdog/pickup-stops.ts";
+import { createPickupStops, keepsNewerTurn, persistPickupStop } from "./laterdog/pickup-stops.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
 import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
@@ -1039,6 +1042,7 @@ const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivit
 })) : null;
 const turnTiming = createTurnTiming({ log: (line) => console.log(line) });
 const turnPhases = createTurnPhases({ log: (line) => console.log(line) });
+if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () => turnPhases.current() });
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
 const deskBrainRoute = deskVerify && deskPrompts ? createDeskBrainRoute({
@@ -3055,6 +3059,9 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
     store.setTaskActivity(botId, threadId, "idle");
   }
   if (options?.by === "person") pickupStops.stop(threadId);
+  if (options?.by === "person" || options?.by === "api") {
+    persistPickupStop(store.activePath(threadId), (messageId) => store.patchMessage(threadId, messageId, { requestCancelled: true }));
+  }
   const requestOwner = directRequestOwners.get(threadId);
   if (requestOwner) {
     requestOwner.stopped = true;
@@ -8587,11 +8594,12 @@ function drainQueuedSends() {
 }
 
 async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "api" | "call") {
-  const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId));
+  const queuedAhead = hasQueuedSteeredMessages(botId, threadId);
+  const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && queuedAhead);
   const off = switchedOffNow(threadId);
   const decision = admit("direct", {}, {
     atCapacity: botAtThreadCapacity(botId),
-    threadBusy: threadBusy(botId, threadId) || behindHeld || off,
+    threadBusy: threadBusy(botId, threadId) || behindHeld || off || queuedAhead,
     groupTurn: Boolean(activeGroupTurnForBot(botId)),
     parksBehindCoordination: parksBehindCoordination(botId, threadId),
   });
@@ -8609,7 +8617,7 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
     else if (behindHeld && !batteryContinuationPending(threadId)) {
       limitHold.release(threadId);
       queueMicrotask(drainQueuedSends);
-    }
+    } else if (queuedAhead && !behindHeld) queueMicrotask(drainQueuedSends);
     return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason: decision.reason };
   }
   const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender, trigger, via });
@@ -8727,6 +8735,7 @@ async function acceptDirectSend(
         const receipt = steerReceipt(threadId);
         const busyAdmission = admit("direct-busy", {
           waitsForTurn: waitsForTurn(deliver),
+          queuedAhead: hasQueuedSteeredMessages(botId, threadId),
           carriesImages,
           pendingComputerSelection: Boolean(computerSelectionTurns.get(threadId)?.selected),
           engineCanSteer: Boolean(instance?.adapter.capabilities.queueing && instance.adapter.steer),
@@ -9415,7 +9424,9 @@ async function startTurn(
       turnPhases.mark(threadId, "connections");
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
       if (worksInWorkspace) {
-        await mountedFolderGate.require(workspaceDir(bot.id));
+        await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: join(TASK_WORKSPACES_DIR, bot.id, threadId), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
+          gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
+        if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while the computer woke");
         ensureWorkspace(bot.id);
         if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       }
@@ -11707,7 +11718,8 @@ async function runGroupMemberTurn(
   const text = `${roomContext}\n\n(Reply to the conversation above as ${bot.name}.)${cardContinuation ? `\n\n${cardContinuation}` : ""}${coordinationReminder}${liveRosterBlock}`;
 
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
-  if (worksInWorkspace) await mountedFolderGate.require(workspaceDir(bot.id));
+  if (worksInWorkspace) await prepareTurnFolders({ workspace: workspaceDir(bot.id), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
+    gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
   const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, workspace && cloudGuestOpened(threadId)
