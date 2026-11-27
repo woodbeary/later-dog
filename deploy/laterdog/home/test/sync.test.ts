@@ -82,15 +82,6 @@ function chunksFor(manifest: { entries: Entry[] }, path: string): string[] {
   return entry.chunks;
 }
 
-function listing(root: string): string[] {
-  return (readdirSync(root, { recursive: true }) as string[])
-    .sort()
-    .map((path) => {
-      const info = statSync(join(root, path));
-      return info.isFile() ? `${path} ${info.size} ${info.mtimeMs} ${info.mode}` : `${path}/`;
-    });
-}
-
 function bytesBesides(root: string, finalName: string): number {
   return readdirSync(root)
     .filter((name) => name !== finalName)
