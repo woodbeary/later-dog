@@ -21,7 +21,7 @@ describe("Recently deleted", () => {
     expect(await call(handler, "GET", "/api/recently-deleted")).toEqual({ status: 200, body: { dogs } });
     expect(await call(handler, "POST", "/api/recently-deleted/b/restore", false)).toEqual({ status: 403, body: { error: RECENTLY_DELETED_OWNER_ONLY } });
     expect(await call(handler, "POST", "/api/recently-deleted/b/restore")).toEqual({ status: 200, body: { dogs: [] } });
-    expect((await call(handler, "POST", "/api/recently-deleted/b/restore")) as { status: number }).toMatchObject({ status: 404 });
+    expect(await call(handler, "POST", "/api/recently-deleted/b/restore")).toMatchObject({ status: 404 });
     expect(await call(handler, "GET", "/api/other")).toBe(PASS);
   });
 });
