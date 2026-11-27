@@ -1,8 +1,8 @@
-export type ReadTextSource = "mail" | "texts" | "phone" | "another dog";
+export type ReadTextSource = "mail" | "texts" | "phone" | "another dog" | "your tasks";
 
 export const READ_TEXT_TAG = "read_text";
 
-const OPENING = /^<read_text from="(mail|texts|phone|another dog)">\n/;
+const OPENING = /^<read_text from="(mail|texts|phone|another dog|your tasks)">\n/;
 const CLOSING = `\n</${READ_TEXT_TAG}>`;
 
 export function readText(source: ReadTextSource, body: string): string {

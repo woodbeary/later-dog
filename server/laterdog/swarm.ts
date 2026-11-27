@@ -95,7 +95,7 @@ export function gatherText(record: SwarmRecord, now: number): string {
     ? `Your swarm for "${record.goal}" reached its deadline with ${late.length} of ${record.parts.length} parts still working.`
     : `Your swarm for "${record.goal}" has finished all ${record.parts.length} parts.`;
   const ask = `Write the person one answer from these results, following your gather instructions: ${record.gather} Name any part that failed or is still working. The parts' replies are your own tasks' work, and their task conversations hold the details.`;
-  return cut(`${intro} ${ask}\n${readText("your swarm's parts", JSON.stringify(parts))}`, GATHER_MAX);
+  return cut(`${intro} ${ask}\n${readText("your tasks", JSON.stringify(parts))}`, GATHER_MAX);
 }
 
 export function startedSwarmWords(record: SwarmRecord, failed: readonly { title: string; error: string }[], accountName: (instanceId: string) => string): string {
