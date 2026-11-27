@@ -619,3 +619,9 @@ export async function taskMachineComputer(id: string, signal?: AbortSignal): Pro
     stream: () => { signal?.throwIfAborted(); return client.process(ready.id); },
   };
 }
+
+export async function taskMachineGone(id: string): Promise<boolean> {
+  if (!computersSelected()) return false;
+  const found = await ownClient().get(id, { signal: AbortSignal.timeout(15_000) });
+  return found === null || (found.state !== "running" && found.state !== "starting");
+}

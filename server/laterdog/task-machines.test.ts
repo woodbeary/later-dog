@@ -215,4 +215,25 @@ describe("task machine opener", () => {
     expect(lost).toEqual(["t1:cmp_t1"]);
     expect(line.running()).toBe(0);
   });
+
+  it("confirms the engine stopped when its machine is gone, so the next turn is not blocked by an unconfirmed stop", async () => {
+    const line = fakeLine(3);
+    const lost: string[] = [];
+    const opener = taskMachineOpener(inner(), { dataDir: dataDir(), ticketClass: () => "task", size: () => "small", service: () => line.service, openOn: async () => link(), onLost: (_bot, thread) => lost.push(thread), machineGone: async (id) => id === "cmp_t1" });
+    const a = await opener.open("dog-1", plan("t1"));
+    const seen: string[] = [];
+    a.on("line", (frame: string) => seen.push(frame));
+    a.on("close", () => seen.push("close"));
+    a.emit("close", "relay exited 137");
+    await settled();
+    expect(seen).toEqual([JSON.stringify({ type: "native_exit", code: null, signal: "SIGKILL" }), "close"]);
+    expect(lost).toEqual(["t1"]);
+    const b = await opener.open("dog-1", plan("t2"));
+    const seenB: string[] = [];
+    b.on("line", (frame: string) => seenB.push(frame));
+    b.emit("close", "network");
+    await settled();
+    expect(seenB).toEqual([]);
+    expect(lost).toEqual(["t1", "t2"]);
+  });
 });

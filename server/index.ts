@@ -987,6 +987,7 @@ setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFo
     taskMachineWaits.delete(threadId);
     bus.publish({ ...archiveWaitEventBase(botId, threadId), type: "turn.wait_ended", resource: TASK_MACHINE_RESOURCE, waitedMs: wait.waitedMs, outcome: wait.outcome });
   },
+  machineGone: (machineId) => boat.taskMachineGone(machineId),
   onLost: (botId, threadId, machineId) => {
     void pickUpLostTaskMachine(botId, threadId, machineId).then(
       (outcome) => notePlacement(DATA_DIR, `[task-line] ${botId.slice(0, 8)} ${threadId.slice(0, 8)} pickup after losing ${machineId}: ${outcome}`),

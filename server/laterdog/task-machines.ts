@@ -111,7 +111,11 @@ export interface TaskMachineOptions {
   renewMs?: number;
   onWait?: (botId: string, threadId: string, wait: MachineWait) => void;
   onLost?: (botId: string, threadId: string, machineId: string, why: string) => void;
+  machineGone?: (machineId: string) => Promise<boolean>;
 }
+
+export const LOST_EXIT_LINE = JSON.stringify({ type: "native_exit", code: null, signal: "SIGKILL" });
+const GONE_CHECK_MS = 20_000;
 
 export type MachineWait =
   | { waiting: true; place: number; ahead: number; running: number; cap: number; size: MachineSize }
@@ -163,7 +167,7 @@ export function turnEnded(frame: string, tail: { text: string }): boolean {
 
 export interface LeaseTurn { thread: string; dog: string; size: MachineSize; class: TicketClass; machineId: string }
 
-function holdLease(line: TaskLineService, first: string, link: EngineLink, turn: LeaseTurn, renewMs: number, note: (text: string) => void, lost: (why: string) => void): void {
+function holdLease(line: TaskLineService, first: string, link: EngineLink, turn: LeaseTurn, renewMs: number, note: (text: string) => void, lost: (why: string) => void, gone?: (machineId: string) => Promise<boolean>): void {
   let ticketId: string | null = first;
   let taking = false;
   const tail = { text: "" };
@@ -195,6 +199,26 @@ function holdLease(line: TaskLineService, first: string, link: EngineLink, turn:
     ).finally(() => { taking = false; });
   };
   let closedHere = false;
+  const emit = link.emit.bind(link);
+  let closing = false;
+  link.emit = ((event: string | symbol, ...args: unknown[]) => {
+    if (event !== "close" || closing || closedHere || !ticketId || !gone) return emit(event, ...args);
+    closing = true;
+    const midTurnLost = { why: args[0] };
+    void Promise.race([gone(turn.machineId), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), GONE_CHECK_MS).unref?.())])
+      .catch(() => false)
+      .then((isGone) => {
+        if (isGone) {
+          lostMidTurn = typeof midTurnLost.why === "string" && midTurnLost.why ? midTurnLost.why : "the machine is gone";
+          ticketHeldAtLoss = ticketId;
+          emit("line", LOST_EXIT_LINE);
+        }
+        emit("close", ...args);
+      });
+    return true;
+  }) as EngineLink["emit"];
+  let lostMidTurn: string | null = null;
+  let ticketHeldAtLoss: string | null = null;
   const close = link.close.bind(link);
   link.close = () => { closedHere = true; close(); };
   const send = link.send.bind(link);
@@ -207,11 +231,12 @@ function holdLease(line: TaskLineService, first: string, link: EngineLink, turn:
   timer.unref?.();
   link.once("close", (why: unknown) => {
     clearInterval(timer);
-    const midTurn = ticketId !== null && !closedHere;
+    const midTurn = lostMidTurn !== null || (ticketId !== null && !closedHere);
     if (ticketId) void line.drop(ticketId);
+    if (ticketHeldAtLoss && ticketHeldAtLoss !== ticketId) void line.drop(ticketHeldAtLoss);
     ticketId = null;
     if (midTurn) {
-      const words = typeof why === "string" && why ? why : "the connection closed";
+      const words = lostMidTurn ?? (typeof why === "string" && why ? why : "the connection closed");
       note(`machine ${turn.machineId} was lost mid-turn (${words})`);
       lost(words);
     }
@@ -262,7 +287,7 @@ export function taskMachineOpener(inner: EngineOpener, options: TaskMachineOptio
         const machineId = ticket.machine!.id;
         const waited = Date.now() - began;
         const link = await options.openOn(machineId, botId, plan, signal);
-        holdLease(line, ticket.id, link, { thread: plan.threadId, dog: botId, size, class: ticketClass, machineId }, options.renewMs ?? TASK_LEASE_RENEW_MS, note, (why) => options.onLost?.(botId, plan.threadId, machineId, why));
+        holdLease(line, ticket.id, link, { thread: plan.threadId, dog: botId, size, class: ticketClass, machineId }, options.renewMs ?? TASK_LEASE_RENEW_MS, note, (why) => options.onLost?.(botId, plan.threadId, machineId, why), options.machineGone);
         note(`engine opened on task machine ${machineId} (${size}) in ${Date.now() - began} ms, ${waited} ms of it in line`);
         return link;
       } catch (error) {
