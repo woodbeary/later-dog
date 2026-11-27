@@ -21,7 +21,7 @@
       "class_name": "PoolHost",
       "scheduling_policy": "durable_object",
       "images": {
-        "pool": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-claude-pool-proof@sha256:f116747575b672e4d9210b0d75e5d9d5036b8a18554aac34375d41e6c81bcd63" }
+        "pool": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-computers-pool@sha256:65d6513b9a24cf7ec4f36bdc8fd5f213e472bc1805e430b0e236c7b544d185cb" }
       },
       "observability": { "enabled": true }
     }
