@@ -110,6 +110,7 @@ export interface TaskMachineOptions {
   queueBudgetMs?: number;
   renewMs?: number;
   onWait?: (botId: string, threadId: string, wait: MachineWait) => void;
+  onLost?: (botId: string, threadId: string, machineId: string, why: string) => void;
 }
 
 export type MachineWait =
@@ -162,7 +163,7 @@ export function turnEnded(frame: string, tail: { text: string }): boolean {
 
 export interface LeaseTurn { thread: string; dog: string; size: MachineSize; class: TicketClass; machineId: string }
 
-function holdLease(line: TaskLineService, first: string, link: EngineLink, turn: LeaseTurn, renewMs: number, note: (text: string) => void): void {
+function holdLease(line: TaskLineService, first: string, link: EngineLink, turn: LeaseTurn, renewMs: number, note: (text: string) => void, lost: (why: string) => void): void {
   let ticketId: string | null = first;
   let taking = false;
   const tail = { text: "" };
@@ -193,6 +194,9 @@ function holdLease(line: TaskLineService, first: string, link: EngineLink, turn:
       () => undefined,
     ).finally(() => { taking = false; });
   };
+  let closedHere = false;
+  const close = link.close.bind(link);
+  link.close = () => { closedHere = true; close(); };
   const send = link.send.bind(link);
   link.send = (frame: string) => {
     if (!ticketId && frame.startsWith('{"type":"stdin"')) retake();
@@ -201,10 +205,16 @@ function holdLease(line: TaskLineService, first: string, link: EngineLink, turn:
   link.on("line", (frame: string) => { if (ticketId && turnEnded(frame, tail)) release(frame.includes("native_exit") ? "engine exited" : "reply finished"); });
   const timer = setInterval(renew, renewMs);
   timer.unref?.();
-  link.once("close", () => {
+  link.once("close", (why: unknown) => {
     clearInterval(timer);
+    const midTurn = ticketId !== null && !closedHere;
     if (ticketId) void line.drop(ticketId);
     ticketId = null;
+    if (midTurn) {
+      const words = typeof why === "string" && why ? why : "the connection closed";
+      note(`machine ${turn.machineId} was lost mid-turn (${words})`);
+      lost(words);
+    }
   });
 }
 
@@ -252,7 +262,7 @@ export function taskMachineOpener(inner: EngineOpener, options: TaskMachineOptio
         const machineId = ticket.machine!.id;
         const waited = Date.now() - began;
         const link = await options.openOn(machineId, botId, plan, signal);
-        holdLease(line, ticket.id, link, { thread: plan.threadId, dog: botId, size, class: ticketClass, machineId }, options.renewMs ?? TASK_LEASE_RENEW_MS, note);
+        holdLease(line, ticket.id, link, { thread: plan.threadId, dog: botId, size, class: ticketClass, machineId }, options.renewMs ?? TASK_LEASE_RENEW_MS, note, (why) => options.onLost?.(botId, plan.threadId, machineId, why));
         note(`engine opened on task machine ${machineId} (${size}) in ${Date.now() - began} ms, ${waited} ms of it in line`);
         return link;
       } catch (error) {

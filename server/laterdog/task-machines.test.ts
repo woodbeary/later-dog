@@ -198,4 +198,21 @@ describe("task machine opener", () => {
     await second;
     expect(waits.at(-1)).toMatchObject(["t2", { waiting: false, outcome: "acquired" }]);
   });
+
+  it("reports a machine lost in the middle of a turn, but not one the home closed or one between turns", async () => {
+    const line = fakeLine(3);
+    const lost: string[] = [];
+    const opener = taskMachineOpener(inner(), { dataDir: dataDir(), ticketClass: () => "task", size: () => "small", service: () => line.service, openOn: async () => link(), onLost: (_bot, thread, machine) => lost.push(`${thread}:${machine}`) });
+    const a = await opener.open("dog-1", plan("t1"));
+    a.emit("close", "The computer was deleted.");
+    const b = await opener.open("dog-1", plan("t2"));
+    b.close();
+    const c = await opener.open("dog-1", plan("t3"));
+    c.emit("line", JSON.stringify({ type: "native_exit", code: 0 }));
+    await settled();
+    c.emit("close", "gone");
+    await settled();
+    expect(lost).toEqual(["t1:cmp_t1"]);
+    expect(line.running()).toBe(0);
+  });
 });
