@@ -69,7 +69,7 @@ export function createMountGuard(options: MountGuardOptions): MountGuard {
     return found;
   };
   const waiters = new Set<{ folder: string; take: () => boolean }>();
-  const offer = () => { for (const waiter of [...waiters]) waiter.take(); };
+  const offer = () => { for (const waiter of waiters) waiter.take(); };
   const trip = (folder: string, state: FolderState) => {
     state.downUntil = now() + coolMs;
     offer();
