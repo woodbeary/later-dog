@@ -1,18 +1,16 @@
-import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { lstat, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 
 import { alwaysCore, isExpired, isMemoryDate, parseMemoryEntries, untilMark, withoutExpired, type MemoryEntryLine } from "./memory-entries.ts";
-import { parseTopicHeader, readTopicHead, renderTopicIndex, TOPIC_HEAD_BYTES } from "./memory-topics.ts";
+import { parseTopicHeader, renderTopicIndex, TOPIC_HEAD_BYTES } from "./memory-topics.ts";
 import { indexMemoryFile, indexedMemoryFiles, recallMemory, removeMemoryFile, type MemoryHit, type SearchMode } from "./message-db.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { isRecallMemoryFile } from "./laterdog/cross-dog-recall.ts";
 
-import { DATA_DIR } from "./config.ts";
-import { createMountGuard, mountFiles } from "./laterdog/mount-guard.ts";
+import { MountDown } from "./laterdog/mount-guard.ts";
+import { dogFiles, dogFoldersMounted, mountGuard, TASK_WORKSPACES_DIR, WORKSPACES_DIR } from "./laterdog/dog-mounts.ts";
 
-export const WORKSPACES_DIR = join(DATA_DIR, "workspaces");
-export const TASK_WORKSPACES_DIR = join(DATA_DIR, "task-workspaces");
+export { dogFiles, mountGuard, TASK_WORKSPACES_DIR, WORKSPACES_DIR };
 
 export function supportsWorkspaceFiles(driverKind: string): boolean {
   return !["grok", "openai-compat", "minimax", "mistral", "cerebras"].includes(driverKind);
@@ -25,8 +23,6 @@ export function taskWorkspacePath(botId: string, threadId: string): string {
   return join(TASK_WORKSPACES_DIR, botId, threadId);
 }
 
-export const mountGuard = createMountGuard({ roots: () => [WORKSPACES_DIR, TASK_WORKSPACES_DIR] });
-export const dogFiles = mountFiles(mountGuard);
 
 export async function ensureTaskWorkspaceReady(botId: string, threadId: string): Promise<string> {
   const dir = taskWorkspacePath(botId, threadId);
@@ -57,11 +53,6 @@ export function checkWorkspaceRead(error: unknown): void {
   if (mountedWorkspaceUnavailable(error)) throw error;
 }
 
-export function workspacePathExists(path: string): boolean {
-  if (process.env.LATERDOG_CLOUD_ROLE !== "home" || !process.env.LATERDOG_WORK_FOLDER_LAYOUT) return existsSync(path);
-  return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
-}
-
 export async function ensureWorkspaceReady(botId: string): Promise<string> {
   const dir = join(WORKSPACES_DIR, botId);
   await dogFiles.mkdir(join(dir, "memory"));
@@ -89,7 +80,52 @@ export function readMemoryOnlyFromRegularFiles(): void {
   regularMemoryFilesOnly = true;
 }
 
+export interface MemoryFileRead {
+  text: string;
+  mtimeMs: number;
+  bytes: number;
+}
+
+interface MemoryView {
+  botId: string;
+  docs: ReadonlyMap<string, string>;
+  files?: ReadonlyMap<string, MemoryFileRead>;
+}
+
+let memoryView: MemoryView | null = null;
+
+export function readMemoryFromSnapshot(botId: string, docs: ReadonlyMap<string, string>): void {
+  const cached = readCache.get(botId);
+  const files = new Map([...docs].flatMap(([path, text]) => {
+    const file = cached?.get(path)?.file;
+    return file?.text === text ? [[path, file] as const] : [];
+  }));
+  const view = { botId, docs, files };
+  memoryView = view;
+  queueMicrotask(() => { if (memoryView === view) memoryView = null; });
+}
+
+function viewed(path: string): { view: MemoryView; rel: string } | null {
+  if (!memoryView) return null;
+  const rel = relative(workspaceDir(memoryView.botId), path);
+  if (rel.startsWith("..") || rel.startsWith(sep)) return null;
+  return { view: memoryView, rel: rel.split(sep).join("/") };
+}
+
+function unread(path: string): never {
+  throw new MountDown(dirname(path));
+}
+
+const absent = (path: string) => Object.assign(new Error(`no such file: ${path}`), { code: "ENOENT" });
+
 export function readMemoryText(path: string): string {
+  const seen = viewed(path);
+  if (seen) {
+    const text = seen.view.docs.get(seen.rel);
+    if (text === undefined) throw absent(path);
+    return text;
+  }
+  if (dogFoldersMounted()) unread(path);
   if (!regularMemoryFilesOnly) return readFileSync(path, "utf8");
   if (!lstatSync(path).isFile()) throw Object.assign(new Error(`not a regular file: ${path}`), { code: "EINVAL" });
   const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
@@ -102,21 +138,99 @@ export function readMemoryText(path: string): string {
 }
 
 function memoryFolderEntries(dir: string): string[] {
+  const seen = viewed(dir);
+  if (seen) {
+    const prefix = seen.rel ? `${seen.rel}/` : "";
+    return [...seen.view.docs.keys()].filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/")).map((path) => path.slice(prefix.length));
+  }
+  if (dogFoldersMounted()) unread(dir);
   if (regularMemoryFilesOnly && !lstatSync(dir).isDirectory()) return [];
   return readdirSync(dir);
 }
 
 function regularFile(path: string): boolean {
   try {
-    return lstatSync(path).isFile();
+    return memoryEntryStat(path).isFile();
   } catch (error) {
     checkWorkspaceRead(error);
     return false;
   }
 }
 
-function memoryEntryStat(path: string) {
+function memoryEntryStat(path: string): { isFile(): boolean; mtimeMs: number; size: number } {
+  const seen = viewed(path);
+  if (seen) {
+    const text = seen.view.docs.get(seen.rel);
+    if (text === undefined) throw absent(path);
+    const file = seen.view.files?.get(seen.rel);
+    return { isFile: () => true, mtimeMs: file?.mtimeMs ?? 0, size: file?.bytes ?? Buffer.byteLength(text, "utf8") };
+  }
+  if (dogFoldersMounted()) unread(path);
   return regularMemoryFilesOnly ? lstatSync(path) : statSync(path);
+}
+
+export function memoryTopicHead(path: string): string {
+  try {
+    return Buffer.from(readMemoryText(path), "utf8").subarray(0, TOPIC_HEAD_BYTES).toString("utf8");
+  } catch (error) {
+    if (error instanceof MountDown) throw error;
+    return "";
+  }
+}
+
+const readCache = new Map<string, Map<string, { stamp: string; file: MemoryFileRead }>>();
+
+export async function memoryFilesReady(botId: string): Promise<Map<string, MemoryFileRead>> {
+  const root = workspaceDir(botId);
+  const seen = readCache.get(botId) ?? new Map<string, { stamp: string; file: MemoryFileRead }>();
+  readCache.set(botId, seen);
+  const listed = async (dir: string, prefix: string) => {
+    const found = await dogFiles.lstat(join(root, dir));
+    if (!found?.isDirectory()) return [];
+    return (await dogFiles.list(join(root, dir))).filter(isMemoryTopicName).map((name) => `${prefix}/${name}`);
+  };
+  const paths = ["MEMORY.md", ...await listed("memory", "memory"), ...await listed(join("memory", MEMORY_LOG_DIR), `memory/${MEMORY_LOG_DIR}`)];
+  const files = new Map<string, MemoryFileRead>();
+  for (const path of paths) {
+    const info = await dogFiles.lstat(join(root, path));
+    if (!info?.isFile()) continue;
+    const stamp = `${info.size}:${info.mtimeMs}:${info.ino}`;
+    const known = seen.get(path);
+    const text = known?.stamp === stamp ? known.file.text : await dogFiles.readText(join(root, path));
+    if (text === null) continue;
+    const file = { text, mtimeMs: info.mtimeMs, bytes: info.size };
+    seen.set(path, { stamp, file });
+    files.set(path, file);
+  }
+  for (const path of seen.keys()) if (!files.has(path)) seen.delete(path);
+  return files;
+}
+
+export function cachedMemoryFiles(botId: string): Map<string, MemoryFileRead> {
+  return new Map([...readCache.get(botId) ?? []].map(([path, { file }]) => [path, file]));
+}
+
+export function withMemoryFiles<T>(botId: string, files: ReadonlyMap<string, MemoryFileRead>, read: () => T): T {
+  const previous = memoryView;
+  memoryView = { botId, docs: new Map([...files].map(([path, file]) => [path, file.text])), files };
+  try {
+    return read();
+  } finally {
+    memoryView = previous;
+  }
+}
+
+export async function memoryDocsOrNull(botId: string): Promise<Map<string, string> | null> {
+  try {
+    return new Map([...await memoryFilesReady(botId)].map(([path, file]) => [path, file.text]));
+  } catch (error) {
+    console.error(`memory: could not read ${botId}'s notes:`, error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+export async function readMemoryFiles<T>(botId: string, read: () => T): Promise<T> {
+  return withMemoryFiles(botId, await memoryFilesReady(botId), read);
 }
 
 export function workspaceLocationsPrompt(botId: string, cwd: string | undefined, botCwd?: string, ownChatFolder?: string | null): string {
@@ -140,24 +254,9 @@ export function memoryOverBudget(text: string): boolean {
   return memoryLineCount(text) > MEMORY_MAX_LINES || Buffer.byteLength(text, "utf8") > MEMORY_MAX_BYTES;
 }
 
-let memoryView: { botId: string; docs: ReadonlyMap<string, string> } | null = null;
-
-export function readMemoryFromSnapshot(botId: string, docs: ReadonlyMap<string, string>): void {
-  const view = { botId, docs };
-  memoryView = view;
-  queueMicrotask(() => { if (memoryView === view) memoryView = null; });
-}
-
-const snapshotOf = (botId: string) => memoryView?.botId === botId ? memoryView.docs : null;
-
 export function loadMemory(botId: string, opts: { now?: Date } = {}): { text: string; truncated: boolean; lines: number; bytes: number; expired: number } | null {
   let raw: string;
-  const view = snapshotOf(botId);
-  if (view) {
-    const text = view.get("MEMORY.md");
-    if (text === undefined) return null;
-    raw = text;
-  } else try {
+  try {
     raw = readMemoryText(join(workspaceDir(botId), "MEMORY.md"));
   } catch (error) {
     checkWorkspaceRead(error);
@@ -507,19 +606,15 @@ export function appendMemoryLogInBackground(botId: string, text: string, opts: M
     if (!text.trim()) return { ok: false, code: "invalid", error: "memory_log needs the text of what happened." };
     const { line, file, relativePath } = memoryLogEntry(text, opts);
     const dir = join(workspaceDir(botId), "memory", MEMORY_LOG_DIR);
-    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await dogFiles.mkdir(dir);
     const path = join(dir, file);
     let current = "";
     try {
-      if (regularMemoryFilesOnly && !(await lstat(path)).isFile()) throw Object.assign(new Error(`not a regular file: ${path}`), { code: "EINVAL" });
-      current = await readFile(path, "utf8");
+      current = await readDogText(path);
     } catch (error) { checkWorkspaceRead(error); }
     const next = withLine(current, line);
-    const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(temporary, next, { mode: 0o600 });
-    await rename(temporary, path);
-    const written = await stat(path);
-    indexMemoryFile(botId, relativePath, searchableMemoryText(relativePath, next), { mtimeMs: written.mtimeMs, bytes: written.size });
+    await dogFiles.writeAtomic(path, next);
+    await indexWrittenMemoryFile(botId, relativePath, next);
     return { ok: true, file: relativePath, line };
   });
   memoryLogsWriting.set(botId, run.catch(() => {}));
@@ -562,11 +657,6 @@ export function isMemoryTopicName(name: string): boolean {
 }
 
 export function listMemoryTopics(botId: string): Array<{ name: string; bytes: number }> {
-  const view = snapshotOf(botId);
-  if (view) return [...view].flatMap(([path, text]) => {
-    const name = path.startsWith("memory/") ? path.slice("memory/".length) : "";
-    return isMemoryTopicName(name) ? [{ name, bytes: Buffer.byteLength(text, "utf8") }] : [];
-  }).sort((a, b) => a.name.localeCompare(b.name));
   let entries: string[];
   try {
     entries = memoryFolderEntries(join(workspaceDir(botId), "memory"));
@@ -692,9 +782,7 @@ export function memorySystemPrompt(botId: string, opts: { managedWrites?: boolea
 
 export function memoryTopicIndex(botId: string): string {
   const dir = join(workspaceDir(botId), "memory");
-  const view = snapshotOf(botId);
-  const head = (name: string) => view ? Buffer.from(view.get(`memory/${name}`) ?? "", "utf8").subarray(0, TOPIC_HEAD_BYTES).toString("utf8") : readTopicHead(join(dir, name));
-  return renderTopicIndex(listMemoryTopics(botId).map((topic) => ({ name: topic.name, header: parseTopicHeader(head(topic.name)) })));
+  return renderTopicIndex(listMemoryTopics(botId).map((topic) => ({ name: topic.name, header: parseTopicHeader(memoryTopicHead(join(dir, topic.name))) })));
 }
 
 function topicIndexBlock(botId: string, fileTools: boolean): string {

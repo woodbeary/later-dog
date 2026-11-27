@@ -74,7 +74,7 @@ describe("preset store", () => {
   it("adds a team file's presets as file presets, once per identical file, and a failed import removes them again", async () => {
     const app = await installation();
     const document = app.parsePackageDocument(fixture("full-team.v2.json"));
-    const first = app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
+    const first = await app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (first.alreadyAdded) throw new Error("unexpected");
     expect(first.presets).toEqual([{ id: expect.any(String), key: "support", name: "Support agent" }]);
@@ -86,7 +86,7 @@ describe("preset store", () => {
     expect(stored.content[first.installId!].skills.map((skill: { name: string }) => skill.name)).toEqual(["objection-handling"]);
     expect(stored.content[first.installId!].playbooks.map((playbook: { key: string }) => playbook.key)).toEqual(["qualify"]);
 
-    const second = app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
+    const second = await app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (second.alreadyAdded) throw new Error("unexpected");
     expect(second.presets).toEqual(first.presets);
@@ -94,7 +94,7 @@ describe("preset store", () => {
 
     const changed = fixture("full-team.v2.json");
     changed.package.presets[0].bot.soul = "Be brief.\n";
-    const third = app.importer.importPackageDocument(app.parsePackageDocument(changed), { trust: "file", mode: "add" }, app.deps);
+    const third = await app.importer.importPackageDocument(app.parsePackageDocument(changed), { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (third.alreadyAdded) throw new Error("unexpected");
     expect(app.presetStore.list()).toHaveLength(2);
@@ -103,14 +103,14 @@ describe("preset store", () => {
     another.package.presets[0].name = "Support agent (new)";
     const bots = app.store.bots.length;
     const lateFailure = { ...app.deps, broadcast: () => { throw new Error("window gone"); } };
-    expect(() => app.importer.importPackageDocument(app.parsePackageDocument(another), { trust: "file", mode: "add" }, lateFailure)).toThrow("window gone");
+    await expect(app.importer.importPackageDocument(app.parsePackageDocument(another), { trust: "file", mode: "add" }, lateFailure)).rejects.toThrow("window gone");
     expect(app.presetStore.list()).toHaveLength(2);
     expect(app.store.bots).toHaveLength(bots);
   });
 
   it("stores a library file's presets and offers its skills, and refuses a file with nothing to add", async () => {
     const app = await installation();
-    const result = app.importer.importPackageDocument(app.parsePackageDocument(fixture("library-only.v2.json")), { trust: "file", mode: "add" }, app.deps);
+    const result = await app.importer.importPackageDocument(app.parsePackageDocument(fixture("library-only.v2.json")), { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (result.alreadyAdded) throw new Error("unexpected");
     expect(result).toMatchObject({ name: "Sales skills", section: "", bots: [], groups: [], routines: [], offeredSkills: ["objection-handling", "follow-up"], connections: [], brief: false, notes: 0 });
@@ -120,7 +120,7 @@ describe("preset store", () => {
 
     const skillsOnly = fixture("library-only.v2.json");
     delete skillsOnly.package.presets;
-    expect(() => app.importer.importPackageDocument(app.parsePackageDocument(skillsOnly), { trust: "file", mode: "add" }, app.deps))
+    await expect(app.importer.importPackageDocument(app.parsePackageDocument(skillsOnly), { trust: "file", mode: "add" }, app.deps)).rejects
       .toThrow(app.importer.NO_PRESETS_MESSAGE);
     expect(app.presetStore.list()).toHaveLength(1);
   });
@@ -129,7 +129,7 @@ describe("preset store", () => {
     const app = await installation();
     const org = app.org();
     const document = app.orgDocument("library-only.v2.json");
-    const result = app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps);
+    const result = await app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (result.alreadyAdded) throw new Error("unexpected");
     expect(result.installId).toBe(org.installId);
@@ -137,7 +137,7 @@ describe("preset store", () => {
       source: "org", installId: org.installId, publisherName: "Acme Partners", publisher: org.publisher, ref: "acme/sales-skills", sha256: org.sha256,
     })]);
     const [first] = app.presetStore.list();
-    const again = app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps);
+    const again = await app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (again.alreadyAdded) throw new Error("unexpected");
     expect(again.presets).toEqual([{ id: first!.id, key: "support", name: "Support agent" }]);
@@ -148,7 +148,7 @@ describe("preset store", () => {
     next.package.presets.push({ ...next.package.presets[0], key: "closer", name: "Closer" });
     const nextDocument = app.parsePackageDocument(next, { trust: "org" });
     nextDocument.package.publisher = { organization: "acme", name: "Acme Partners" };
-    app.importer.importPackageDocument(nextDocument, { trust: "org", mode: "add", org: { ...org, sha256: "b".repeat(64) } }, app.deps);
+    await app.importer.importPackageDocument(nextDocument, { trust: "org", mode: "add", org: { ...org, sha256: "b".repeat(64) } }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     expect(app.presetStore.list().map((row) => [row.id === first!.id, row.key, row.name, row.release, row.sha256])).toEqual([
       [true, "support", "Support lead", "2.1.0", "b".repeat(64)],
@@ -158,7 +158,7 @@ describe("preset store", () => {
     without.package.presets = without.package.presets.filter((preset: { key: string }) => preset.key === "support");
     const withoutDocument = app.parsePackageDocument(without, { trust: "org" });
     withoutDocument.package.publisher = { organization: "acme", name: "Acme Partners" };
-    app.importer.importPackageDocument(withoutDocument, { trust: "org", mode: "add", org }, app.deps);
+    await app.importer.importPackageDocument(withoutDocument, { trust: "org", mode: "add", org }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     expect(app.presetStore.list().map((row) => [row.id === first!.id, row.key, row.release])).toEqual([[true, "support", "2.0.1"]]);
     expect(app.presetStore.removeFilePreset(app.presetStore.list()[0]!.id)).toBe("organization");
@@ -167,10 +167,10 @@ describe("preset store", () => {
 
   it("offers organization presets first, hides withdrawn or removed installs, and never lists a tampered row", async () => {
     const app = await installation();
-    app.importer.importPackageDocument(app.parsePackageDocument(fixture("library-only.v2.json")), { trust: "file", mode: "add" }, app.deps);
+    await app.importer.importPackageDocument(app.parsePackageDocument(fixture("library-only.v2.json")), { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     const org = app.org();
-    app.importer.importPackageDocument(app.orgDocument("library-only.v2.json"), { trust: "org", mode: "add", org }, app.deps);
+    await app.importer.importPackageDocument(app.orgDocument("library-only.v2.json"), { trust: "org", mode: "add", org }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     const listed = app.presets.listBotPresets(app.presetStore, new Map());
     expect(listed.map((preset) => [preset.source, preset.name, preset.publisherName, preset.skillsEnabled])).toEqual([
@@ -198,12 +198,12 @@ describe("creating a bot from a preset", () => {
     const app = await installation();
     const input = fixture("full-team.v2.json");
     input.package.presets[0].seed = { memory: { "MEMORY.md": "- Greets by name.\n", "memory/tone.md": "Warm.\n" } };
-    const imported = app.importer.importPackageDocument(app.parsePackageDocument(input), { trust: "file", mode: "add" }, app.deps);
+    const imported = await app.importer.importPackageDocument(app.parsePackageDocument(input), { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (imported.alreadyAdded) throw new Error("unexpected");
     const resolved = app.presetStore.resolve(imported.presets![0]!.id)!;
     const bot = app.store.createBot({ name: "Sky", modelSelection: { instanceId: "claude", model: "default-model" } });
-    expect(app.presets.applyPresetToBot(bot.id, resolved, app.applyDeps)).toEqual({ skills: ["objection-handling"], notes: 2 });
+    expect(await app.presets.applyPresetToBot(bot.id, resolved, app.applyDeps)).toEqual({ skills: ["objection-handling"], notes: 2 });
     await (await import("./workspace.ts")).memoryWritesSettled();
     expect(app.skills.listSkills(bot.id)).toEqual([expect.objectContaining({ name: "objection-handling", enabled: false, source: "package:sales-desk" })]);
     expect(app.skills.skillPackageStamps(bot.id)).toEqual([]);
@@ -223,11 +223,11 @@ describe("creating a bot from a preset", () => {
     const app = await installation();
     const org = app.org();
     const document = app.orgDocument("library-only.v2.json");
-    const imported = app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps);
+    const imported = await app.importer.importPackageDocument(document, { trust: "org", mode: "add", org }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (imported.alreadyAdded) throw new Error("unexpected");
     const bot = app.store.createBot({ name: "Sky", modelSelection: { instanceId: "claude", model: "default-model" } });
-    app.presets.applyPresetToBot(bot.id, app.presetStore.resolve(imported.presets![0]!.id)!, app.applyDeps);
+    await app.presets.applyPresetToBot(bot.id, app.presetStore.resolve(imported.presets![0]!.id)!, app.applyDeps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     expect(app.skills.listSkills(bot.id)).toEqual([expect.objectContaining({ name: "objection-handling", enabled: true, source: "org:acme/sales-skills@2.0.1" })]);
     const stored = JSON.parse(readFileSync(app.presetFile, "utf8")).content[org.installId].skills
@@ -312,11 +312,11 @@ describe("sharing my New bot defaults as a preset", () => {
     expect(() => app.exporter.createLibraryPackageExport({ published: null, preset: null })).toThrow("Your New dog defaults are empty");
     expect(() => app.exporter.createLibraryPackageExport({ published: null, preset: built.value, release: "one" })).toThrow("Use a version like 1.2.3.");
 
-    const imported = app.importer.importPackageDocument(app.parsePackageDocument(JSON.parse(JSON.stringify(first.document))), { trust: "file", mode: "add" }, app.deps);
+    const imported = await app.importer.importPackageDocument(app.parsePackageDocument(JSON.parse(JSON.stringify(first.document))), { trust: "file", mode: "add" }, app.deps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     if (imported.alreadyAdded) throw new Error("unexpected");
     const bot = app.store.createBot({ name: "Sky", modelSelection: { instanceId: "claude", model: "default-model" } });
-    app.presets.applyPresetToBot(bot.id, app.presetStore.resolve(imported.presets![0]!.id)!, app.applyDeps);
+    await app.presets.applyPresetToBot(bot.id, app.presetStore.resolve(imported.presets![0]!.id)!, app.applyDeps);
     await (await import("./workspace.ts")).memoryWritesSettled();
     expect(app.skills.listSkills(bot.id)).toEqual([expect.objectContaining({ name: "follow-up", enabled: false })]);
     expect(app.workspace.readMemoryTopic(bot.id, "tone.md")).toBe("Warm.\n");

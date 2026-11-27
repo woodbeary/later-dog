@@ -9,7 +9,7 @@ import { redactSecretsInText } from "./redact.ts";
 import {
   listMemoryLogs, listMemoryTopics, readMemoryFile, readMemoryLog, readMemoryTopic,
   writeMemoryFile, writeMemoryLog, writeMemoryTopic,
-  trackMemoryWrite,
+  trackMemoryWrite, memoryFilesReady, withMemoryFiles, type MemoryFileRead,
 } from "./workspace.ts";
 
 function memoryFor(botId: string): TeamBackup["bots"][number]["memory"] {
@@ -43,9 +43,17 @@ function messageText(message: Message): string {
   return parts.filter(Boolean).join("\n");
 }
 
-export function createTeamBackup(store: Store, routines: Routine[], name: string): TeamBackup {
+export async function createTeamBackup(store: Store, routines: Routine[], name: string): Promise<TeamBackup> {
   const botIds = new Set(store.bots.map((bot) => bot.id));
   const warnings: string[] = [];
+  const memoryFiles = new Map<string, ReadonlyMap<string, MemoryFileRead>>();
+  for (const bot of store.bots) {
+    try {
+      memoryFiles.set(bot.id, await memoryFilesReady(bot.id));
+    } catch {
+      warnings.push(`${bot.name}'s memory is not included because its folder did not answer.`);
+    }
+  }
   const history = (record: BotRecord | GroupRecord): BackupTask[] => {
     const tasks = record.tasks?.length ? record.tasks : [{ threadId: record.threadId, title: "Conversation", createdAt: record.createdAt }];
     return tasks.map((task) => ({
@@ -104,7 +112,7 @@ export function createTeamBackup(store: Store, routines: Routine[], name: string
       chiefOfStaff: Boolean(bot.chiefOfStaff), hidden: Boolean(bot.hidden), playbooks: bot.playbooks ?? [],
       ...(bot.connectorTools ? { connectorTools: structuredClone(bot.connectorTools) } : {}),
       ...(bot.toolScope !== undefined ? { toolScope: structuredClone(bot.toolScope) } : {}),
-      memory: memoryFor(bot.id),
+      memory: withMemoryFiles(bot.id, memoryFiles.get(bot.id) ?? new Map(), () => memoryFor(bot.id)),
       activeTask: bot.threadId, tasks: history(bot),
     })),
     groups,

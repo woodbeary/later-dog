@@ -7,9 +7,7 @@ import {
   BEFORE_CAP,
   DIFF_CAP,
   JOURNAL_DIR,
-  beginMemoryTurn,
   beginMemoryTurnInBackground,
-  endMemoryTurn,
   endMemoryTurnInBackground,
   flushMemoryJournal,
   journalFile,
@@ -168,7 +166,7 @@ describe("journalMemoryWrite / readMemoryJournal", () => {
     mkdirSync(journalFile(bot), { recursive: true });
     await expect(journalMemoryWrite(bot, "memory/a.md", "one", { actor: "person", via: "ui" })).resolves.toBeDefined();
     await expect(flushMemoryJournal(bot)).resolves.toBeUndefined();
-    expect(readMemoryDoc(bot, "memory/a.md").text).toBe("one");
+    expect((await readMemoryDoc(bot, "memory/a.md")).text).toBe("one");
     expect(readMemoryJournal(bot, 10)).toEqual([]);
     rmSync(journalFile(bot), { recursive: true, force: true });
   });
@@ -182,13 +180,13 @@ describe("revertMemoryChange", () => {
     await flushMemoryJournal(bot);
     const result = await revertMemoryChange(bot, edit.entry!.id);
     expect(result.ok).toBe(true);
-    expect(readMemoryDoc(bot, "memory/y.md").text).toBe("original\n");
+    expect((await readMemoryDoc(bot, "memory/y.md")).text).toBe("original\n");
     if (process.platform !== "win32") expect(statSync(join(workspaceDir(bot), "memory", "y.md")).mode & 0o777).toBe(0o600);
     await flushMemoryJournal(bot);
     const [latest] = readMemoryJournal(bot, 1);
     expect(latest).toMatchObject({ actor: "person", via: "revert", before: "agent rewrote this\n", kind: "edited" });
     expect((await revertMemoryChange(bot, latest.id)).ok).toBe(true);
-    expect(readMemoryDoc(bot, "memory/y.md").text).toBe("agent rewrote this\n");
+    expect((await readMemoryDoc(bot, "memory/y.md")).text).toBe("agent rewrote this\n");
   });
 
   it("reverts a creation by removing the file, and a deletion by restoring it", async () => {
@@ -201,7 +199,7 @@ describe("revertMemoryChange", () => {
     const deleted = await journalMemoryDelete(bot, "memory/keep.md", { actor: "bot", via: "turn" });
     await flushMemoryJournal(bot);
     expect((await revertMemoryChange(bot, deleted!.id)).ok).toBe(true);
-    expect(readMemoryDoc(bot, "memory/keep.md").text).toBe("keep me\n");
+    expect((await readMemoryDoc(bot, "memory/keep.md")).text).toBe("keep me\n");
   });
 
   it("empties MEMORY.md rather than deleting it when reverting its creation", async () => {
@@ -211,7 +209,7 @@ describe("revertMemoryChange", () => {
     await flushMemoryJournal(bot);
     expect((await revertMemoryChange(bot, row!.id)).ok).toBe(true);
     expect(existsSync(join(workspaceDir(bot), "MEMORY.md"))).toBe(true);
-    expect(readMemoryDoc(bot, MEMORY_INDEX).text).toBe("");
+    expect((await readMemoryDoc(bot, MEMORY_INDEX)).text).toBe("");
   });
 
   it("answers 404 for an unknown row", async () => {
@@ -224,7 +222,7 @@ describe("turn boundary", () => {
     const bot = freshBot();
     await ensureWorkspaceReady(bot);
     writeFileSync(join(workspaceDir(bot), "memory", "existing.md"), "was here\n");
-    beginMemoryTurn(bot, "thread-a");
+    await beginMemoryTurnInBackground(bot, "thread-a");
     await flushMemoryJournal(bot);
     expect(readMemoryJournal(bot, 10)).toEqual([]);
 
@@ -232,15 +230,15 @@ describe("turn boundary", () => {
     writeFileSync(join(workspaceDir(bot), "memory", "existing.md"), "was here\nand more\n");
     mkdirSync(join(workspaceDir(bot), "memory", "log"), { recursive: true });
     writeFileSync(join(workspaceDir(bot), "memory", "log", "2026-09-10.md"), "- did a thing\n");
-    const rows = endMemoryTurn("thread-a");
+    const rows = await endMemoryTurnInBackground("thread-a");
     expect(rows.map((r) => [r.path, r.kind, r.actor, r.via, r.threadId])).toEqual([
       [MEMORY_INDEX, "edited", "bot", "turn", "thread-a"],
       ["memory/existing.md", "edited", "bot", "turn", "thread-a"],
       ["memory/log/2026-09-10.md", "created", "bot", "turn", "thread-a"],
     ]);
-    expect(endMemoryTurn("thread-a")).toEqual([]);
-    beginMemoryTurn(bot, "thread-b");
-    expect(endMemoryTurn("thread-b")).toEqual([]);
+    expect(await endMemoryTurnInBackground("thread-a")).toEqual([]);
+    await beginMemoryTurnInBackground(bot, "thread-b");
+    expect(await endMemoryTurnInBackground("thread-b")).toEqual([]);
     await flushMemoryJournal(bot);
     expect(readMemoryJournal(bot, 10)).toHaveLength(3);
   });
@@ -277,13 +275,13 @@ describe("turn boundary", () => {
   it("attributes an edit made outside the app between turns to the person, via disk", async () => {
     const bot = freshBot();
     await ensureWorkspaceReady(bot);
-    beginMemoryTurn(bot, "t1");
-    endMemoryTurn("t1");
+    await beginMemoryTurnInBackground(bot, "t1");
+    await endMemoryTurnInBackground("t1");
     writeFileSync(join(workspaceDir(bot), "MEMORY.md"), "edited in Obsidian\n");
     rmSync(join(workspaceDir(bot), "memory"), { recursive: true });
     mkdirSync(join(workspaceDir(bot), "memory"));
-    beginMemoryTurn(bot, "t2");
-    endMemoryTurn("t2");
+    await beginMemoryTurnInBackground(bot, "t2");
+    await endMemoryTurnInBackground("t2");
     await flushMemoryJournal(bot);
     expect(readMemoryJournal(bot, 10).map((r) => [r.path, r.actor, r.via])).toEqual([[MEMORY_INDEX, "person", "disk"]]);
   });
@@ -291,18 +289,18 @@ describe("turn boundary", () => {
   it("does not re-journal a person's route write as the bot's when the turn ends", async () => {
     const bot = freshBot();
     await ensureWorkspaceReady(bot);
-    beginMemoryTurn(bot, "t1");
+    await beginMemoryTurnInBackground(bot, "t1");
     await journalMemoryWrite(bot, MEMORY_INDEX, "- person note\n", { actor: "person", via: "ui" });
-    expect(endMemoryTurn("t1")).toEqual([]);
+    expect(await endMemoryTurnInBackground("t1")).toEqual([]);
   });
 
   it("journals a file the turn deleted", async () => {
     const bot = freshBot();
     await ensureWorkspaceReady(bot);
     writeFileSync(join(workspaceDir(bot), "memory", "doomed.md"), "x\n");
-    beginMemoryTurn(bot, "t1");
+    await beginMemoryTurnInBackground(bot, "t1");
     rmSync(join(workspaceDir(bot), "memory", "doomed.md"));
-    const [row] = endMemoryTurn("t1");
+    const [row] = await endMemoryTurnInBackground("t1");
     expect(row).toMatchObject({ path: "memory/doomed.md", kind: "deleted", before: "x\n", actor: "bot" });
   });
 
@@ -311,20 +309,20 @@ describe("turn boundary", () => {
     const b = freshBot();
     await ensureWorkspaceReady(a);
     await ensureWorkspaceReady(b);
-    beginMemoryTurn(a, "room-1");
-    beginMemoryTurn(b, "room-1");
+    await beginMemoryTurnInBackground(a, "room-1");
+    await beginMemoryTurnInBackground(b, "room-1");
     writeFileSync(join(workspaceDir(a), "MEMORY.md"), "a learned\n");
     writeFileSync(join(workspaceDir(b), "MEMORY.md"), "b learned\n");
-    const rows = endMemoryTurn("room-1");
+    const rows = await endMemoryTurnInBackground("room-1");
     expect(rows.map((r) => r.botId).sort()).toEqual([a, b].sort());
   });
 
   it("never throws when a workspace vanished mid-turn", async () => {
     const bot = freshBot();
     await ensureWorkspaceReady(bot);
-    beginMemoryTurn(bot, "t1");
+    await beginMemoryTurnInBackground(bot, "t1");
     rmSync(workspaceDir(bot), { recursive: true, force: true });
-    expect(() => endMemoryTurn("t1")).not.toThrow();
-    expect(() => beginMemoryTurn("bad/id", "t2")).not.toThrow();
+    await expect(endMemoryTurnInBackground("t1")).resolves.toBeDefined();
+    await expect(beginMemoryTurnInBackground("bad/id", "t2")).resolves.toBeDefined();
   });
 });

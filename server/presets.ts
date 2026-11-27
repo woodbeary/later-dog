@@ -332,12 +332,14 @@ export function listBotPresets(store: Pick<PresetStore, "list" | "resolve">, sta
   return [...org, ...files].map(({ addedAt: _addedAt, ...preset }) => preset);
 }
 
+type SkillOutcome = SkillListing | { error: string } | Promise<SkillListing | { error: string }>;
+
 export interface PresetApplyDeps {
   store: Pick<Store, "patchBot">;
   skills: {
-    install(botId: string, source: string, files: Array<{ path: string; content: string }>): SkillListing | { error: string };
-    setEnabled(botId: string, name: string, enabled: boolean): SkillListing | { error: string };
-    installOrg(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillListing | { error: string };
+    install(botId: string, source: string, files: Array<{ path: string; content: string }>): SkillOutcome;
+    setEnabled(botId: string, name: string, enabled: boolean): SkillOutcome;
+    installOrg(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillOutcome;
   };
   memory: {
     writeIndex(botId: string, text: string): Promise<void>;
@@ -347,7 +349,7 @@ export interface PresetApplyDeps {
 
 const ORG_INSTALL_ID = /^[a-f0-9]{32}$/;
 
-export function applyPresetToBot(botId: string, resolved: ResolvedPreset, deps: PresetApplyDeps): { skills: string[]; notes: number } {
+export async function applyPresetToBot(botId: string, resolved: ResolvedPreset, deps: PresetApplyDeps): Promise<{ skills: string[]; notes: number }> {
   const { row, preset } = resolved;
   const org = row.source === "org";
   const stamped = org && Boolean(row.ref) && ORG_INSTALL_ID.test(row.installId);
@@ -375,13 +377,13 @@ export function applyPresetToBot(botId: string, resolved: ResolvedPreset, deps: 
     const source = org && row.ref ? `org:${row.ref}@${row.release}` : skill.source ?? `package:${row.packageId}`;
     if (stamped) {
       const stamp: SkillPackageStamp = { installId: row.installId, key: skill.name, release: row.release, ...pair(skill.instructions, skill.instructions), via: "preset" };
-      const added = deps.skills.installOrg(botId, source, skill.instructions, stamp);
+      const added = await deps.skills.installOrg(botId, source, skill.instructions, stamp);
       if ("error" in added) throw new Error(`The preset's trick "${name}" could not be added: ${added.error}`);
     } else {
-      const added = deps.skills.install(botId, source, [{ path: "SKILL.md", content: skill.instructions }]);
+      const added = await deps.skills.install(botId, source, [{ path: "SKILL.md", content: skill.instructions }]);
       if ("error" in added) throw new Error(`The preset's trick "${name}" could not be added: ${added.error}`);
       if (org) {
-        const enabled = deps.skills.setEnabled(botId, name, true);
+        const enabled = await deps.skills.setEnabled(botId, name, true);
         if ("error" in enabled) throw new Error(`The preset's trick "${name}" could not be switched on: ${enabled.error}`);
       }
     }

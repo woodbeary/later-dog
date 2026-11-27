@@ -10,7 +10,7 @@ import { mergeTopicText } from "./memory-topics.ts";
 import { applyMoves, MAX_MOVES, organizeCandidates, organizePrompt, parseMoves } from "./memory-organize.ts";
 import { recordMemoryChange } from "./memory-journal.ts";
 import { applyTidy, contradictionCandidates, contradictionPrompt, parseContradictions, planChanges, planTidy, type Contradiction } from "./memory-tidy.ts";
-import { appendMemoryArchive, ARCHIVE_TOPIC, dogFiles, ensureWorkspaceReady, listMemoryTopicsReady, memoryDate, memoryEntry, memoryTopicIndex, updateMemory, workspaceDir, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
+import { appendMemoryArchive, ARCHIVE_TOPIC, dogFiles, ensureWorkspaceReady, listMemoryTopicsReady, memoryDate, memoryEntry, memoryTopicIndex, readMemoryFiles, updateMemory, workspaceDir, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 
 export const CAPTURE_MAX_TURNS = 6;
 export const MODEL_TIMEOUT_MS = 60_000;
@@ -172,7 +172,7 @@ export function createMemoryUpkeep(deps: UpkeepDeps): MemoryUpkeep {
       turns: batch.turns,
       notebook: await readRaw(bot.id, "MEMORY.md") ?? "",
       today,
-      topics: memoryTopicIndex(bot.id),
+      topics: await readMemoryFiles(bot.id, () => memoryTopicIndex(bot.id)),
     }));
     if (answer === null) {
       const report = { at, added: 0, topics: 0, aboutMe: 0, note: "The capture call did not answer in time." };
@@ -253,7 +253,7 @@ export function createMemoryUpkeep(deps: UpkeepDeps): MemoryUpkeep {
     const first = await readRaw(botId, "MEMORY.md") ?? "";
     const candidates = organizeCandidates(first, today, core);
     if (!candidates.length) return 0;
-    const answer = await askModel(engine, organizePrompt(candidates, memoryTopicIndex(botId)));
+    const answer = await askModel(engine, organizePrompt(candidates, await readMemoryFiles(botId, () => memoryTopicIndex(botId))));
     if (answer === null || paused || !upkeepEnabled(deps.bot(botId))) return 0;
     const before = await readRaw(botId, "MEMORY.md") ?? "";
     if (before !== first) return 0;

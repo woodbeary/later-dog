@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import type WebSocket from "ws";
 import { prepareEngineComputer, processStreamLink, type EngineScripts } from "./engine-computer.ts";
-import { BOT_FOLDER_FILE_BYTES, botFolderRoot, commandOnPath, deferredLink, ENGINE_PLACEMENT_LOG, notePlacement, planClaudeRemote, remoteEngineBots, remoteEngineChoice, scopedClaudeCredential, setRemoteEngineBot, type ClaudePlacement } from "./engine-placement.ts";
+import { BOT_FOLDER_FILE_BYTES, botFolderPresent, botFolderRoot, commandOnPath, deferredLink, ENGINE_PLACEMENT_LOG, notePlacement, planClaudeRemote, remoteEngineBots, remoteEngineChoice, scopedClaudeCredential, setRemoteEngineBot, type ClaudePlacement } from "./engine-placement.ts";
 import { NotDispatched, RemoteSession, type EngineLink } from "./engine-remote.ts";
 import { ENGINE_COMPUTER_RESOURCE, engineWaitEvent, watchEngineOpening, type EngineWait } from "./engine-waiting.ts";
 
@@ -377,12 +377,15 @@ it("carries relay lines over the process stream, whole even when a character is 
   expect(closed).toBe("relay exited 0");
 });
 
-it("lends the dog's private folder read-only and bounded, never overlapping the working folder or the account", () => {
+it("lends the dog's private folder read-only and bounded, never overlapping the working folder or the account", async () => {
   const { base, cwd, config, input } = setup();
   const botDir = join(input.dataDir, "workspaces", "bot");
   mkdirSync(join(botDir, "memory"), { recursive: true });
   writeFileSync(join(botDir, "MEMORY.md"), "# Memory");
-  const planned = planClaudeRemote(input);
+  expect(await botFolderPresent(input.dataDir, "bot")).toBe(true);
+  const without = planClaudeRemote(input);
+  expect("plan" in without && without.plan.launch.roots.some((entry) => entry.id === "bot")).toBe(false);
+  const planned = planClaudeRemote({ ...input, botFolder: true });
   if (!("plan" in planned)) throw new Error(planned.stay);
   const root = planned.plan.launch.roots.find((entry) => entry.id === "bot")!;
   expect(root).toEqual({ id: "bot", path: botDir, writable: false, readOnly: true, bounded: { fileBytes: BOT_FOLDER_FILE_BYTES, totalBytes: 64 * 1024 * 1024, exclude: [] } });
@@ -390,15 +393,15 @@ it("lends the dog's private folder read-only and bounded, never overlapping the 
   expect(planned.plan.launch.outputIds).not.toContain("bot");
   expect(planned.plan.mkdirs).toContain(botDir);
   const staging = planned.plan.stagingDir;
-  expect(botFolderRoot(input.dataDir, "missing", cwd, config, staging)).toBeNull();
-  expect(botFolderRoot(input.dataDir, "../bot", cwd, config, staging)).toBeNull();
-  expect(botFolderRoot(input.dataDir, "bot", botDir, config, staging)).toBeNull();
-  expect(botFolderRoot(input.dataDir, "bot", base, config, staging)).toBeNull();
-  expect(botFolderRoot(input.dataDir, "bot", cwd, join(botDir, "config"), staging)).toBeNull();
-  expect(botFolderRoot(input.dataDir, "bot", join(botDir, "projects", "site"), config, staging)?.bounded?.exclude).toEqual(["projects/site"]);
+  expect(botFolderRoot(input.dataDir, "missing", cwd, config, staging, await botFolderPresent(input.dataDir, "missing"))).toBeNull();
+  expect(botFolderRoot(input.dataDir, "../bot", cwd, config, staging, await botFolderPresent(input.dataDir, "../bot"))).toBeNull();
+  expect(botFolderRoot(input.dataDir, "bot", botDir, config, staging, await botFolderPresent(input.dataDir, "bot"))).toBeNull();
+  expect(botFolderRoot(input.dataDir, "bot", base, config, staging, await botFolderPresent(input.dataDir, "bot"))).toBeNull();
+  expect(botFolderRoot(input.dataDir, "bot", cwd, join(botDir, "config"), staging, await botFolderPresent(input.dataDir, "bot"))).toBeNull();
+  expect(botFolderRoot(input.dataDir, "bot", join(botDir, "projects", "site"), config, staging, await botFolderPresent(input.dataDir, "bot"))?.bounded?.exclude).toEqual(["projects/site"]);
   rmSync(botDir, { recursive: true });
   symlinkSync(cwd, botDir);
-  expect(botFolderRoot(input.dataDir, "bot", join(base, "elsewhere"), config, staging)).toBeNull();
+  expect(botFolderRoot(input.dataDir, "bot", join(base, "elsewhere"), config, staging, await botFolderPresent(input.dataDir, "bot"))).toBeNull();
 });
 
 it("gives the home's sign-in renewal the same CLI and the home environment only when a sign-in is lent", () => {
