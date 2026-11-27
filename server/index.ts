@@ -9473,8 +9473,9 @@ async function startTurn(
       turnPhases.mark(threadId, "connections");
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
       const poolTurn = instance.driverKind === "claudeAgent" && poolChosen(DATA_DIR, bot.id);
+      const poolFolders = worksInWorkspace && poolTurn && await mountedFolderGate.answers(workspaceDir(bot.id));
       if (worksInWorkspace && poolTurn) {
-        if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
+        if (poolFolders && bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       } else if (worksInWorkspace) {
         await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: join(TASK_WORKSPACES_DIR, bot.id, threadId), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
           gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
@@ -9891,9 +9892,9 @@ async function startTurn(
       }
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
-      const memoryText = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn });
+      const memoryText = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false && (!poolTurn || poolFolders), readOnly: foreignTurn });
       turnPhases.mark(threadId, "memory prompt");
-      const skillsText = privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "";
+      const skillsText = privateWorkspace && (!poolTurn || poolFolders) ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "";
       turnPhases.mark(threadId, "skills prompt");
       const recentText = recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() }));
       const conversation = conversationText(threadId, providerText);
