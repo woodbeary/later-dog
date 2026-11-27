@@ -17,6 +17,7 @@ import {
   loadMemory,
   MEMORY_READ_ONLY_GUIDANCE,
   memorySystemPrompt,
+  readMemoryFromSnapshot,
   memoryProfile,
   memoryTrimmed,
   MEMORY_PROFILE_MAX_BYTES,
@@ -493,6 +494,23 @@ describe("workspace", () => {
     expect(appendMemoryLog(BOT, "  ")).toMatchObject({ ok: false, code: "invalid" });
     expect(readMemoryLog(BOT, "../MEMORY.md")).toBeNull();
     expect(readMemoryLog("never-ran", "2026-09-10.md")).toBeNull();
+  });
+
+  it("builds the memory prompt from the turn's snapshot without reading the folder, only until the current task ends", async () => {
+    const docs = new Map([
+      ["MEMORY.md", "- The person prefers short replies\n"],
+      ["memory/deploys.md", "---\ntitle: Deploys\ndescription: How the site ships\n---\nsteps"],
+      ["memory/log/2026-09-10.md", "- did a thing\n"],
+    ]);
+    readMemoryFromSnapshot(BOT, docs);
+    const prompt = memorySystemPrompt(BOT);
+    expect(prompt).toContain("The person prefers short replies");
+    expect(prompt).toContain("deploys.md");
+    expect(listMemoryTopics(BOT)).toEqual([{ name: "deploys.md", bytes: Buffer.byteLength(docs.get("memory/deploys.md")!) }]);
+    expect(loadMemory("another-bot")).toBeNull();
+    await Promise.resolve();
+    expect(memorySystemPrompt(BOT)).not.toContain("The person prefers short replies");
+    expect(listMemoryTopics(BOT)).toEqual([]);
   });
 
   it("writes the end-of-turn log line in the background, in order, searchable and in the same file as direct lines", async () => {

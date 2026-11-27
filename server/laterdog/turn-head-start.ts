@@ -19,7 +19,7 @@ export function earlySnapshot<T>(take: () => Promise<T | null>, release: (value:
   };
 }
 
-export function createTurnPhases(options: { log: (line: string) => void; now?: () => number }) {
+export function createTurnPhases(options: { log: (line: string) => void; now?: () => number; name?: string }) {
   const now = options.now ?? Date.now;
   const turns = new Map<string, { last: number; parts: string[] }>();
   return {
@@ -38,7 +38,7 @@ export function createTurnPhases(options: { log: (line: string) => void; now?: (
       this.mark(threadId, phase);
       const turn = turns.get(threadId);
       turns.delete(threadId);
-      if (turn) options.log(`turn phases ${threadId.slice(0, 8)}: ${turn.parts.join(", ")}`);
+      if (turn) options.log(`${options.name ?? "turn phases"} ${threadId.slice(0, 8)}: ${turn.parts.join(", ")}`);
     },
   };
 }

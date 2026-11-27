@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { writeFileAtomic } from "./atomic.ts";
 import { alwaysCore, isExpired, isMemoryDate, parseMemoryEntries, untilMark, withoutExpired, type MemoryEntryLine } from "./memory-entries.ts";
-import { parseTopicHeader, readTopicHead, renderTopicIndex } from "./memory-topics.ts";
+import { parseTopicHeader, readTopicHead, renderTopicIndex, TOPIC_HEAD_BYTES } from "./memory-topics.ts";
 import { indexMemoryFile, indexedMemoryFiles, recallMemory, removeMemoryFile, type MemoryHit, type SearchMode } from "./message-db.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { isRecallMemoryFile } from "./laterdog/cross-dog-recall.ts";
@@ -123,9 +123,24 @@ export function memoryOverBudget(text: string): boolean {
   return memoryLineCount(text) > MEMORY_MAX_LINES || Buffer.byteLength(text, "utf8") > MEMORY_MAX_BYTES;
 }
 
+let memoryView: { botId: string; docs: ReadonlyMap<string, string> } | null = null;
+
+export function readMemoryFromSnapshot(botId: string, docs: ReadonlyMap<string, string>): void {
+  const view = { botId, docs };
+  memoryView = view;
+  queueMicrotask(() => { if (memoryView === view) memoryView = null; });
+}
+
+const snapshotOf = (botId: string) => memoryView?.botId === botId ? memoryView.docs : null;
+
 export function loadMemory(botId: string, opts: { now?: Date } = {}): { text: string; truncated: boolean; lines: number; bytes: number; expired: number } | null {
   let raw: string;
-  try {
+  const view = snapshotOf(botId);
+  if (view) {
+    const text = view.get("MEMORY.md");
+    if (text === undefined) return null;
+    raw = text;
+  } else try {
     raw = readMemoryText(join(workspaceDir(botId), "MEMORY.md"));
   } catch (error) {
     checkWorkspaceRead(error);
@@ -488,6 +503,11 @@ export function isMemoryTopicName(name: string): boolean {
 }
 
 export function listMemoryTopics(botId: string): Array<{ name: string; bytes: number }> {
+  const view = snapshotOf(botId);
+  if (view) return [...view].flatMap(([path, text]) => {
+    const name = path.startsWith("memory/") ? path.slice("memory/".length) : "";
+    return isMemoryTopicName(name) ? [{ name, bytes: Buffer.byteLength(text, "utf8") }] : [];
+  }).sort((a, b) => a.name.localeCompare(b.name));
   let entries: string[];
   try {
     entries = memoryFolderEntries(join(workspaceDir(botId), "memory"));
@@ -602,7 +622,9 @@ export function memorySystemPrompt(botId: string, opts: { managedWrites?: boolea
 
 export function memoryTopicIndex(botId: string): string {
   const dir = join(workspaceDir(botId), "memory");
-  return renderTopicIndex(listMemoryTopics(botId).map((topic) => ({ name: topic.name, header: parseTopicHeader(readTopicHead(join(dir, topic.name))) })));
+  const view = snapshotOf(botId);
+  const head = (name: string) => view ? Buffer.from(view.get(`memory/${name}`) ?? "", "utf8").subarray(0, TOPIC_HEAD_BYTES).toString("utf8") : readTopicHead(join(dir, name));
+  return renderTopicIndex(listMemoryTopics(botId).map((topic) => ({ name: topic.name, header: parseTopicHeader(head(topic.name)) })));
 }
 
 function topicIndexBlock(botId: string, fileTools: boolean): string {
