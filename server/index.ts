@@ -8583,11 +8583,12 @@ function drainQueuedSends() {
 }
 
 async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "api" | "call") {
-  const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId));
+  const queuedAhead = hasQueuedSteeredMessages(botId, threadId);
+  const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && queuedAhead);
   const off = switchedOffNow(threadId);
   const decision = admit("direct", {}, {
     atCapacity: botAtThreadCapacity(botId),
-    threadBusy: threadBusy(botId, threadId) || behindHeld || off,
+    threadBusy: threadBusy(botId, threadId) || behindHeld || off || queuedAhead,
     groupTurn: Boolean(activeGroupTurnForBot(botId)),
     parksBehindCoordination: parksBehindCoordination(botId, threadId),
   });
@@ -8605,7 +8606,7 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
     else if (behindHeld && !batteryContinuationPending(threadId)) {
       limitHold.release(threadId);
       queueMicrotask(drainQueuedSends);
-    }
+    } else if (queuedAhead && !behindHeld) queueMicrotask(drainQueuedSends);
     return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason: decision.reason };
   }
   const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender, trigger, via });
@@ -8723,6 +8724,7 @@ async function acceptDirectSend(
         const receipt = steerReceipt(threadId);
         const busyAdmission = admit("direct-busy", {
           waitsForTurn: waitsForTurn(deliver),
+          queuedAhead: hasQueuedSteeredMessages(botId, threadId),
           carriesImages,
           pendingComputerSelection: Boolean(computerSelectionTurns.get(threadId)?.selected),
           engineCanSteer: Boolean(instance?.adapter.capabilities.queueing && instance.adapter.steer),
