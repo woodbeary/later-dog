@@ -285,7 +285,11 @@ export async function openOnPool(pool: PoolService, botId: string, plan: ClaudeR
   }
 }
 
-export function poolEngineOpener(computer: EngineOpener, dataDir: string, service: () => PoolService | null = poolService): EngineOpener {
+export function poolEngineOpener(computer: EngineOpener, dataDir: string, service: () => PoolService | null = poolService, makeFolder: (path: string) => Promise<void> = async () => {}): EngineOpener {
+  const onComputer = async (botId: string, plan: ClaudeRemotePlan, signal?: AbortSignal) => {
+    await makeFolder(plan.launch.cwd).catch(() => {});
+    return computer.open(botId, plan, signal);
+  };
   return {
     get proxyPath() { return computer.proxyPath; },
     get guestProvider() { return computer.guestProvider; },
@@ -296,7 +300,7 @@ export function poolEngineOpener(computer: EngineOpener, dataDir: string, servic
       const who = `${botId.slice(0, 8)} ${plan.threadId.slice(0, 8)}`;
       if (poolAvoided(botId, plan.threadId)) {
         notePlacement(dataDir, `[pool] ${who} uses the dog's computer: the pool lost this chat's engine in the last ${POOL_AVOID_MS / 60_000} minutes`);
-        return computer.open(botId, plan, signal);
+        return onComputer(botId, plan, signal);
       }
       const began = Date.now();
       try {
@@ -313,7 +317,7 @@ export function poolEngineOpener(computer: EngineOpener, dataDir: string, servic
       } catch (error) {
         if (signal?.aborted) throw error;
         notePlacement(dataDir, `[pool] ${who} falls back to the dog's computer after ${Date.now() - began} ms: ${error instanceof Error ? error.message : String(error)}`);
-        return computer.open(botId, plan, signal);
+        return onComputer(botId, plan, signal);
       }
     },
   };

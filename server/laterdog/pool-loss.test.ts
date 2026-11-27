@@ -50,7 +50,7 @@ it("keeps a chat off the pool for a while only after a loss that cut a turn shor
   expect(takePoolLoss("bot-c", "thread-a", now + 3 * 60_000)).toBe(false);
 });
 
-it("opens a chat whose pool engine was just lost on the dog's computer", async () => {
+it("opens a chat whose pool engine was just lost on the dog's computer, making its working folder on the home first for the home-side tools", async () => {
   const data = mkdtempSync(join(tmpdir(), "ldpool-loss-"));
   dirs.push(data);
   writeFileSync(join(data, REMOTE_ENGINES_FILE), JSON.stringify({ pool: { enabled: true } }));
@@ -60,8 +60,11 @@ it("opens a chat whose pool engine was just lost on the dog's computer", async (
   const plan = { threadId: "thread-lost", cli: { name: "@anthropic-ai/claude-code", version: "9" }, launch: { cli: "/home/dog/.laterdog-engine/cli/claude-code-9/node_modules/.bin/claude" } } as unknown as ClaudeRemotePlan;
   notePoolLoss("bot-lost", "thread-lost", "pool stream went silent");
   expect(takePoolLoss("bot-lost", "thread-lost")).toBe(true);
-  await poolEngineOpener(computer, data, () => unused).open("bot-lost", plan);
+  const made: string[] = [];
+  (plan as { launch: { cwd: string } }).launch.cwd = "/work/task";
+  await poolEngineOpener(computer, data, () => unused, async (path) => { made.push(path); }).open("bot-lost", plan);
   expect(opened).toEqual(["bot-lost"]);
+  expect(made).toEqual(["/work/task"]);
   expect(readFileSync(join(data, "engine-placement.log"), "utf8")).toContain("lost this chat's engine");
 });
 

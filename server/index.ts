@@ -476,7 +476,7 @@ import {
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 import { MOUNTED_FOLDER_ANSWER_MS, MountedFolderStalled, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
 import { MountDown } from "./laterdog/mount-guard.ts";
-import { dogFoldersMounted, guardMountedFolders, mountGuard } from "./laterdog/dog-mounts.ts";
+import { dogFiles, dogFoldersMounted, guardMountedFolders, mountGuard } from "./laterdog/dog-mounts.ts";
 import { armSyncTripwire, onMountedSyncCall } from "./laterdog/sync-tripwire.ts";
 import { skillsCall, skillsPromptReady } from "./skills-thread.ts";
 import type { SkillPackageStamp } from "./skills.ts";
@@ -948,7 +948,7 @@ import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
-import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
+import { poolChosen, poolEngineOpener, poolService, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
@@ -965,7 +965,7 @@ setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
       process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, scope, input.botId, input.computerId,
     ) })));
   },
-} : {}), DATA_DIR));
+} : {}), DATA_DIR, poolService, (path) => dogFiles.mkdir(path)));
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);
