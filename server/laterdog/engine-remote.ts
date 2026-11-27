@@ -410,6 +410,8 @@ export class RemoteSession extends EventEmitter {
   get launchSent(): boolean { return this.#launchSent; }
 }
 
+export const RELAY_SELF_STOP_MS = 6_000;
+
 export class EngineProcess extends EventEmitter {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
@@ -419,6 +421,7 @@ export class EngineProcess extends EventEmitter {
   pid: number | undefined;
   notDispatched = false;
   placement: "pending" | "computer" | "home" = "pending";
+  #endedAt: number | null = null;
   #local: ChildProcess | null = null;
   #remote: RemoteSession | null = null;
   #stopRequested = false;
@@ -485,6 +488,7 @@ export class EngineProcess extends EventEmitter {
 
   #finish(code: number | null, signal: NodeJS.Signals | null): void {
     if (this.exitCode !== null || this.signalCode !== null) return;
+    this.#endedAt = Date.now();
     this.exitCode = code;
     this.signalCode = signal;
     if (code === null && signal === null) this.exitCode = 1;
@@ -510,14 +514,21 @@ export class EngineProcess extends EventEmitter {
     return !this.#remote || this.#remote.exitConfirmed || !this.#remote.launchSent;
   }
 
+  async #reclaimed(): Promise<boolean> {
+    if (this.#remoteGone()) return true;
+    const left = (this.#endedAt ?? Date.now()) + RELAY_SELF_STOP_MS - Date.now();
+    if (left > 0) await new Promise<void>((resolve) => setTimeout(resolve, left).unref());
+    return true;
+  }
+
   async stopTree(timeoutMs: number, stopLocal: (child: ChildProcess, timeoutMs: number) => Promise<boolean>): Promise<boolean> {
-    if (this.exitCode !== null || this.signalCode !== null) return this.#remoteGone();
+    if (this.exitCode !== null || this.signalCode !== null) return this.#reclaimed();
     this.#stopRequested = true;
     if (this.#local) return stopLocal(this.#local, timeoutMs);
     if (this.#remote && !this.#remote.launchSent) {
       this.#remote.close();
       await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
-      return this.#remoteGone();
+      return this.exitCode !== null || this.signalCode !== null ? this.#reclaimed() : this.#remoteGone();
     }
     this.#remote?.stop();
     const stoppedAt = Date.now();
@@ -533,7 +544,7 @@ export class EngineProcess extends EventEmitter {
       this.#remote?.close();
       await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
     }
-    return !this.#remote || this.#remote.exitConfirmed;
+    return this.exitCode !== null || this.signalCode !== null ? this.#reclaimed() : this.#remoteGone();
   }
 
   kill(): boolean { void this.stopTree(5_000, async (child) => child.kill("SIGTERM")); return true; }

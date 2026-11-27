@@ -12,6 +12,7 @@ import { poolChosen } from "../laterdog/pool-opener.ts";
 import { acceptedEnginePlacement, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
+import { RELAY_SELF_STOP_MS } from "../laterdog/engine-remote.ts";
 import { createTurnPhases } from "../laterdog/turn-head-start.ts";
 import { keepWarm } from "../laterdog/keep-warm.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
@@ -1579,7 +1580,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       let child: ReturnType<typeof spawnCli>;
       try {
         checkStart();
-        warmEngines.assertVacant(ownershipKey(threadId));
+        await warmEngines.vacated(ownershipKey(threadId), RELAY_SELF_STOP_MS + 4_000);
         const local = () => {
           warmEngines.makeRoom(ENGINE_BYTES);
           return spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });

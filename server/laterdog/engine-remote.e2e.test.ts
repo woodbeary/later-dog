@@ -17,7 +17,7 @@ import type { EngineWait } from "./engine-waiting.ts";
 import { placedThreads, preToolGuardDecision } from "./placed-threads.ts";
 import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
 import { ENGINE_WINDOW_BYTES, engineFileChunks, engineInventory } from "./engine-files.ts";
-import { commandLink, EngineProcess, RemoteSession, type EngineLink } from "./engine-remote.ts";
+import { commandLink, EngineProcess, RELAY_SELF_STOP_MS, RemoteSession, type EngineLink } from "./engine-remote.ts";
 import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
@@ -395,7 +395,7 @@ it("reports an engine crash and keeps what it wrote, without running it again", 
   expect(w.localLaunches()).toBe(0);
 }, 60_000);
 
-it("fails a turn whose connection drops after launch, never re-runs it, and stops the orphan before the chat starts again", async () => {
+it("fails a turn whose connection drops after launch, never re-runs it, reclaims its stop once the relay has had time to end it, and no orphan survives the next start", async () => {
   const w = world();
   let relayProcess: ChildProcess | undefined;
   const link = async () => {
@@ -415,12 +415,40 @@ it("fails a turn whose connection drops after launch, never re-runs it, and stop
   const orphan = Number(w.launches()[0]);
   relayProcess!.kill("SIGKILL");
   expect(await closed(engine)).toBe(1);
-  expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(false);
+  const reclaimedAt = Date.now();
+  expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(true);
+  expect(Date.now() - reclaimedAt).toBeLessThan(RELAY_SELF_STOP_MS + 2_000);
   expect(w.localLaunches()).toBe(0);
-  expect(() => process.kill(orphan, 0)).not.toThrow();
   const again = w.start(w.plan(true), undefined, true);
   await turn(again.engine, "after");
   expect(() => process.kill(orphan, 0)).toThrow();
+  again.engine.stdin.end();
+  await closed(again.engine);
+}, 60_000);
+
+it("reclaims a placed engine stopped during a steered turn whose stop is never confirmed, so the chat's next turn starts", async () => {
+  const w = world();
+  let relayProcess: ChildProcess | undefined;
+  const link = async () => {
+    const child = spawn(process.execPath, [RELAY], { env: { ...process.env, LATERDOG_ENGINE_TEST_ROOT: w.remoteRoot }, stdio: ["pipe", "pipe", "pipe"] });
+    relayProcess = child;
+    const out = new EventEmitter() as EngineLink;
+    createInterface({ input: child.stdout }).on("line", (line) => out.emit("line", line));
+    child.on("close", () => out.emit("close", "killed"));
+    out.send = (line) => child.stdin.write(`${line}\n`);
+    out.close = () => child.kill("SIGKILL");
+    return out;
+  };
+  const { engine } = w.start(w.plan(), link);
+  engine.stdin.write(message("hang"));
+  await expect.poll(() => w.launches().length, { timeout: 30_000 }).toBe(1);
+  engine.stdin.write(message("one more thing while you work"));
+  relayProcess!.kill("SIGKILL");
+  const stopped = killCliTree(engine as unknown as ChildProcess, 2_000);
+  expect(await closed(engine)).toBe(1);
+  expect(await stopped).toBe(true);
+  const again = w.start(w.plan(true), undefined, true);
+  expect((await turn(again.engine, "after the steer")).cwd).toBe(w.mirror(w.cwd));
   again.engine.stdin.end();
   await closed(again.engine);
 }, 60_000);
@@ -612,7 +640,7 @@ it.each(["exit", "disconnect"] as const)("settles a remote %s delivered alongsid
     expect(stderr.join("")).toBe("native startup failure\n");
   } else {
     expect(stderr.join("")).toContain("ended before the engine could be used");
-    expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(false);
+    expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(true);
   }
 });
 
