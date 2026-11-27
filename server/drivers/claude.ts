@@ -304,6 +304,7 @@ export const CLAUDE_FLAG_FLOORS = {
   "--setting-sources": [1, 0, 122],
   "--autocompact": [2, 1, 122],
   "--system-prompt-snapshot": [2, 1, 267],
+  "--exclude-dynamic-system-prompt-sections": [2, 1, 316],
   "--restricted": [2, 1, 257],
   "--forward-subagent-text": [2, 1, 211],
   [SUBAGENT_PROMPT_FLAG]: [2, 1, 316],
@@ -1307,6 +1308,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       if (cliVersionChecked && claudeCliSupports(cliVersion, "--system-prompt-snapshot")) {
         args.push("--system-prompt-snapshot", "off");
+      }
+      if (cliVersionChecked && claudeCliSupports(cliVersion, "--exclude-dynamic-system-prompt-sections")) {
+        args.push("--exclude-dynamic-system-prompt-sections");
       }
       const turnModel = config.managed ? turn.model : await resolveClaudeTurnModel(turn.model, turnEnvironment);
       startPhases.mark(turn.threadId, "model");

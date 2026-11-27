@@ -207,8 +207,13 @@ describe("buildSystemPrompt", () => {
       { id: "credential", label: "Credentials", text: " Use the vault." },
     ]);
     expect(built.stable).toBe("You are Kiwi.\n\nYou are a dog." + REPLIES() + tagged("the_person", "The owner lets you act for them.")
-      + tagged("browser", "Use the browser tools.") + tagged("sign_ins", "Use the vault.") + tagged("team", "Ask other dogs with coordinate_bots.")
-      + tagged("progress", "Run long jobs in the background."));
+      + tagged("browser", "Use the browser tools.") + tagged("sign_ins", "Use the vault.")
+      + tagged("progress", "Run long jobs in the background.") + tagged("team", "Ask other dogs with coordinate_bots."));
+    const chatLast = buildSystemPrompt("You are Kiwi.", "", [
+      { id: "files", label: "File locations", text: " Your chat folder is /w/chat-1." },
+      { id: "updates", label: "Progress updates", text: " Run long jobs in the background." },
+    ]).stable;
+    expect(chatLast.endsWith(tagged("files", "Your chat folder is /w/chat-1."))).toBe(true);
     expect(buildSystemPrompt("You are Kiwi.", "", [
       { id: "credential", label: "Credentials", text: " Use the vault." },
       { id: "browser", label: "Browser", text: " Use the browser tools." },
