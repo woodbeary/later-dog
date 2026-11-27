@@ -206,7 +206,8 @@ function fixture() {
     put,
     reverse: (
       request: import("../src/work-folder-reverse.ts").ReverseRequest,
-    ) => service.reverseControl(stable, machine, lease, request),
+      reverseLease = lease,
+    ) => service.reverseControl(stable, machine, reverseLease, request),
     closed: () => service.closed(),
     publish,
     restored,
@@ -334,26 +335,29 @@ describe("original home working folder cutover", () => {
 });
 
 describe("mounted home reverse publication", () => {
-  function mounted() {
-    const h = fixture(),
-      original = JSON.stringify(h.placement),
+  const recoveryLease = "a".repeat(64),
+    previousImage = "6".repeat(64);
+  function mounted(h = fixture(), retained = false) {
+    const original = JSON.stringify(h.placement),
       previous = sha(original);
-    h.map.set(
-      h.prefix + "work-folders/cutover-enrollment",
-      JSON.stringify({
-        v: 1,
-        machineId: machine,
-        lease,
-        retired: true,
-        retiredRevision: previous,
-      }),
-    );
+    if (!retained)
+      h.map.set(
+        h.prefix + "work-folders/cutover-enrollment",
+        JSON.stringify({
+          v: 1,
+          machineId: machine,
+          lease,
+          retired: true,
+          retiredRevision: previous,
+        }),
+      );
     h.map.set(
       h.prefix + "work-folders/reverse-enrollment",
       JSON.stringify({
         v: 1,
         machineId: machine,
-        lease,
+        lease: retained ? recoveryLease : lease,
+        ...(retained ? { sourceLeaseSha256: sha(lease), previousImage } : {}),
         previous,
         expiresAt: Date.now() + 3600_000,
       }),
@@ -408,6 +412,57 @@ describe("mounted home reverse publication", () => {
       },
     };
   }
+  it("recovers a retained sealed original only after the edited projection and previous image are selected", async () => {
+    const h = fixture();
+    await h.ctl("begin");
+    await h.put(h.manifest, lease);
+    await h.publish();
+    const { project, publish, raw } = mounted(h, true);
+    expect(h.source()).toBe("sealed");
+    await expect(h.reverse({ op: "begin" })).rejects.toThrow("not enrolled");
+    expect((await h.reverse({ op: "begin" }, recoveryLease)).phase).toBe(
+      "held",
+    );
+    expect((await h.reverse(project, recoveryLease)).phase).toBe("projected");
+    await h.restart();
+    await h.recover();
+    expect((await h.reverse(publish, recoveryLease)).phase).toBe("committed");
+    await expect(h.reverse({ op: "finish" }, recoveryLease)).rejects.toThrow(
+      "original image",
+    );
+    expect(h.retired()).toBe(false);
+    expect(h.closed()).toBe(true);
+    h.setImage(previousImage);
+    expect((await h.reverse({ op: "finish" }, recoveryLease)).phase).toBe(
+      "finished",
+    );
+    expect(h.retired()).toBe(true);
+    expect(h.closed()).toBe(false);
+    expect(h.map.get(h.prefix + "manifest.json")).toBe(raw);
+    const receipt = JSON.parse(
+      h.map.get(h.prefix + "work-folders/cutover-enrollment")!,
+    );
+    expect(receipt.retiredRevision).toBe(project.placement.previous);
+    expect((await h.reverse({ op: "finish" }, recoveryLease)).phase).toBe(
+      "finished",
+    );
+  });
+  it("keeps the original disk sealed when the uncommitted return hold expires", async () => {
+    vi.useFakeTimers();
+    const h = fixture();
+    await h.ctl("begin");
+    await h.put(h.manifest, lease);
+    await h.publish();
+    mounted(h, true);
+    await h.reverse({ op: "begin" }, recoveryLease);
+    vi.advanceTimersByTime(91_000);
+    await h.restart();
+    await h.recover();
+    expect(h.closed()).toBe(true);
+    expect(h.source()).toBe("sealed");
+    expect(h.retired()).toBe(false);
+    expect((await h.ctl("status")).phase).toBe("committed");
+  });
   it("preserves the projected post-switch edit through lost publication and a reconstructed owner", async () => {
     const { h, project, publish, raw } = mounted();
     expect((await h.reverse({ op: "begin" })).phase).toBe("held");

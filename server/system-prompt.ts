@@ -34,7 +34,7 @@ export function askFirstSystemPrompt(rules: unknown): string {
     : "";
 }
 
-const VOLATILE_SECTIONS = new Set(["memory", "mentions", "outstanding", "recent", "availability", "today", "connected", "user-profile"]);
+const VOLATILE_SECTIONS = new Set(["memory", "niche", "mentions", "outstanding", "recent", "availability", "today", "connected", "user-profile"]);
 
 export const VOICE_PROMPT = `\n\n${REPLY_STYLE}`;
 
@@ -94,12 +94,12 @@ const KEEP_RUNNING_MAY_STOP = " Anything you leave running may be stopped when y
 
 export function cloudHomePrompt(sharedComputerTools: boolean, engine: GuidanceEngine): string {
   return ` You run on ${CLOUD_HOME_PLACE}.` + (sharedComputerTools
-    ? " If they ask for something on their own Mac, such as a file in Downloads, an app or a command, use shared_computer: it reaches the Mac where later.dog is open and signed in to this account. Just use it; if they set that Mac to ask first, later.dog shows them a card and your call waits for the answer. If no Mac is connected, say so in one sentence: they install later.dog on the Mac and sign in with the same email, and it connects by itself."
+    ? " For something on their own Mac, such as a file in Downloads, an app or a command, use shared_computer: it reaches the Mac where later.dog is open and signed in to this account, and shows them a card first if they set that Mac to ask. If no Mac is connected, say so in one sentence: they install later.dog on the Mac and sign in with the same email, and it connects by itself."
     : " You cannot see or use their Mac or PC, its screen or its files from here. If they ask for something on it, say so in one sentence.")
     + " Every dog in this home shares one machine, so send heavy commands (installs, builds, typechecks, test suites, browser tests, media processing) to your own cloud computer with run_on_computer; keep quick ones here."
-    + " Use a fresh absolute scratch directory for an isolated check or publishing step. Preserve earlier attempts; do not delete an existing folder just to reuse its name. $TMPDIR is this chat's own and is emptied when your turn ends, so keep anything you need later in your workspace."
+    + " $TMPDIR is this chat's own and is emptied when your turn ends, so keep what you need in your workspace, and never delete an earlier folder just to reuse its name."
     + (engine === "claude" ? KEEP_RUNNING_WITH_BACKGROUND_OPTION : KEEP_RUNNING_MAY_STOP)
-    + " Offer what works here: their cloud computer, a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them. Call it their cloud computer, as the app does. Never ask them to set up this computer or a Local VM; neither exists here.";
+    + " Their cloud computer is a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them; call it their cloud computer, and never ask them to set up this computer or a Local VM.";
 }
 
 export function todayIn(timeZone: string, now: Date): string {
@@ -139,7 +139,7 @@ export const EXISTING_LOGIN_PROMPT =
 export const CREDENTIAL_PROMPT = EXISTING_LOGIN_PROMPT +
   " If a supported API key is missing for the service actually needed, ask for it with request_credential, a secure credential request; never ask the user to paste credentials into chat. For secret work such as making, rotating, moving or installing a token, password or key, use vault_secret and the vault and vault_capture fields of your command tools, so the value never passes through you; never echo, cat, print or generate a secret in your own commands or replies." + TAKEOVER_PROMPT + DEVICE_APPROVAL_PROMPT;
 export const PROPOSAL_RESULT_PROMPT =
-  " Follow the tool result: a change to your own routines, skills, profile or model, and a routine you set up for another of the owner's dogs, applies immediately and the person sees it with an Undo; then continue the requested work without asking for another confirmation. Any other change for another bot may wait for the person. If it reports a pending review, end the turn and wait for the in-app decision. Never claim success before an applied result, and report failures honestly. Full Access does not grant another bot broader permissions.";
+  " Follow the tool result: a change to your own routines, skills, profile or model, and a routine you set up for another of the owner's dogs, applies immediately and the person sees it with an Undo; then continue the requested work without asking for another confirmation. On Full access a change for another dog applies too; otherwise it may wait for the person. If it reports a pending review, end the turn and wait for the in-app decision. Never claim success before an applied result, and report failures honestly.";
 export const ROUTINE_PROMPT =
   " If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. Convert calendar requests such as the first or last day of each month or the second Monday to a five-field cron expression with an explicit IANA timezone; use interval for elapsed every-N-minutes work. Never replace a calendar rule with daily AI date checking or an approximate weekly schedule; clarify ambiguous or unsupported requests.";
 export const ROUTINE_EXECUTION_PROMPT =

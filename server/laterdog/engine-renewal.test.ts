@@ -122,15 +122,18 @@ it("takes over after a home turn's refresh fails, and retries its own failure on
   release();
 });
 
-it("asks the account's own CLI for its sign-in status, which renews a near-expiry sign-in without a model call", async () => {
+it("asks the account's own CLI for a call the service refuses, which waits for the renewal and counts only a renewed saved sign-in", async () => {
   const a = account(Date.now() + 60_000);
   const cli = join(a.base, "claude");
   const seen = join(a.base, "seen.json");
-  writeFileSync(cli, `#!/bin/sh\nprintf '%s\\n' "$*" "$CLAUDE_CONFIG_DIR" "$PWD" > ${JSON.stringify(seen)}\n`);
+  writeFileSync(cli, `#!/bin/sh\nprintf '%s\\n' "$*" "$CLAUDE_CONFIG_DIR" "$PWD" > ${JSON.stringify(seen)}\nexit 1\n`);
   chmodSync(cli, 0o755);
-  expect(await runClaudeRenewal({ ...a.renewal, command: cli })).toBe(true);
+  expect(await runClaudeRenewal({ ...a.renewal, command: cli })).toBe(false);
   expect(readFileSync(seen, "utf8").trim().split("\n")).toEqual([CLAUDE_RENEW_ARGS.join(" "), a.config, a.config]);
-  expect(CLAUDE_RENEW_ARGS).toEqual(["auth", "status", "--json"]);
+  expect(CLAUDE_RENEW_ARGS).toEqual(["-p", "--model", "laterdog-sign-in-check", "--max-turns", "1", "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--output-format", "json", "ok"]);
+  writeFileSync(cli, `#!/bin/sh\nprintf '{"claudeAiOauth":{"accessToken":"new","refreshToken":"r2","expiresAt":%s}}' ${Date.now() + 8 * 3600_000} > "$CLAUDE_CONFIG_DIR/.credentials.json"\nexit 1\n`);
+  expect(await runClaudeRenewal({ ...a.renewal, command: cli })).toBe(true);
+  a.save(Date.now() + 60_000, "first-access");
   writeFileSync(cli, "#!/bin/sh\nexit 1\n");
   expect(await runClaudeRenewal({ ...a.renewal, command: cli })).toBe(false);
   expect(await runClaudeRenewal(a.renewal)).toBe(false);

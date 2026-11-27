@@ -137,6 +137,63 @@ describe("assigned working folders on guest computers", () => {
     expect(readFileSync(join(f.right, "dist", "report"), "utf8")).toBe("updated");
     expect(readlinkSync(join(f.right, "alias"))).toBe("dist/report");
   });
+  it("publishes a save cut off part way by the next checkout, so a restart during the save loses nothing", async () => {
+    const f = await fixture();
+    await publishInitialWorkFolder(f.src, f.store);
+    await f.syncA();
+    writeFileSync(join(f.left, "reply-turn.txt"), "made during the turn");
+    const reach = globalThis.fetch;
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      if ((options?.method ?? "GET") !== "GET") throw new Error("the home restarted");
+      return reach(url, options);
+    });
+    await expect(f.syncA()).rejects.toThrow();
+    vi.stubGlobal("fetch", reach);
+    await f.syncB();
+    expect(existsSync(join(f.right, "reply-turn.txt"))).toBe(false);
+    await f.syncA();
+    await f.syncB();
+    expect(readFileSync(join(f.right, "reply-turn.txt"), "utf8")).toBe("made during the turn");
+  });
+  it("saves a changed file with one publish request carrying its pages and the commit", async () => {
+    const f = await fixture();
+    await publishInitialWorkFolder(f.src, f.store);
+    await f.syncA();
+    writeFileSync(join(f.left, "reply-turn.txt"), "made during the turn");
+    const reach = globalThis.fetch;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      calls.push(`${options?.method ?? "GET"} ${new URL(url).pathname.split("/").slice(-2).join("/")}`);
+      return reach(url, options);
+    });
+    await f.syncA();
+    vi.stubGlobal("fetch", reach);
+    expect(calls.filter((call) => call.startsWith("POST") && call.endsWith("/publish"))).toHaveLength(1);
+    expect(calls.some((call) => call.includes("/commit"))).toBe(false);
+    expect(calls.filter((call) => call.startsWith("PUT manifests")).length).toBeLessThanOrEqual(1);
+    await f.syncB();
+    expect(readFileSync(join(f.right, "reply-turn.txt"), "utf8")).toBe("made during the turn");
+  });
+
+  it("falls back to page writes and a commit when the home does not offer one-request saves yet", async () => {
+    const f = await fixture();
+    await publishInitialWorkFolder(f.src, f.store);
+    await f.syncA();
+    writeFileSync(join(f.left, "older-home.txt"), "saved the old way");
+    const reach = globalThis.fetch;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      calls.push(`${options?.method ?? "GET"} ${new URL(url).pathname.split("/").at(-1)}`);
+      return url.endsWith("/publish") ? new Response(JSON.stringify({ error: "not_found" }), { status: 404 }) : reach(url, options);
+    });
+    await f.syncA();
+    vi.stubGlobal("fetch", reach);
+    expect(calls.filter((call) => call.endsWith(" publish"))).toHaveLength(1);
+    expect(calls).toContain("POST commit");
+    await f.syncB();
+    expect(readFileSync(join(f.right, "older-home.txt"), "utf8")).toBe("saved the old way");
+  });
+
   it("retains older read-only memory mirrors in durable storage and opens the current memory on first checkout", async () => {
     const f = await fixture();
     const data = join(f.dir, "data");

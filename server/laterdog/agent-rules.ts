@@ -11,7 +11,7 @@ export interface AgentRulesInput {
 export function agentRuleTexts(input: AgentRulesInput): { credential: string; routine: string; profile: string } {
   if (!input.agents) return { credential: "", routine: "", profile: "" };
   return {
-    credential: signInPassage({ secureForm: input.secureForm }) + (input.google ? GOOGLE_PROMPT : ""),
+    credential: signInPassage({ secureForm: input.secureForm }) + (input.google ? `\n${GOOGLE_PROMPT.trim()}` : ""),
     routine: ROUTINE_PROMPT,
     profile: PROFILE_PROMPT,
   };

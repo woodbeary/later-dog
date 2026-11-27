@@ -38,9 +38,12 @@ interface Permit {
   previous: string;
   expiresAt: number;
   completedRevision?: string;
+  sourceLeaseSha256?: string;
+  previousImage?: string;
 }
 export type ReverseRequest =
-  | { op: "begin" | "renew" | "status" | "abort" | "finish" }
+  | { op: "begin" | "renew" | "status" | "abort" }
+  | { op: "finish"; selection?: string }
   | {
       op: "project";
       source: string;
@@ -57,6 +60,7 @@ interface Hooks {
   storage: DurableObjectStorage;
   idle: () => Promise<boolean>;
   cold: () => boolean;
+  sealed: () => { leaseSha256: string; previous: string } | null;
   stop: () => void;
   writerEpoch: () => Promise<string>;
   revokeWriter: (original: string) => Promise<unknown>;
@@ -68,6 +72,9 @@ export class WorkFolderReverse {
   constructor(private readonly hooks: Hooks) {}
   async load() {
     this.hold = (await this.hooks.storage.get<State>(key)) ?? null;
+  }
+  private protectedDisk() {
+    return !!this.hooks.sealed() || this.hooks.cold();
   }
   closed() {
     return this.hold !== null;
@@ -106,7 +113,7 @@ export class WorkFolderReverse {
     };
   }
   private async holdCold(h: State) {
-    if (!this.hooks.cold()) return h;
+    if (!this.protectedDisk()) return h;
     const p = await this.current(h);
     await this.hooks.revokeWriter(h.writer);
     const m = await this.object(h.stable, "manifest.json");
@@ -173,12 +180,25 @@ export class WorkFolderReverse {
         await this.hooks.bucket.get(prefix + "cutover-enrollment")
       )?.json<{
         machineId: string;
+        lease: string;
         retired: boolean;
         retiredRevision: string;
       }>();
+      const sealed = this.hooks.sealed();
+      const retained =
+        sealed &&
+        !forward?.retired &&
+        p.sourceLeaseSha256 === sealed.leaseSha256 &&
+        sealed.previous === p.previous &&
+        hash.test(p.previousImage ?? "") &&
+        typeof forward?.lease === "string" &&
+        hex(await sha256(forward.lease)) === sealed.leaseSha256;
       if (
-        !forward?.retired ||
-        forward.retiredRevision !== p.previous ||
+        !forward ||
+        !(
+          retained ||
+          (forward.retired && forward.retiredRevision === p.previous)
+        ) ||
         forward.machineId !== machine ||
         (await this.object(stable, "work-folders/placement")).sha !==
           p.previous ||
@@ -198,7 +218,7 @@ export class WorkFolderReverse {
       await this.save(h);
       await this.hooks.schedule();
       try {
-        if (!this.hooks.cold() && !(await this.hooks.idle()))
+        if (!this.protectedDisk() && !(await this.hooks.idle()))
           throw Error("Mounted home is still busy");
       } catch (error) {
         await this.save(null);
@@ -206,7 +226,7 @@ export class WorkFolderReverse {
       }
       h = { ...h, phase: "draining" };
       await this.save(h);
-      if (!this.hooks.cold()) this.hooks.stop();
+      if (!this.protectedDisk()) this.hooks.stop();
     }
     if (!h) {
       if (r.op === "status" || r.op === "abort") return { phase: "open" };
@@ -231,7 +251,7 @@ export class WorkFolderReverse {
       }
       return this.receipt(h);
     }
-    if (!this.hooks.cold()) throw Error("Mounted source was restarted");
+    if (!this.protectedDisk()) throw Error("Mounted source was restarted");
     if (r.op === "finish") {
       if (
         h.phase !== "committed" ||
@@ -294,7 +314,7 @@ export class WorkFolderReverse {
       !h.source ||
       !h.sourceEtag ||
       !h.previousEtag ||
-      !this.hooks.cold()
+      !this.protectedDisk()
     )
       throw Error("Missing cold mounted source proof");
     const obj = JSON.parse(h.raw) as WorkFolderPlacement;
@@ -370,7 +390,7 @@ export class WorkFolderReverse {
     if (h.phase === "committed") return;
     await this.hooks.schedule();
     if (h.phase === "draining") {
-      if (!this.hooks.cold()) this.hooks.stop();
+      if (!this.protectedDisk()) this.hooks.stop();
       else await this.holdCold(h);
     }
     if (h.phase === "projected" && h.until <= Date.now()) {
