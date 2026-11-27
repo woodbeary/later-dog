@@ -37,7 +37,7 @@ export const MEMORY_ENTRY_MAX_CHARS = 1_000;
 export const MEMORY_ENTRY_MAX_LINES = 20;
 export const ARCHIVE_TOPIC = "archive.md";
 
-const MEMORY_SEED = `# Memory
+export const MEMORY_SEED = `# Memory
 
 Durable notes this bot keeps between tasks. The first ${MEMORY_MAX_LINES} lines
 load at the start of every session — keep this file short and curated.

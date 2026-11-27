@@ -433,6 +433,7 @@ import {
   ensureWorkspace,
   ensureTaskWorkspace,
   taskWorkspacePath,
+  MEMORY_SEED,
   workspaceLocationsPrompt,
   supportsWorkspaceFiles,
   updateMemory,
@@ -461,7 +462,7 @@ import {
   type RecallDog,
 } from "./laterdog/cross-dog-recall.ts";
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
-import { mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
+import { MOUNTED_FOLDER_ANSWER_MS, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
 import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
 import { SearchUnavailable } from "./message-search-worker.ts";
 import {
@@ -5188,6 +5189,7 @@ exchangeLookup = {
   redact: redactSecretsInText,
 };
 
+startPhases.mark("boot", "store and chat services");
 const groupUsageReader = new GroupUsageReader(DATA_DIR);
 try { groupUsageReader.refresh(); } catch {}
 function publicGroupState(record: GroupRecord): WireGroup {
@@ -9477,13 +9479,13 @@ async function startTurn(
       if (worksInWorkspace && poolTurn) {
         if (poolFolders && bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       } else if (worksInWorkspace) {
-        await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: join(TASK_WORKSPACES_DIR, bot.id, threadId), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
+        await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: taskWorkspacePath(bot.id, threadId), seed: { name: "MEMORY.md", text: MEMORY_SEED }, budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
           gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
         if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while the computer woke");
-        ensureWorkspace(bot.id);
+        if (!mountedFoldersActive()) ensureWorkspace(bot.id);
         if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       }
-      const privateWorkspace = worksInWorkspace ? (poolTurn ? taskWorkspacePath(bot.id, threadId) : ensureTaskWorkspace(bot.id, threadId)) : undefined;
+      const privateWorkspace = worksInWorkspace ? (poolTurn || mountedFoldersActive() ? taskWorkspacePath(bot.id, threadId) : ensureTaskWorkspace(bot.id, threadId)) : undefined;
       const skillInstructions = renderSkillInstructions(selectedSkills, {
         includeRoot: worksInWorkspace,
       });
@@ -9830,7 +9832,7 @@ async function startTurn(
 
       turnPhases.mark(threadId, "computer and prompt");
       if (memoryHead) {
-        memoryDocs = await memoryHead;
+        memoryDocs = await Promise.race([memoryHead, new Promise<null>((resolve) => setTimeout(() => resolve(null), MOUNTED_FOLDER_ANSWER_MS).unref())]);
         turnPhases.mark(threadId, "memory snapshot wait");
       }
       if (checkpointCwd && snapshotHead) {
@@ -9892,9 +9894,11 @@ async function startTurn(
       }
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
-      const memoryText = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false && (!poolTurn || poolFolders), readOnly: foreignTurn });
+      const folderReads = (!poolTurn || poolFolders) && (!mountedFoldersActive() || Boolean(memoryDocs) || await mountedFolderGate.answers(workspaceDir(bot.id)));
+      if (memoryDocs) readMemoryFromSnapshot(bot.id, memoryDocs);
+      const memoryText = !folderReads ? "" : memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn });
       turnPhases.mark(threadId, "memory prompt");
-      const skillsText = privateWorkspace && (!poolTurn || poolFolders) ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "";
+      const skillsText = privateWorkspace && folderReads ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "";
       turnPhases.mark(threadId, "skills prompt");
       const recentText = recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() }));
       const conversation = conversationText(threadId, providerText);
@@ -9943,7 +9947,7 @@ async function startTurn(
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
       const recallReach = recallsThisTurn(dispatchContext, instance.driverKind) ? "conversations"
-        : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? "notes" : null;
+        : fromPerson && bot.memoryEnabled !== false && folderReads && memoryTrimmed(bot.id) ? "notes" : null;
       const recalled = recallReach ? await autoRecallInBackground(bot, threadId, resolvedImages.text, {
         conversations: recallReach === "conversations" && fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
@@ -10181,6 +10185,7 @@ function routineSourceOwner(run: Pick<RoutineRun, "routineId" | "webhookId" | "b
   return { bot, group: undefined, threadId: ranIn ?? bot.threadId };
 }
 
+startPhases.mark("boot", "event handlers");
 const routineCardThreads = new Map<string, string>();
 
 function routineCardIn(botId: string, runId: string, threadIds: (string | undefined)[]): { threadId: string; message: Message } | null {
@@ -22164,6 +22169,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   }
 };
 
+startPhases.mark("boot", "routines and turn handling");
 const server = createServer(handleRequest);
 desktopViewer.attach(server, handleRequest);
 
@@ -22409,7 +22415,7 @@ for (const row of chatFollowups()) {
   }
   settleChatFollowups([row.id], null);
 }
-startPhases.mark("boot", "routes and watchers");
+startPhases.mark("boot", "routes");
 restoreSteeredMessages();
 restoreChannelMessages();
 
