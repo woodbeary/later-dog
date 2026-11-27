@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { FOLDER_NOT_SAVED } from "../laterdog/dog-folder.ts";
 import { createDogFolderRoute, DOG_FOLDER_PATH } from "./dog-folder.ts";
 import type { InternalRouteContext } from "./internal.ts";
 
@@ -33,6 +34,6 @@ it("wakes the dog's computer before a change and not before a read, and leaves f
   expect(woke).toEqual(["dog/chat"]);
   starts = false;
   const refused = await call(route, { action: "delete", path: "a.txt" });
-  expect(refused.status).toBe(503);
+  expect(refused).toEqual({ status: 503, body: { error: FOLDER_NOT_SAVED } });
   expect(readFileSync(join(work, "a.txt"), "utf8")).toBe("hi");
 });

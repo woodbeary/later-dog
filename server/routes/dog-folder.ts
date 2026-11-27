@@ -1,4 +1,4 @@
-import { folderAction, type FolderRun } from "../laterdog/dog-folder.ts";
+import { FOLDER_NOT_SAVED, folderAction, type FolderRun } from "../laterdog/dog-folder.ts";
 import type { InternalRouteHandler } from "./internal.ts";
 import { PASS } from "./table.ts";
 
@@ -20,7 +20,7 @@ export function createDogFolderRoute(deps: DogFolderRouteDeps): InternalRouteHan
     const body = await readBody();
     if (deps.ready && CHANGES.has(String(body?.action))) {
       try { await deps.ready(sender.id, threadId); }
-      catch { return json(res, 503, { error: "Your computer could not start, so your files were left unchanged. Try again in a minute." }); }
+      catch { return json(res, 503, { error: FOLDER_NOT_SAVED }); }
     }
     const answer = await folderAction(body && typeof body === "object" ? body : {}, deps.folders(sender.id, threadId), deps.run);
     return json(res, answer.status, answer.error ? { error: answer.error } : { text: answer.text });

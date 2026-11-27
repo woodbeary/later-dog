@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { folderAction, folderGlob, type FolderRun } from "./dog-folder.ts";
+import { FOLDER_NOT_SAVED, folderAction, folderGlob, type FolderRun } from "./dog-folder.ts";
 import { createMountGuard, MountDown } from "./mount-guard.ts";
 
 const dirs: string[] = [];
@@ -67,7 +67,9 @@ it("keeps every path inside the dog's folders, links included", async () => {
   expect((await folderAction({ action: "read", path: join(f.other, "secret.txt") }, f.roots, f.run)).status).toBe(403);
   symlinkSync(f.other, join(f.work, "escape"));
   expect((await folderAction({ action: "read", path: "escape/secret.txt" }, f.roots, f.run)).status).toBe(403);
-  expect((await folderAction({ action: "write", path: "escape/new.txt", content: "x" }, f.roots, f.run)).status).toBe(403);
+  const outside = await folderAction({ action: "write", path: "escape/new.txt", content: "x" }, f.roots, f.run);
+  expect(outside.status).toBe(403);
+  expect(outside.error).toMatch(/^Not saved: /);
   expect(existsSync(join(f.other, "new.txt"))).toBe(false);
   expect((await folderAction({ action: "read", path: join(f.other, "secret.txt") }, [f.work, f.other], f.run)).text).toContain("not yours");
   expect((await folderAction({ action: "list" }, [], f.run)).status).toBe(409);
@@ -81,6 +83,8 @@ it("answers 503 when the dog's folder is not answering instead of holding the ho
   const began = Date.now();
   const first = await folderAction({ action: "read", path: "notes.md" }, f.roots, stuck);
   expect(first.status).toBe(503);
+  const write = await folderAction({ action: "write", path: "new.md", content: "x" }, f.roots, stuck);
+  expect(write).toEqual({ status: 503, error: FOLDER_NOT_SAVED });
   const second = await folderAction({ action: "list" }, f.roots, stuck);
   expect(second.status).toBe(503);
   expect(Date.now() - began).toBeLessThan(2_000);
