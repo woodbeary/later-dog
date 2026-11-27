@@ -15,6 +15,7 @@ export const BATTERY_FIELDS = {
   routed: "per-chat",
   fromNextMessage: "per-chat",
   ranModel: "per-chat",
+  googleKeys: "everyone",
 } as const satisfies { [K in keyof BatteryView]-?: Reach };
 
 export function guestBattery(view: BatteryView): BatteryView {

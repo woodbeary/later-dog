@@ -525,6 +525,7 @@ export interface ConfigStatus {
     auto?: boolean;
     sequence?: string[];
     order: Record<string, string[]>;
+    googleKeys?: Record<string, "free" | "paid">;
     resting?: Record<string, { until: string; since?: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
     modelResting?: Record<string, Array<{ model: string; label: string; until: string; since?: string; kind?: string; estimated?: boolean; sharedWith?: string }>>;
     waiting?: Record<string, string>;
