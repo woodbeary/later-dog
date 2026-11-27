@@ -152,7 +152,8 @@ import { createJobWake } from "./laterdog/job-wake.ts";
 import { waitCapMs } from "./laterdog/run-wait.ts";
 import { HelperTurnBudget } from "./laterdog/turn-budget.ts";
 import { DECIDE_YOURSELF, REPLY_FIRST_HELD, TurnShape } from "./laterdog/turn-shape.ts";
-import { DogRestStore, findRest, purgeDue, REST_REFUSALS, restRefusal } from "./laterdog/dog-rest.ts";
+import { DOG_PURGE_AFTER_MS, DogRestStore, findRest, purgeDue, REST_REFUSALS, restRefusal } from "./laterdog/dog-rest.ts";
+import { createRecentlyDeletedRoutes } from "./routes/recently-deleted.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
@@ -5896,11 +5897,11 @@ async function restDog(bot: BotRecord, by: string): Promise<void> {
   console.log(`[dogs] ${by.slice(0, 8)} moved dog ${bot.id.slice(0, 8)} to Recently deleted`);
 }
 
-function restoreDog(botId: string): BotRecord | null {
+function restoreDog(botId: string, show = false): BotRecord | null {
   const rest = dogRests.take(botId);
   const bot = store.bot(botId);
   if (!rest || !bot) return null;
-  const shown = store.patchBot(botId, { hidden: rest.hiddenBefore });
+  const shown = store.patchBot(botId, { hidden: show ? false : rest.hiddenBefore });
   for (const id of rest.routines) routines!.update(id, { enabled: true });
   for (const id of rest.webhooks) webhooks.update(id, { enabled: true });
   if (shown) broadcast({ kind: "bot", bot: wireBot(shown) });
@@ -14153,6 +14154,11 @@ ROUTES.push(createMacAccessRoutes({
   },
   view: () => macAccessView(),
 }));
+ROUTES.push(createRecentlyDeletedRoutes({
+  mayRestore: (auth) => !CLOUD_HOME || cloudOwnerSession(auth),
+  list: () => dogRests.list().filter((rest) => store.bot(rest.botId)).map((rest) => ({ id: rest.botId, name: rest.name, at: rest.at, purgeAt: rest.at + DOG_PURGE_AFTER_MS })),
+  restore: (botId) => Boolean(restoreDog(botId, true)),
+}));
 ROUTES.push(createFullAccessAllRoutes({
   cloudHome: Boolean(CLOUD_HOME),
   mayChange: (auth) => cloudOwnerSession(auth),
@@ -18630,6 +18636,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       for (const key of ["unread", "cloudBackend", "color", "mascotExpression", "mascotBody", "pinned", "hidden"] as const) {
         if (body[key] !== undefined) patch[key] = body[key];
       }
+      if (body.hidden === false && dogRests.get(m[1])) restoreDog(m[1], true);
       Object.assign(patch, store.pinRankFor(m[1], body.pinned));
       const computerSpecified = Object.prototype.hasOwnProperty.call(body, "computer");
       let requestedComputer = existingBot?.computer;
