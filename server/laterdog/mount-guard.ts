@@ -19,12 +19,15 @@ export interface MountGuardOptions {
   coolMs?: number;
   perFolder?: number;
   inAll?: number;
+  slowMs?: number;
+  folders?: () => readonly string[];
   now?: () => number;
   probe?: (folder: string) => Promise<unknown>;
 }
 
 interface FolderState {
   running: number;
+  ops: Set<Slot>;
   downUntil: number;
   probing: Promise<boolean> | null;
 }
@@ -33,25 +36,35 @@ export interface MountGuard {
   folderOf(path: string): string | null;
   isDown(path: string): boolean;
   run<T>(path: string, op: () => Promise<T>): Promise<T>;
-  state(): Array<{ folder: string; running: number; waiting: number; downForMs: number }>;
+  state(): Array<{ folder: string; running: number; counted: number; waiting: number; downForMs: number }>;
 }
 
 export const MOUNT_OP_TIMEOUT_MS = 10_000;
 export const MOUNT_COOL_MS = 30_000;
 export const MOUNT_OPS_PER_FOLDER = 1;
-export const MOUNT_OPS_IN_ALL = 4;
+export const MOUNT_OPS_IN_ALL = 8;
+export const MOUNT_OP_SLOW_MS = 1_000;
+
+interface Slot {
+  counted: boolean;
+  slow?: ReturnType<typeof setTimeout>;
+}
 
 export function createMountGuard(options: MountGuardOptions): MountGuard {
   const timeoutMs = options.timeoutMs ?? MOUNT_OP_TIMEOUT_MS;
   const coolMs = options.coolMs ?? MOUNT_COOL_MS;
   const perFolder = options.perFolder ?? MOUNT_OPS_PER_FOLDER;
   const inAll = options.inAll ?? MOUNT_OPS_IN_ALL;
+  const slowMs = options.slowMs ?? MOUNT_OP_SLOW_MS;
   let runningInAll = 0;
   const now = options.now ?? (() => Date.now());
   const probe = options.probe ?? ((folder: string) => stat(folder));
   const folders = new Map<string, FolderState>();
 
   const folderOf = (path: string): string | null => {
+    for (const folder of options.folders?.() ?? []) {
+      if (path === folder || path.startsWith(folder.endsWith(sep) ? folder : `${folder}${sep}`)) return folder;
+    }
     for (const root of options.roots()) {
       const rel = relative(root, path);
       if (rel === "") return root;
@@ -63,15 +76,22 @@ export function createMountGuard(options: MountGuardOptions): MountGuard {
   const stateOf = (folder: string): FolderState => {
     let found = folders.get(folder);
     if (!found) {
-      found = { running: 0, downUntil: 0, probing: null };
+      found = { running: 0, ops: new Set(), downUntil: 0, probing: null };
       folders.set(folder, found);
     }
     return found;
   };
   const waiters = new Set<{ folder: string; take: () => boolean }>();
   const offer = () => { for (const waiter of waiters) waiter.take(); };
+  const uncount = (slot: Slot) => {
+    if (!slot.counted) return;
+    slot.counted = false;
+    runningInAll -= 1;
+    offer();
+  };
   const trip = (folder: string, state: FolderState) => {
     state.downUntil = now() + coolMs;
+    for (const slot of state.ops) uncount(slot);
     offer();
     console.error(`mount guard: ${folder} is not answering; calls fail fast for ${Math.round(coolMs / 1000)} s`);
   };
@@ -80,17 +100,21 @@ export function createMountGuard(options: MountGuardOptions): MountGuard {
     timer.unref?.();
     work.then((value) => { clearTimeout(timer); resolve(value); }, (error: unknown) => { clearTimeout(timer); reject(error); });
   });
-  const acquire = (folder: string, state: FolderState): Promise<void> => new Promise<void>((resolve, reject) => {
+  const acquire = (folder: string, state: FolderState): Promise<Slot> => new Promise<Slot>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const waiter = {
       folder,
       take: () => {
         if (state.downUntil > now()) { finish(); reject(new MountDown(folder)); return true; }
         if (state.running >= perFolder || runningInAll >= inAll) return false;
+        const slot: Slot = { counted: true };
         state.running += 1;
+        state.ops.add(slot);
         runningInAll += 1;
         finish();
-        resolve();
+        slot.slow = setTimeout(() => uncount(slot), slowMs);
+        slot.slow.unref?.();
+        resolve(slot);
         return true;
       },
     };
@@ -100,16 +124,21 @@ export function createMountGuard(options: MountGuardOptions): MountGuard {
     timer = setTimeout(() => { finish(); reject(new MountDown(folder)); }, timeoutMs);
     timer.unref?.();
   });
-  const release = (state: FolderState) => {
+  const release = (state: FolderState, slot: Slot) => {
+    clearTimeout(slot.slow);
     state.running -= 1;
-    runningInAll -= 1;
+    state.ops.delete(slot);
+    if (slot.counted) {
+      slot.counted = false;
+      runningInAll -= 1;
+    }
     offer();
   };
   const tripping = (error: unknown) => TRIPPING.has(String((error as NodeJS.ErrnoException | null)?.code));
   const guarded = async <T>(folder: string, state: FolderState, op: () => Promise<T>): Promise<T> => {
-    await acquire(folder, state);
+    const slot = await acquire(folder, state);
     const work = Promise.resolve().then(op);
-    work.then(() => release(state), () => release(state));
+    work.then(() => release(state, slot), () => release(state, slot));
     try {
       return await timed(work);
     } catch (error) {
@@ -140,7 +169,7 @@ export function createMountGuard(options: MountGuardOptions): MountGuard {
       return guarded(folder, state, op);
     },
     state() {
-      return [...folders].map(([folder, state]) => ({ folder, running: state.running, waiting: [...waiters].filter((waiter) => waiter.folder === folder).length, downForMs: Math.max(0, state.downUntil - now()) }));
+      return [...folders].map(([folder, state]) => ({ folder, running: state.running, counted: [...state.ops].filter((slot) => slot.counted).length, waiting: [...waiters].filter((waiter) => waiter.folder === folder).length, downForMs: Math.max(0, state.downUntil - now()) }));
     },
   };
 }
