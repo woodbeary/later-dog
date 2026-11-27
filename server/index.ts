@@ -459,7 +459,8 @@ import {
   type RecallDog,
 } from "./laterdog/cross-dog-recall.ts";
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
-import { mountedFolderGate } from "./laterdog/mounted-folder-gate.ts";
+import { mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
+import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
 import {
   beginMemoryTurn,
   beginMemoryTurnInBackground,
@@ -774,6 +775,7 @@ import { createDeskBrainRoute, recordDeskExchange } from "./laterdog/desk-exchan
 import { createTurnTiming } from "./laterdog/turn-timing.ts";
 import { createTurnPhases, earlySnapshot, type EarlySnapshot } from "./laterdog/turn-head-start.ts";
 import { engineWaitEvent } from "./laterdog/engine-waiting.ts";
+import { watchEventLoop } from "./laterdog/loop-watch.ts";
 import { keepWarm } from "./laterdog/keep-warm.ts";
 import { instanceTouchedBy } from "./laterdog/snapshot-cache.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
@@ -1039,6 +1041,7 @@ const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivit
 })) : null;
 const turnTiming = createTurnTiming({ log: (line) => console.log(line) });
 const turnPhases = createTurnPhases({ log: (line) => console.log(line) });
+if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () => turnPhases.current() });
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
 const deskBrainRoute = deskVerify && deskPrompts ? createDeskBrainRoute({
@@ -9415,8 +9418,8 @@ async function startTurn(
       turnPhases.mark(threadId, "connections");
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
       if (worksInWorkspace) {
-        await mountedFolderGate.wait(workspaceDir(bot.id), boat.ENGINE_BOOT_BUDGET_MS, (wait) =>
-          bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }));
+        await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: join(TASK_WORKSPACES_DIR, bot.id, threadId), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
+          gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
         if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while the computer woke");
         ensureWorkspace(bot.id);
         if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
@@ -11709,8 +11712,8 @@ async function runGroupMemberTurn(
   const text = `${roomContext}\n\n(Reply to the conversation above as ${bot.name}.)${cardContinuation ? `\n\n${cardContinuation}` : ""}${coordinationReminder}${liveRosterBlock}`;
 
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
-  if (worksInWorkspace) await mountedFolderGate.wait(workspaceDir(bot.id), boat.ENGINE_BOOT_BUDGET_MS, (wait) =>
-    bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }));
+  if (worksInWorkspace) await prepareTurnFolders({ workspace: workspaceDir(bot.id), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
+    gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
   const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, workspace && cloudGuestOpened(threadId)
