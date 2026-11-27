@@ -52,12 +52,15 @@ export interface TaskLineService {
   take(input: { key: string; thread: string; dog: string; size: MachineSize; class: TicketClass }, signal?: AbortSignal): Promise<TicketView>;
   ticket(id: string, waitSeconds: number, signal?: AbortSignal): Promise<TicketView | null>;
   drop(id: string): Promise<void>;
+  line(): Promise<unknown>;
+  configure(settings: { cap?: number; idleMinutes?: number }): Promise<unknown>;
 }
 
 export function taskLineService(): TaskLineService | null {
   const connection = computersConnection();
   if (!connection || connection.source === "trial") return null;
-  const base = `${connection.api.replace(/\/v1$/, "")}/v1/task-line/tickets`;
+  const root = `${connection.api.replace(/\/v1$/, "")}/v1/task-line`;
+  const base = `${root}/tickets`;
   const headers = { authorization: `Bearer ${computersKey(connection)}`, "content-type": "application/json", accept: "application/json" };
   const timed = (ms: number, signal?: AbortSignal) => signal ? AbortSignal.any([signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms);
   const read = async (response: Response): Promise<TicketView> => {
@@ -73,6 +76,18 @@ export function taskLineService(): TaskLineService | null {
       const response = await fetch(`${base}/${id}${waitSeconds > 0 ? `?wait=${waitSeconds}` : ""}`, { headers, signal: timed(CALL_TIMEOUT_MS + waitSeconds * 1000, signal) });
       if (response.status === 404) { await response.body?.cancel(); return null; }
       return read(response);
+    },
+    async line() {
+      const response = await fetch(root, { headers, signal: AbortSignal.timeout(CALL_TIMEOUT_MS) });
+      const body = await response.json().catch(() => null) as { line?: unknown } | null;
+      if (!response.ok || !body?.line) throw new Error(`the task line answered ${response.status}`);
+      return body.line;
+    },
+    async configure(settings) {
+      const response = await fetch(`${root}/settings`, { method: "PUT", headers, body: JSON.stringify(settings), signal: AbortSignal.timeout(CALL_TIMEOUT_MS) });
+      const body = await response.json().catch(() => null) as { line?: unknown; error?: { message?: string } } | null;
+      if (!response.ok || !body?.line) throw new Error(`the task line refused the settings: ${body?.error?.message ?? response.status}`);
+      return body.line;
     },
     async drop(id) {
       try {
@@ -116,17 +131,64 @@ async function admitted(line: TaskLineService, first: TicketView, budgetMs: numb
   return ticket;
 }
 
-function holdLease(line: TaskLineService, ticketId: string, link: EngineLink, renewMs: number, note: (text: string) => void): void {
-  const timer = setInterval(() => {
-    void line.ticket(ticketId, 0).then(
-      (ticket) => { if (!ticket || ticket.state !== "admitted") note(`lease on ${ticketId} ended (${ticket?.state ?? "gone"})`); },
+const TURN_ENDS = ['"type":"result"', '"method":"turn/completed"', '"type":"turn.completed"'];
+const TAIL = Math.max(...TURN_ENDS.map((end) => end.length));
+const STDOUT_DATA = /"type":"stdout".*?"data":"([A-Za-z0-9+/=]*)"/;
+
+export function turnEnded(frame: string, tail: { text: string }): boolean {
+  if (frame.includes('"type":"native_exit"')) return true;
+  const data = STDOUT_DATA.exec(frame)?.[1];
+  if (!data) return false;
+  const text = tail.text + Buffer.from(data, "base64").toString("utf8");
+  tail.text = text.slice(-TAIL);
+  return TURN_ENDS.some((end) => text.includes(end));
+}
+
+export interface LeaseTurn { thread: string; dog: string; size: MachineSize; class: TicketClass; machineId: string }
+
+function holdLease(line: TaskLineService, first: string, link: EngineLink, turn: LeaseTurn, renewMs: number, note: (text: string) => void): void {
+  let ticketId: string | null = first;
+  let taking = false;
+  const tail = { text: "" };
+  const renew = () => {
+    if (!ticketId) return;
+    const id = ticketId;
+    void line.ticket(id, 0).then(
+      (ticket) => { if (!ticket || ticket.state !== "admitted") { note(`lease on ${id} ended (${ticket?.state ?? "gone"})`); if (ticketId === id) ticketId = null; } },
       () => undefined,
     );
-  }, renewMs);
+  };
+  const release = (why: string) => {
+    if (!ticketId) return;
+    const id = ticketId;
+    ticketId = null;
+    tail.text = "";
+    note(`turn ended on ${turn.machineId} (${why}); its slot is free and the machine idles out unless the chat comes back`);
+    void line.drop(id);
+  };
+  const retake = () => {
+    if (ticketId || taking) return;
+    taking = true;
+    void line.take({ key: `${turn.dog}:${turn.thread}:${randomUUID()}`, thread: turn.thread, dog: turn.dog, size: turn.size, class: turn.class }).then(
+      (ticket) => {
+        if (ticket.state === "admitted" && ticket.machine?.id === turn.machineId) { ticketId = ticket.id; note(`next turn holds ${turn.machineId} again`); }
+        else { note(`next turn found ${turn.machineId} given away (${ticket.state}); the warm engine carries on without a slot`); void line.drop(ticket.id); }
+      },
+      () => undefined,
+    ).finally(() => { taking = false; });
+  };
+  const send = link.send.bind(link);
+  link.send = (frame: string) => {
+    if (!ticketId && frame.startsWith('{"type":"stdin"')) retake();
+    send(frame);
+  };
+  link.on("line", (frame: string) => { if (ticketId && turnEnded(frame, tail)) release(frame.includes("native_exit") ? "engine exited" : "reply finished"); });
+  const timer = setInterval(renew, renewMs);
   timer.unref?.();
   link.once("close", () => {
     clearInterval(timer);
-    void line.drop(ticketId);
+    if (ticketId) void line.drop(ticketId);
+    ticketId = null;
   });
 }
 
@@ -161,7 +223,7 @@ export function taskMachineOpener(inner: EngineOpener, options: TaskMachineOptio
         const machineId = ticket.machine!.id;
         const waited = Date.now() - began;
         const link = await options.openOn(machineId, botId, plan, signal);
-        holdLease(line, ticket.id, link, options.renewMs ?? TASK_LEASE_RENEW_MS, note);
+        holdLease(line, ticket.id, link, { thread: plan.threadId, dog: botId, size, class: ticketClass, machineId }, options.renewMs ?? TASK_LEASE_RENEW_MS, note);
         note(`engine opened on task machine ${machineId} (${size}) in ${Date.now() - began} ms, ${waited} ms of it in line`);
         return link;
       } catch (error) {

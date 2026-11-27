@@ -944,7 +944,8 @@ import { retireMemberProjects } from "./laterdog/project-member-retirement.ts";
 import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener, openEngineOnMachine, type EngineWorkFolders } from "./laterdog/engine-opener.ts";
-import { taskMachineOpener } from "./laterdog/task-machines.ts";
+import { saveTaskMachineSetting, taskLineService, taskMachineOpener, taskMachineSetting } from "./laterdog/task-machines.ts";
+import { createTaskMachineRoutes } from "./routes/task-machines.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
 import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
@@ -14223,6 +14224,12 @@ ROUTES.push(createEnginePlacementRoutes({
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
 }));
 ROUTES.push(createEnginePoolRoutes({ read: () => poolSetting(DATA_DIR), save: (setting) => savePoolSetting(DATA_DIR, setting) }));
+ROUTES.push(createTaskMachineRoutes({
+  read: () => taskMachineSetting(DATA_DIR),
+  save: (setting) => saveTaskMachineSetting(DATA_DIR, setting),
+  line: async () => { const line = taskLineService(); if (!line) throw new Error("This home has no computers service for task machines."); return line.line(); },
+  configure: async (settings) => { const line = taskLineService(); if (!line) throw new Error("This home has no computers service for task machines."); return line.configure(settings); },
+}));
 ROUTES.push(createSearchIndexRoutes({
   status: () => searchIndex?.status() ?? null,
   setMode: (mode) => {

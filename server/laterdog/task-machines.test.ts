@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EngineOpener } from "./engine-placement.ts";
 import type { EngineLink } from "./engine-remote.ts";
-import { saveTaskMachineSetting, taskMachineOpener, taskMachineSetting, type TaskLineService, type TicketView } from "./task-machines.ts";
+import { saveTaskMachineSetting, taskMachineOpener, taskMachineSetting, turnEnded, type TaskLineService, type TicketView } from "./task-machines.ts";
 
 const scratch: string[] = [];
 afterEach(() => { for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -65,6 +65,8 @@ function fakeLine(cap: number) {
       if (row) row.state = row.state === "queued" ? "cancelled" : "released";
       settle();
     },
+    async line() { return { running: running() }; },
+    async configure() { return {}; },
   };
   return { service, rows, dropped, running };
 }
@@ -95,7 +97,7 @@ describe("task machine opener", () => {
     expect(log).toContain("waiting for a small machine: place 1 (0 ahead), 3 of 3 running");
     expect(log).toContain("waiting for a small machine: place 2 (1 ahead), 3 of 3 running");
     const first = await opens[0]!;
-    first.close();
+    first.emit("line", JSON.stringify({ type: "stdout", data: Buffer.from('{"type":"result","subtype":"success"}\n').toString("base64") }));
     await settled();
     expect(line.dropped).toEqual(["tkt_1"]);
     expect(machines).toEqual(["cmp_t1", "cmp_t2", "cmp_t3", "cmp_t4"]);
@@ -150,5 +152,32 @@ describe("task machine opener", () => {
     expect(taskMachineSetting(dir)).toEqual({ enabled: true, bots: ["dog-1"] });
     const opener = taskMachineOpener(inner(), { dataDir: dir, ticketClass: () => "task", size: () => "small", openOn: async () => link(), queueBudgetMs: 5000 });
     expect(opener.openBudgetMs).toBe(6000);
+  });
+
+  it("frees the slot when a turn's reply finishes, takes it back on the machine for the next turn, and frees it when the engine closes", async () => {
+    const dir = dataDir();
+    const line = fakeLine(1);
+    const opener = taskMachineOpener(inner(), { dataDir: dir, ticketClass: () => "task", size: () => "small", service: () => line.service, openOn: async () => link() });
+    const engine = await opener.open("dog-1", plan("t1"));
+    expect(line.running()).toBe(1);
+    engine.emit("line", JSON.stringify({ type: "native_exit", code: 0, signal: null }));
+    await settled();
+    expect(line.running()).toBe(0);
+    engine.send(JSON.stringify({ type: "stdin", data: "next" }));
+    await settled();
+    expect(line.running()).toBe(1);
+    expect(placements(dir)).toContain("next turn holds cmp_t1 again");
+    engine.close();
+    await settled();
+    expect(line.running()).toBe(0);
+  });
+
+  it("sees a turn end even when the marker is split across two output frames", () => {
+    const tail = { text: "" };
+    const frame = (text: string) => JSON.stringify({ type: "stdout", data: Buffer.from(text).toString("base64") });
+    expect(turnEnded(frame('{"type":"assistant"}\n{"ty'), tail)).toBe(false);
+    expect(turnEnded(frame('pe":"result"}\n'), tail)).toBe(true);
+    expect(turnEnded(frame('{"method":"turn/completed"}\n'), { text: "" })).toBe(true);
+    expect(turnEnded(JSON.stringify({ type: "stderr", data: "eyJ0eXBlIjoicmVzdWx0In0=" }), { text: "" })).toBe(false);
   });
 });
