@@ -8,7 +8,7 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { POOL_LOST_REASON, poolChosen, takePoolLoss } from "../laterdog/pool-opener.ts";
+import { onPool, POOL_LOST_REASON, POOL_WARM_MS, poolChosen, takePoolLoss } from "../laterdog/pool-opener.ts";
 import { acceptedEnginePlacement, botFolderPresent, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { dogFiles } from "../laterdog/dog-mounts.ts";
 import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
@@ -1165,7 +1165,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (!s || s.helpers.running()) return;
       warmEngines.rest(s, {
         pid: s.child.pid,
-        idleMs: placedThreads.has(threadId) ? keepWarm.idleMs(threadId, sessionIdlePolicy("CLAUDE").idleMs) : SESSION_IDLE_MS,
+        idleMs: onPool(threadId) ? POOL_WARM_MS : placedThreads.has(threadId) ? keepWarm.idleMs(threadId, sessionIdlePolicy("CLAUDE").idleMs) : SESSION_IDLE_MS,
         close: (why) => { if (sessions.get(threadId) === s) closeSession(threadId, why); },
       });
     };

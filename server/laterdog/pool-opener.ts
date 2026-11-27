@@ -23,6 +23,9 @@ export const POOL_EXIT_LINE = JSON.stringify({ type: "native_exit", code: null, 
 const CLAUDE_CLI = "@anthropic-ai/claude-code";
 export const POOL_AVOID_MS = 10 * 60_000;
 export const POOL_LOST_REASON = "engine machine lost";
+export const POOL_WARM_MS = 10 * 60_000;
+const poolThreads = new Set<string>();
+export const onPool = (threadId: string): boolean => poolThreads.has(threadId);
 export const POOL_NOTE = "\n\nWhere you work: this chat runs on a shared engine machine. Your built-in file, search and shell tools act on a scratch folder there, not on your working folder, and that scratch folder can be cleared at any time. For your own files use the folder tool (list, read, search, write, edit, delete). For builds, tests, installs and long or heavy commands use run_on_computer.\n";
 const poolLosses = new Map<string, { at: number; taken: boolean; avoid: boolean }>();
 const CLEAN_CLOSES = ["closed by the home", "pool relay exited 0", "pool closed the engine: idle", "pool closed the engine: closed"];
@@ -303,6 +306,8 @@ export function poolEngineOpener(computer: EngineOpener, dataDir: string, servic
           notePlacement(dataDir, `[pool] ${who} lost its pool engine (${why})${why === MEMORY_CLOSE ? "" : `; this chat uses the dog's computer for ${POOL_AVOID_MS / 60_000} minutes`}`);
         });
         notePlacement(dataDir, `[pool] ${who} engine opened on pool slot ${opened.slot} in ${Date.now() - began} ms`);
+        poolThreads.add(plan.threadId);
+        opened.link.once("close", () => poolThreads.delete(plan.threadId));
         return opened.link;
       } catch (error) {
         if (signal?.aborted) throw error;
