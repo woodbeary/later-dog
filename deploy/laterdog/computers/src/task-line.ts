@@ -233,6 +233,7 @@ export class TaskLine extends DurableObject<Env> {
     const fresh = { now: Date.now(), settings: this.settings(), tickets: this.tickets(), machines: this.machines() };
     const result = settle(fresh, (ticket) => names.get(ticket.id)!);
     this.apply(result, fresh.now);
+    for (const machine of result.newMachines) await this.startMachine(machine, settings, home);
     this.ctx.storage.sql.exec("DELETE FROM tickets WHERE state NOT IN ('queued', 'admitted') AND ended_at < ?", now - ENDED_KEPT_MS);
     for (const id of result.stop) void this.stopMachine(id);
     const next = nextCheckAt({ now: fresh.now, settings, tickets: this.tickets(), machines: this.machines() });
@@ -270,9 +271,26 @@ export class TaskLine extends DurableObject<Env> {
     }
   }
 
+  private async startMachine(machine: Machine, settings: TaskLineSettings, home: string): Promise<void> {
+    try {
+      const started = await this.env.COMPUTER.get(this.env.COMPUTER.idFromName(machine.id)).initTask({
+        id: machine.id,
+        name: `task ${machine.thread}`.slice(0, 80),
+        size: settings.sizes[machine.size],
+        line: home,
+        idleMinutes: settings.idleMinutes,
+      });
+      if (!started.ok) console.error(`laterdog computers: [task-line] start ${machine.id} refused: ${started.refusal.message}`);
+      else console.log(`laterdog computers: [task-line] start ${machine.id} (${machine.size}, ${settings.sizes[machine.size]})`);
+    } catch (error) {
+      console.error(`laterdog computers: [task-line] start ${machine.id} failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   private async stopMachine(id: string): Promise<void> {
     try {
-      await this.env.COMPUTER.get(this.env.COMPUTER.idFromName(id)).remove();
+      const retired = await this.env.COMPUTER.get(this.env.COMPUTER.idFromName(id)).retire("line");
+      if (!retired.ok && retired.refusal.code === "not_a_task_machine") await this.env.COMPUTER.get(this.env.COMPUTER.idFromName(id)).remove();
     } catch (error) {
       console.error(`laterdog computers: [task-line] stop ${id} failed: ${error instanceof Error ? error.message : String(error)}`);
     }

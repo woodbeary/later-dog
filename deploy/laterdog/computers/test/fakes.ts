@@ -55,7 +55,7 @@ function sqlStorage() {
 }
 
 export const FAKE_IMAGE = "laterdog-desktop:test";
-export const fakeImages = { desktop: FAKE_IMAGE, pool: "laterdog-pool:test" };
+export const fakeImages = { desktop: FAKE_IMAGE, pool: "laterdog-pool:test", task: "laterdog-task:test" };
 
 export class FakeContainer {
   running = false;

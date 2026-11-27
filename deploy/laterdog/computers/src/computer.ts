@@ -37,6 +37,7 @@ export type State = "starting" | "running" | "sleeping" | "stopping" | "error";
 
 export interface ComputerView {
   durableJobs?: true;
+  kind?: typeof TASK_KIND;
   id: string;
   name: string;
   size: Size;
@@ -69,11 +70,28 @@ export interface ExecResult {
 
 export type Result<T> = { ok: true; value: T } | { ok: false; refusal: Refusal };
 
+export const TASK_KIND = "task";
+export const TASK_MAX_AWAKE_MS = 72 * 60 * MINUTE;
+export const TASK_RETRY_MS = 5 * MINUTE;
+export const TASK_BACKSTOP_MS = 15 * MINUTE;
+
+export interface TaskMachineInput {
+  id: string;
+  name: string;
+  size: Size;
+  line: string;
+  idleMinutes: number;
+}
+
 interface ComputerRecord {
   id: string;
   name: string;
   size: Size;
   state: State;
+  kind?: typeof TASK_KIND;
+  line?: string;
+  idleMinutes?: number;
+  retireFailures?: number;
   desktopDrawn?: boolean;
   readyAt?: number;
   createdAt: number;
@@ -162,6 +180,7 @@ function view(record: ComputerRecord): ComputerView {
     name: record.name,
     size: record.size,
     state: record.state,
+    ...(record.kind ? { kind: record.kind } : {}),
     ...(hasDurableJobs(record) ? { durableJobs: true } : {}),
     desktopAvailable: record.state === "running" && record.desktopDrawn !== false,
     createdAt: iso(record.createdAt),
@@ -272,6 +291,89 @@ export class DogComputer extends DurableObject<Env> {
       const booted = await this.boot();
       return booted.ok ? ok(view(this.load()!)) : booted;
     });
+  }
+
+  async initTask(input: TaskMachineInput): Promise<Result<ComputerView>> {
+    return this.serially(async () => {
+      const existing = this.load();
+      if (existing && existing.kind !== TASK_KIND) return fail(409, "not_a_task_machine", "That id belongs to a computer that is not a task machine.");
+      if (existing && (existing.state === "running" || existing.state === "starting") && this.ctx.container?.running) {
+        this.update((r) => {
+          r.idleMinutes = input.idleMinutes;
+          delete r.retireFailures;
+        });
+        return ok(view(this.markActive()!));
+      }
+      if (!existing) {
+        const now = Date.now();
+        this.save({
+          id: input.id,
+          name: input.name,
+          size: input.size,
+          state: "starting",
+          kind: TASK_KIND,
+          line: input.line,
+          idleMinutes: input.idleMinutes,
+          createdAt: now,
+          lastActiveAt: now,
+          generation: 0,
+          fullAllowance: true,
+        });
+        console.log(`laterdog computers: [task] ${input.id} created for the task line (${input.size}, idle ${input.idleMinutes} min)`);
+      }
+      const booted = await this.boot();
+      return booted.ok ? ok(view(this.load()!)) : booted;
+    });
+  }
+
+  async retire(reason: "line" | "idle" | "max_awake" | "budget" | "request" = "request"): Promise<Result<{ retired: true }>> {
+    const outcome = await this.serially(async (): Promise<Result<{ retired: true; id: string; line?: string }>> => {
+      const record = this.load();
+      if (!record) return notFound();
+      if (record.kind !== TASK_KIND) return fail(409, "not_a_task_machine", "Only a task machine is retired; this computer sleeps instead.");
+      const container = this.ctx.container;
+      const previous = record.state;
+      this.update((r) => {
+        r.state = "stopping";
+      });
+      this.closeViewers(4001, "The task machine stopped.");
+      if (container?.running) {
+        const started = Date.now();
+        try {
+          await this.run(["sync"], { timeoutMs: 30_000, cap: 1024 }).catch(() => undefined);
+          await this.flushWorkFolders();
+        } catch (error) {
+          const failures = (record.retireFailures ?? 0) + 1;
+          this.update((r) => {
+            r.state = previous === "stopping" ? "running" : previous;
+            r.retireFailures = failures;
+          });
+          await this.ctx.storage.setAlarm(Date.now() + TASK_RETRY_MS);
+          console.error(`laterdog computers: [task] ${record.id} kept running because its folders could not be saved (${reason}, try ${failures}): ${describeError(error)}`);
+          return fail(502, "save_failed", `The task machine's folders could not be saved, so it was left running: ${describeError(error)}`);
+        }
+        console.log(`laterdog computers: [task] ${record.id} saved its folders in ${Date.now() - started} ms (${reason})`);
+        await container.destroy().catch((error) => console.error(`laterdog computers: [task] ${record.id} stop failed: ${describeError(error)}`));
+      }
+      this.deleting = true;
+      try {
+        await this.charge(true);
+        await this.ctx.storage.deleteAlarm();
+        await this.ctx.storage.deleteAll();
+      } finally {
+        this.deleting = false;
+      }
+      console.log(`laterdog computers: [task] ${record.id} retired (${reason}) after ${Math.round((Date.now() - record.createdAt) / 1000)} s`);
+      return ok({ retired: true as const, id: record.id, ...(record.line ? { line: record.line } : {}) });
+    });
+    if (!outcome.ok) return outcome;
+    const { id, line } = outcome.value;
+    if (line && reason !== "line") {
+      await this.env.TASK_LINE.get(this.env.TASK_LINE.idFromName(`task-line:${line}`))
+        .machineGone(id)
+        .catch((error) => console.error(`laterdog computers: [task] could not tell the task line a machine retired: ${describeError(error)}`));
+    }
+    return ok({ retired: true as const });
   }
 
   async buildEnvironment(job: BuildJob): Promise<Result<{ started: boolean }>> {
@@ -409,6 +511,11 @@ export class DogComputer extends DurableObject<Env> {
   }
 
   async sleep(reason: "request" | "idle" | "max_awake" | "budget" = "request"): Promise<Result<ComputerView>> {
+    const found = this.load();
+    if (found?.kind === TASK_KIND) {
+      const retired = await this.retire(reason);
+      return retired.ok ? ok({ ...view(found), state: "sleeping" }) : retired;
+    }
     return this.serially(async () => {
       const record = this.load();
       if (!record) return notFound();
@@ -938,6 +1045,10 @@ export class DogComputer extends DurableObject<Env> {
     await this.refreshBudget();
     const record = this.load();
     if (!record || record.state !== "running") return;
+    if (record.kind === TASK_KIND && record.retireFailures && this.inFlight === 0 && this.engineStreams === 0 && this.viewers.size === 0 && Date.now() - record.lastActiveAt >= (record.idleMinutes ?? 5) * MINUTE) {
+      await this.retire("idle");
+      return;
+    }
     const decision = this.idleDecision(record);
     if (!decision.sleep) {
       await this.ctx.storage.setAlarm(decision.checkAt);
@@ -981,6 +1092,7 @@ export class DogComputer extends DurableObject<Env> {
   }
 
   private policyFor(record: ComputerRecord | undefined): IdlePolicy {
+    if (record?.kind === TASK_KIND) return { idleSleepMs: (record.idleMinutes ?? 5) * MINUTE + TASK_BACKSTOP_MS, maxAwakeMs: TASK_MAX_AWAKE_MS };
     return record?.trial && !record.fullAllowance ? this.trialIdle : this.policy;
   }
 
@@ -1147,8 +1259,8 @@ export class DogComputer extends DurableObject<Env> {
           .environmentRestored(record.environment!.key)
           .catch((error) => console.error(`laterdog computers: ${record.id} could not note its environment restore: ${describeError(error)}`));
       } else {
-        const image = container.images.desktop;
-        if (!image) throw new Error('No "desktop" image is configured for this Worker.');
+        const image = record.kind === TASK_KIND ? (container.images.task ?? container.images.desktop) : container.images.desktop;
+        if (!image) throw new Error(`No "${record.kind === TASK_KIND ? "task" : "desktop"}" image is configured for this Worker.`);
         container.start({ ...common, image });
         this.update((r) => {
           r.image = image;
