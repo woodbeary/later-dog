@@ -439,6 +439,7 @@ import { TurnResources, type TurnOwner } from "./turn-resources.ts";
 import {
   ensureWorkspaceReady,
   ensureTaskWorkspaceReady,
+  memoryWritesSettled,
   taskWorkspacePath,
   MEMORY_SEED,
   workspaceLocationsPrompt,
@@ -17780,6 +17781,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (importMode !== "add") return json(res, 400, { error: "Import backups alongside your existing dogs; project mode is only for templates" });
         try {
           const imported = importTeamBackup(store, routines!, body, await defaultSelection(), { visibility: importVisibility });
+          await memoryWritesSettled();
           const bots = imported.bots.map((bot) => publicBot(bot));
           const groups = imported.groups.map((group) => groupWithThread(group));
           for (const bot of bots) broadcast({ kind: "bot", bot });
@@ -17812,6 +17814,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ? importPackageDocument(packageDocument, { ...options, trust: "file" }, deps)
           : importTeamManifest(manifest!, options, deps);
         if (result.alreadyAdded) return json(res, 200, result);
+        await memoryWritesSettled();
         imported = result;
         if (projectCwd) {
           try { await selectProjects(cloudOwnerSession(auth), imported.groups.filter(g=>g.cwd).map(g=>({subject:"room:"+g.id,cwd:g.cwd,members:g.memberIds}))); }
@@ -18527,6 +18530,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             skills: { install: installSkill, setEnabled: setSkillEnabled, installOrg: installOrgSkill },
             memory: { writeIndex: writeMemoryFile, writeTopic: writeMemoryTopic },
           });
+          await memoryWritesSettled();
         }
         for (const skill of template.skills) {
           if (presetSkills.has(skill.name)) continue;
