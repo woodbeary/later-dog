@@ -330,6 +330,9 @@ import { SHADOW_INDEX_BUDGETS, SearchIndexWiring } from "./laterdog/search-index
 import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
+import { createCoordinatorRoutes } from "./routes/coordinator.ts";
+import { readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
+import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
 import { SkillsPromptCache, skillsPromptWorker } from "./skills-prompt-cache.ts";
 import { readMessageText, recallMemoryOffThread, recallMessagesOffThread, recentMessagesOffThread, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
@@ -1053,6 +1056,8 @@ const turnPhases = createTurnPhases({ log: (line) => console.log(line) });
 const startPhases = createTurnPhases({ log: (line) => console.log(line), name: "server start" });
 startPhases.begin("boot");
 if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () => turnPhases.current() });
+let coordinatorSetting: CoordinatorSetting = readCoordinatorSetting(DATA_DIR);
+const capabilitySigner = CLOUD_HOME ? turnCapabilitySigner({ home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
 const searchIndex = CLOUD_HOME ? new SearchIndexWiring({
   client: searchIndexClient({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }),
   shadowClient: searchIndexClient({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret, budgets: SHADOW_INDEX_BUDGETS }),
@@ -2592,16 +2597,23 @@ function sessionBearer(capability: Omit<InternalCapability, "orphanExpiresAt">):
   const grants = sessionGrants(capability);
   const held = credentials.get(slot);
   if (held?.grants === grants) return held.token;
-  const token = randomBytes(24).toString("hex");
+  const token = newCapabilityToken(capability, `s${randomBytes(12).toString("hex")}`);
   credentials.set(slot, { grants, token });
   return token;
+}
+
+function newCapabilityToken(capability: Pick<InternalCapability, "botId" | "threadId" | "kind">, generation: string): string {
+  const signed = capabilitySigner && coordinatorSetting.capabilities === "signed"
+    ? capabilitySigner.sign({ dog: capability.botId, chat: capability.threadId, generation, kind: capability.kind }, INTERNAL_CAPABILITY_ORPHAN_MS)
+    : null;
+  return signed ?? randomBytes(24).toString("hex");
 }
 
 function mintInternalCapability(capability: Omit<InternalCapability, "orphanExpiresAt">, { perTurn = false } = {}): string {
   if (activeInternalGenerationByThread.get(capability.threadId) !== capability.generation) {
     throw new Error("cannot mint an integration capability for an inactive turn");
   }
-  const token = perTurn ? randomBytes(24).toString("hex") : sessionBearer(capability);
+  const token = perTurn ? newCapabilityToken(capability, capability.generation) : sessionBearer(capability);
   if (internalCapabilities.get(token)?.generation !== capability.generation) {
     internalCapabilities.set(token, {
       ...capability,
@@ -2661,7 +2673,16 @@ function revokeInternalCapabilityForProviderEvent(event: RuntimeEvent): void {
 }
 
 function authorizedInternalCapability(header: string | string[] | undefined): InternalCapability | null {
-  const got = Buffer.from(Array.isArray(header) ? "" : (header ?? ""));
+  const presented = Array.isArray(header) ? "" : (header ?? "");
+  const signed = capabilitySigner?.presented(presented);
+  if (signed) {
+    const capability = capabilitySigner!.genuine(signed) ? internalCapabilities.get(signed) : undefined;
+    if (!capability) return null;
+    if (internalCapabilityIsActive(capability)) return capability;
+    internalCapabilities.delete(signed);
+    return null;
+  }
+  const got = Buffer.from(presented);
   for (const [token, capability] of internalCapabilities) {
     if (!internalCapabilityIsActive(capability)) {
       internalCapabilities.delete(token);
@@ -14224,6 +14245,15 @@ ROUTES.push(createSearchIndexRoutes({
   },
 }));
 if (searchIndex) searchIndex.setMode(readSearchIndexMode(DATA_DIR));
+ROUTES.push(createCoordinatorRoutes({
+  available: () => Boolean(CLOUD_HOME),
+  read: () => coordinatorSetting,
+  change: (change) => {
+    coordinatorSetting = mergeCoordinatorSetting(coordinatorSetting, change);
+    saveCoordinatorSetting(DATA_DIR, coordinatorSetting);
+    return coordinatorSetting;
+  },
+}));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
 ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
 ROUTES.push(createHomeLogRoutes({ dir: () => (CLOUD_HOME ? join(DATA_DIR, HOME_SERVER_LOG_DIR) : null) }));
