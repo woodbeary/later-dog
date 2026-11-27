@@ -1,0 +1,201 @@
+import contextlib
+import fcntl
+import json
+import os
+import re
+import signal
+import stat
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+runtime = Path("/run/laterdog-work-folder-freeze")
+record = runtime / "lease.json"
+boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+request = json.loads(sys.argv[1])
+lease = request["lease"]
+if not re.fullmatch("[a-f0-9]{64}", lease) or os.getuid() != 0:
+    raise RuntimeError("Invalid home freeze identity")
+runtime.mkdir(mode=0o700, exist_ok=True)
+info = runtime.lstat()
+if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+    raise RuntimeError("Unsafe home freeze runtime")
+
+def read():
+    return json.loads(record.read_text()) if record.exists() else None
+
+def write(s):
+    path = runtime / "next"
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600), "w") as f:
+        json.dump(s, f)
+    path.replace(record)
+
+@contextlib.contextmanager
+def locked():
+    with (runtime / "lock").open("a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+
+def proc(pid):
+    try:
+        v = Path("/proc", str(pid), "stat").read_text().rsplit(")", 1)[1].split()
+        return (v[0], int(v[19]))
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+
+def signal_process(pid, birth, sig):
+    try:
+        fd = os.pidfd_open(pid)
+        try:
+            v = proc(pid)
+            if v and v[1] == birth:
+                signal.pidfd_send_signal(fd, sig)
+        finally:
+            os.close(fd)
+    except ProcessLookupError:
+        pass
+
+def mounts():
+    return [line.split() for line in Path("/proc/self/mountinfo").read_text().splitlines()]
+
+def mount():
+    return next((m for m in mounts() if m[4] == "/data"), None)
+
+def command(*args):
+    subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+
+def thaw(s):
+    m = mount()
+    if m:
+        base = s.get("binding", {})
+        matches_pending = s["phase"] in ("arming", "thawing") and isinstance(base, dict) and m[1:4] == [base.get("parent"), base.get("device"), "/data"]
+        if m[0] != s.get("mountId") and not matches_pending:
+            raise RuntimeError("Home mount identity changed")
+    elif s.get("mountId") and s["phase"] != "thawing":
+        raise RuntimeError("Home mount identity changed")
+    s["phase"] = "thawing"
+    write(s)
+    if m:
+        command("umount", "/data")
+    for pid, ticks in reversed(s["stopped"]):
+        p = proc(pid)
+        if p and p[1] == ticks and p[0] in ("T", "t"):
+            try:
+                signal_process(pid, ticks, signal.SIGCONT)
+            except ProcessLookupError:
+                pass
+    record.unlink(missing_ok=True)
+
+def guard():
+    while True:
+        time.sleep(1)
+        with locked():
+            s = read()
+            if not s or s["lease"] != lease or s["boot"] != boot:
+                return
+            if s["phase"] == "thawing" or s["phase"] != "sealed" and time.monotonic() >= s["deadline"]:
+                thaw(s)
+                return
+
+def identity(s):
+    return {"boot":boot, "mountId":s.get("mountId"), "phase":s["phase"], "stopped":len(s["stopped"]), "remaining":max(0, int(s["deadline"]-time.monotonic()))}
+
+def hold(s, watchdog):
+    if mount() or any(m[4].startswith("/data/") for m in mounts()):
+        raise RuntimeError("The original home disk is already mounted separately")
+    if Path("/proc/1/comm").read_text().strip() != "tini" or b"/app/cloud/runtime/run.mjs" not in Path("/proc/2/cmdline").read_bytes().split(b"\x00"):
+        raise RuntimeError("Unexpected original home runtime")
+    start = time.monotonic()
+    seen = {}
+    while time.monotonic() - start < 12:
+        ready = True
+        for p in Path("/proc").glob("[0-9]*"):
+            pid = int(p.name)
+            if pid in (1, os.getpid(), watchdog):
+                continue
+            v = proc(pid)
+            if not v or v[0] in ("Z", "X", "T", "t"):
+                continue
+            ready = False
+            if seen.get(pid) != v[1]:
+                seen[pid] = v[1]
+                s["stopped"].append([pid,v[1]])
+                write(s)
+            try:
+                signal_process(pid, v[1], signal.SIGSTOP)
+            except ProcessLookupError:
+                pass
+        if ready:
+            break
+        time.sleep(.025)
+    else:
+        raise RuntimeError("Original home writers did not quiesce")
+    original = next(m for m in mounts() if m[4] == "/")
+    s["binding"] = {"parent":original[0], "device":original[2]}
+    write(s)
+    command("mount", "--bind", "/data", "/data")
+    m = mount()
+    if not m:
+        raise RuntimeError("Home disk bind was not installed")
+    s["mountId"] = m[0]
+    write(s)
+    command("mount", "-o", "remount,bind,ro", "/data")
+    m = mount()
+    if not m or s["mountId"] != m[0] or "ro" not in m[5].split(","):
+        raise RuntimeError("Original home disk is writable")
+    os.sync()
+    s["phase"] = "held"
+    write(s)
+
+def main():
+    with locked():
+        s = read()
+        op = request["op"]
+        if s and (s["lease"] != lease or s["boot"] != boot):
+            raise RuntimeError("Different home freeze owns this disk")
+        if op == "begin" and not s:
+            s = {"lease":lease,"boot":boot,"phase":"arming","deadline":time.monotonic()+90,"stopped":[]}
+            write(s)
+            pid = os.fork()
+            if not pid:
+                os.setsid()
+                for fd in list(Path("/proc/self/fd").iterdir()):
+                    try:
+                        os.close(int(fd.name))
+                    except OSError:
+                        pass
+                try:
+                    guard()
+                finally:
+                    os._exit(0)
+            try:
+                hold(s, pid)
+            except BaseException:
+                thaw(s)
+                raise
+        if not s:
+            return {"boot":boot,"phase":"open"}
+        if op == "abort":
+            thaw(s)
+            return {"boot":boot,"phase":"open"}
+        if op in ("begin","renew","seal","status") and s["phase"] in ("held","sealed"):
+            m = mount()
+            if not m or m[0] != s["mountId"] or "ro" not in m[5].split(","):
+                raise RuntimeError("Home disk freeze was lost")
+            for pid,ticks in s["stopped"]:
+                v = proc(pid)
+                if v and v[1] == ticks and v[0] not in ("T","t","Z","X"):
+                    raise RuntimeError("Original home writer was resumed")
+            if s["phase"] == "held" and s["deadline"] <= time.monotonic():
+                thaw(s)
+                raise RuntimeError("Home freeze lease expired")
+            if op in ("begin","renew"):
+                s["deadline"] = time.monotonic()+90
+            if op == "seal":
+                s["phase"] = "sealed"
+            write(s)
+            return identity(s)
+        raise RuntimeError("Unsupported home freeze operation")
+
+print(json.dumps(main()))

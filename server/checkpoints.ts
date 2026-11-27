@@ -250,7 +250,7 @@ async function readHead(cwd: string, env: NodeJS.ProcessEnv, signal?: AbortSigna
   return { hash, tree, base };
 }
 
-async function ensureShadow(cwd: string, env: NodeJS.ProcessEnv, shadow: string, signal?: AbortSignal): Promise<Head> {
+async function ensureShadow(cwd: string, env: NodeJS.ProcessEnv, shadow: string, signal?: AbortSignal, sharedPins = false): Promise<Head> {
   signal?.throwIfAborted();
   mkdirSync(shadow, { recursive: true, mode: 0o700 });
   writeFileSync(join(shadow, "gitconfig"), GITCONFIG, { mode: 0o600 });
@@ -281,7 +281,7 @@ async function ensureShadow(cwd: string, env: NodeJS.ProcessEnv, shadow: string,
     await runGit(["commit", "--no-verify", "--allow-empty", "-m", "checkpoint base"], cwd, env, signal);
     head = await readHead(cwd, env, signal);
   }
-  await sweepLiveRefs(cwd, env, shadow, signal);
+  if (!sharedPins) await sweepLiveRefs(cwd, env, shadow, signal);
   return head;
 }
 
@@ -425,7 +425,7 @@ async function collectObsolete(cwd: string, env: NodeJS.ProcessEnv): Promise<voi
   }
 }
 
-export async function snapshot(botId: string, cwd: string, label: string, signal?: AbortSignal, opts?: { pin?: string }): Promise<string | null> {
+export async function snapshot(botId: string, cwd: string, label: string, signal?: AbortSignal, opts?: { pin?: string; sharedPins?: boolean }): Promise<string | null> {
   if (signal?.aborted) return null;
   if (disabledBots.has(botId)) return null;
   if (!(await gitAvailable())) return null;
@@ -437,11 +437,12 @@ export async function snapshot(botId: string, cwd: string, label: string, signal
     releaseCollection(shadow);
     return await serialize(shadow, async () => {
       const env = gitEnv(shadow, worktree);
-      const head = await ensureShadow(worktree, env, shadow, signal);
+      const head = await ensureShadow(worktree, env, shadow, signal, opts?.sharedPins);
       const result = await commitAll(worktree, env, head, label, opts?.pin, signal);
       if (!result) return null;
       if (await collectionDue(shadow, result, worktree, env, signal)) {
-        pendingCollections.set(shadow, () => collectObsolete(worktree, env));
+        if (opts?.sharedPins) await collectObsolete(worktree, env);
+        else pendingCollections.set(shadow, () => collectObsolete(worktree, env));
       }
       return result.hash;
     });
@@ -473,7 +474,7 @@ export interface CheckpointDiff {
   deleted: string[];
 }
 
-export async function diffWorkingTree(botId: string, cwd: string, fromHash: string, signal?: AbortSignal): Promise<CheckpointDiff | null> {
+export async function diffWorkingTree(botId: string, cwd: string, fromHash: string, signal?: AbortSignal, sharedPins = false): Promise<CheckpointDiff | null> {
   if (signal?.aborted || !COMMIT_HASH.test(fromHash)) return null;
   if (disabledBots.has(botId) || !(await gitAvailable()) || refusalReason(cwd) !== null) return null;
   const folder = folderShadow(botId, cwd);
@@ -482,7 +483,7 @@ export async function diffWorkingTree(botId: string, cwd: string, fromHash: stri
   try {
     const env = gitEnv(shadow, worktree);
     const run = serialize(shadow, async () => {
-      await ensureShadow(worktree, env, shadow, signal);
+      await ensureShadow(worktree, env, shadow, signal, sharedPins);
       await stageWorkTree(worktree, env, signal);
       const out = await runGit(["diff", "--cached", "--name-status", "--no-renames", "-z", fromHash], worktree, env, signal);
       const diff: CheckpointDiff = { changed: [], added: [], deleted: [] };

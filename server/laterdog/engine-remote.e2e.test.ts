@@ -410,7 +410,7 @@ it("fails a turn whose connection drops after launch, never re-runs it, and stop
   };
   const { engine } = w.start(w.plan(), link);
   engine.stdin.write(message("hang"));
-  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  await expect.poll(() => w.launches().length, { timeout: 30_000 }).toBe(1);
   const orphan = Number(w.launches()[0]);
   relayProcess!.kill("SIGKILL");
   expect(await closed(engine)).toBe(1);

@@ -1,0 +1,20 @@
+import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { appRelease } from "/app/cloud/runtime/restore-points.mjs";
+import { createHttpStore, snapshot } from "/app/cloud/runtime/sync.mjs";
+const lease = process.argv[1];
+const environment = Object.fromEntries((await readFile("/proc/2/environ","utf8")).split("\0").filter(x => x.includes("=")).map(x => [x.slice(0,x.indexOf("=")),x.slice(x.indexOf("=")+1)]));
+if (environment.LATERDOG_STATE_URL !== "http://state.r2" || !environment.LATERDOG_STATE_TOKEN || !/^[a-f0-9]{64}$/.test(lease)) throw Error("Unexpected frozen home state");
+const store = createHttpStore(environment.LATERDOG_STATE_URL,environment.LATERDOG_STATE_TOKEN);
+const known = await store.manifest();
+const scratch = await mkdtemp("/tmp/laterdog-frozen-copy-");
+try {
+  const held = { ...store, putManifest: async () => {} };
+  const result = await snapshot("/data",held,known,{scratch,app:known?.app ?? appRelease()});
+  if (result.unsaved.length || result.deferred || !result.manifest) throw Error("Frozen snapshot contains unfinished files");
+  const bytes = JSON.stringify({...result.manifest,createdAt:Date.now()});
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const response = await fetch(environment.LATERDOG_STATE_URL + "/manifest.json", {method:"PUT",headers:{authorization:"Bearer "+environment.LATERDOG_STATE_TOKEN,"x-laterdog-frozen-save":lease},body:bytes});
+  if(!response.ok)throw Error("Frozen manifest publication failed: " + response.status);
+  console.log(JSON.stringify({sha256:hash,entries:result.manifest.entries.length,uploaded:result.uploaded}));
+} finally { await rm(scratch,{recursive:true,force:true}); }

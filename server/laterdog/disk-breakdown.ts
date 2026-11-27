@@ -37,6 +37,7 @@ export interface BreakdownDeps {
   dataDir: string;
   home: string | null;
   scratch: readonly string[];
+  remotePaths?: readonly string[];
   dogName(id: string): string | null;
   resultFile?: string;
   limits?: Partial<BreakdownLimits>;
@@ -122,11 +123,17 @@ class PlanBuilder {
   readonly labels = new Map<string, Area>();
   private readonly device: number | null;
 
-  constructor(device: number | null) {
+  private readonly remotePaths: readonly string[];
+
+  constructor(device: number | null, remotePaths: readonly string[]) {
+    this.remotePaths = remotePaths;
     this.device = device;
   }
 
   async add([area, label]: Area, path: string, extra: Partial<WalkRoot> = {}): Promise<void> {
+    if (this.remotePaths.some(remote => within(path, remote))) return;
+    const nested = this.remotePaths.filter(remote => within(remote, path));
+    if (nested.length) extra = { ...extra, skip: [...(extra.skip ?? []), ...nested] };
     if (this.device !== null && await deviceOf(path) !== this.device) return;
     const root = this.roots.get(area);
     if (root) {
@@ -139,14 +146,16 @@ class PlanBuilder {
   }
 }
 
-export async function planBreakdown(deps: Pick<BreakdownDeps, "dataDir" | "home" | "scratch">): Promise<Plan> {
+export async function planBreakdown(deps: Pick<BreakdownDeps, "dataDir" | "home" | "scratch" | "remotePaths">): Promise<Plan> {
   const device = await deviceOf(deps.dataDir);
-  const plan = new PlanBuilder(device);
+  const remotePaths = deps.remotePaths ?? [];
+  const plan = new PlanBuilder(device, remotePaths);
   const home = deps.home;
   const store = home ? join(home, PNPM_STORE) : null;
   if (store && existsSync(store)) await plan.add(["packages", "Downloaded packages"], store);
   const dogs: string[] = [];
-  for (const entry of await entriesOf(join(deps.dataDir, WORKSPACES))) {
+  const tasks = join(deps.dataDir, WORKSPACES);
+  for (const entry of remotePaths.includes(tasks) ? [] : await entriesOf(tasks)) {
     const path = join(deps.dataDir, WORKSPACES, entry.name);
     if (entry.dir && DOG_ID.test(entry.name)) {
       if (device !== null && await deviceOf(path) !== device) continue;
@@ -309,7 +318,7 @@ export interface DiskBreakdownRunner {
 }
 
 export function createDiskBreakdown(deps: BreakdownDeps): DiskBreakdownRunner {
-  const file = deps.resultFile ?? join(deps.dataDir, BREAKDOWN_FILE);
+  const file = deps.resultFile ?? join(deps.dataDir, deps.remotePaths?.length ? "disk-breakdown-home.json" : BREAKDOWN_FILE);
   const limits = { ...DEFAULT_LIMITS, ...deps.limits };
   const now = deps.now ?? Date.now;
   const log = deps.log ?? ((line: string) => console.log(line));

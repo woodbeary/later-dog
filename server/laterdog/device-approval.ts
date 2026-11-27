@@ -116,13 +116,14 @@ export interface DeviceApprovalWait {
   expiresAt: number;
   check?: string;
   cwd?: string;
+  computerId?: string;
   pid?: number;
 }
 
 export interface DeviceApprovalWatcherDeps {
   now(): number;
-  runCheck(command: string, cwd: string | undefined): Promise<boolean>;
-  alive(pid: number): boolean;
+  runCheck(command: string, cwd: string | undefined, wait: DeviceApprovalWait): Promise<boolean>;
+  alive(pid: number, wait: DeviceApprovalWait): boolean | Promise<boolean>;
   settle(wait: DeviceApprovalWait, endedBy: DeviceApprovalEndedBy): void;
 }
 
@@ -181,7 +182,7 @@ export class DeviceApprovalWatcher {
       if (wait.check) {
         if (this.checking.has(key)) continue;
         this.checking.add(key);
-        checks.push(this.deps.runCheck(wait.check, wait.cwd)
+        checks.push(this.deps.runCheck(wait.check, wait.cwd, wait)
           .catch(() => false)
           .then((ok) => {
             this.checking.delete(key);
@@ -189,7 +190,17 @@ export class DeviceApprovalWatcher {
           }));
         continue;
       }
-      if (wait.pid && !this.deps.alive(wait.pid)) this.finish(key, wait, "process");
+      if (wait.pid && !this.checking.has(key)) {
+        const alive = this.deps.alive(wait.pid, wait);
+        if (typeof alive === "boolean") {
+          if (!alive) this.finish(key, wait, "process");
+        } else {
+          this.checking.add(key);
+          checks.push(alive.then(running => {
+            if (!running && this.waits.get(key) === wait) this.finish(key, wait, "process");
+          }).catch(() => {}).finally(() => { this.checking.delete(key); }));
+        }
+      }
     }
     await Promise.all(checks);
   }

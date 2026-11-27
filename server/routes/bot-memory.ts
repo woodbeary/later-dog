@@ -21,7 +21,8 @@ import {
 import { upkeepEnabled, type MemoryUpkeep } from "../memory-upkeep.ts";
 import { dismissLearned, keepLearned, listLearnedFacts, listPendingLearned, removeLearned } from "../profile-learned.ts";
 import { importIntoAboutMe, MAX_IMPORT_CHARS } from "../laterdog/profile-import.ts";
-import { memoryDate } from "../workspace.ts";
+import { memoryDate, mountedWorkspaceUnavailable, workspaceDir } from "../workspace.ts";
+import { mountedFolderGate } from "../laterdog/mounted-folder-gate.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
 export interface BotMemoryRouteDeps {
@@ -34,6 +35,7 @@ export interface BotMemoryRouteDeps {
 
 export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
   function replyMemoryError(res: ServerResponse, error: unknown) {
+    if (mountedWorkspaceUnavailable(error)) return json(res, 503, { error: "The working folder is temporarily unavailable. Try again.", code: "unavailable" });
     if (!(error instanceof MemoryStoreError)) throw error;
     if (error.code === "conflict") {
       return json(res, error.status, { error: error.message, code: error.code, currentHash: error.currentHash, current: error.current });
@@ -49,6 +51,14 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
 
   return async ({ req, res, url, path, method, auth, json, readBody }) => {
     let m: RegExpMatchArray | null = null;
+    const owner = path.match(/^\/api\/bots\/([\w-]+)\/memory(?:\/|$)/)?.[1];
+    if (owner && deps.bot(owner)) {
+      try {
+        await mountedFolderGate.require(workspaceDir(owner));
+      } catch (error) {
+        return replyMemoryError(res, error);
+      }
+    }
     m = path.match(/^\/api\/bots\/([\w-]+)\/memory$/);
     if (m && method === "GET") {
       if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });

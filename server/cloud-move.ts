@@ -1,3 +1,5 @@
+import { PREVIOUS_BACKUP_REFERENCE, previousBackupBridge, previousBackupReference } from "./laterdog/previous-cloud-archive.ts";
+import { mountedWorkFolders } from "./laterdog/work-folder-locations.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
@@ -55,10 +57,12 @@ export function isEmptyWorkspace(contents: WorkspaceContents): boolean {
 }
 
 export function workspaceMoveSize(dataDir: string, profile?: WorkspaceBackupProfile): { bytes: number; files: number } {
+  const managed=mountedWorkFolders()!==null;
   let bytes = 0, files = 0;
   const walk = (directory: string, prefix: string) => {
     for (const name of presentNames(directory)) {
       const path = prefix ? `${prefix}/${name}` : name;
+      if (managed && (path==="workspaces" || path==="task-workspaces" || path==="work-folders.json" || path==="checkpoints/work-folders"))continue;
       if (omittedFromWorkspaceBackup(path, profile)) continue;
       const stat = presentEntry(join(directory, name));
       if (!stat || stat.isSymbolicLink()) continue;
@@ -206,7 +210,7 @@ function readPrevious(folder: string): PreviousMeta | null {
   try {
     const value: unknown = JSON.parse(readFileSync(join(folder, "previous.json"), "utf8"));
     if (!record(value) || typeof value.password !== "string" || typeof value.createdAt !== "string" || !record(value.contents)) return null;
-    if (!lstatSync(join(folder, "workspace.dogbackup")).isFile()) return null;
+    if (!previousBackupReference(folder) && !lstatSync(join(folder, "workspace.dogbackup")).isFile()) return null;
     return value as unknown as PreviousMeta;
   } catch { return null; }
 }
@@ -214,7 +218,7 @@ function readPrevious(folder: string): PreviousMeta | null {
 export function previousCloud(dataDir: string): PreviousCloud | null {
   const previous = readPrevious(previousFolder(dataDir));
   if (!previous || isEmptyWorkspace(previous.contents)) return null;
-  return { createdAt: previous.createdAt, ...previous.contents, bytes: lstatSync(join(previousFolder(dataDir), "workspace.dogbackup")).size };
+  return { createdAt: previous.createdAt, ...previous.contents, bytes: previousCloudArchiveBytes(dataDir) };
 }
 
 export async function prepareNextPreviousCloud(dataDir: string, restoreId: string, create: (password: string) => Promise<{ id: string; path: string }>): Promise<Omit<PreviousCloud, "bytes">> {
@@ -226,7 +230,10 @@ export async function prepareNextPreviousCloud(dataDir: string, restoreId: strin
     backupsRoot(dataDir);
     rmSync(next, { recursive: true, force: true });
     privateFolder(next);
-    renameSync(created.path, join(next, "workspace.dogbackup"));
+    if(mountedWorkFolders()){
+      const reference=await previousBackupBridge().seal(created.path);
+      writeFileAtomic(join(next,PREVIOUS_BACKUP_REFERENCE),JSON.stringify(reference),{mode:0o600,durable:true});
+    }else renameSync(created.path, join(next, "workspace.dogbackup"));
     const meta: PreviousMeta = { password, createdAt: new Date().toISOString(), contents, forRestore: restoreId };
     writeFileAtomic(join(next, "previous.json"), JSON.stringify(meta), { mode: 0o600 });
     return { createdAt: meta.createdAt, ...contents };
@@ -245,13 +252,14 @@ export function discardNextPreviousCloud(dataDir: string): void {
 export async function stagePreviousCloud(dataDir: string, appVersion: string): Promise<{ id: string; summary: WorkspaceBackupSummary; bytes: number }> {
   const previous = readPrevious(previousFolder(dataDir));
   if (!previous || isEmptyWorkspace(previous.contents)) throw fail("There is nothing on this server to swap back to.", 404);
-  const archive = join(previousFolder(dataDir), "workspace.dogbackup");
+  const reference=previousBackupReference(previousFolder(dataDir));
+  const archive=reference?previousBackupBridge().source(reference):join(previousFolder(dataDir),"workspace.dogbackup");
   const staged = await stageWorkspaceBackup(dataDir, archive, { password: previous.password, currentAppVersion: appVersion });
-  return { ...staged, bytes: lstatSync(archive).size };
+  return { ...staged, bytes: typeof archive==="string"?lstatSync(archive).size:archive.size };
 }
 
 export function previousCloudArchiveBytes(dataDir: string): number {
-  try { return lstatSync(join(previousFolder(dataDir), "workspace.dogbackup")).size; } catch { return 0; }
+  try { return previousBackupReference(previousFolder(dataDir))?.size ?? lstatSync(join(previousFolder(dataDir), "workspace.dogbackup")).size; } catch { return 0; }
 }
 
 function readMoveRestores(dataDir: string): string[] {

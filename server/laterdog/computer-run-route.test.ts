@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ComputerRuns, RunOutcome, RunRecord } from "./computer-runs.ts";
 import { ComputerRuns as RealComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox } from "./computer-runs.ts";
 import { ComputerJobs } from "./computer-jobs.ts";
@@ -304,4 +304,14 @@ describe("one run_on_computer call with the real run store", () => {
     expect(answer.status).toBe(200);
     expect(answer.text).toContain("Finished on your cloud computer with exit code 0");
   });
+});
+
+it("rejects unassigned mounted directories without checking their files or starting a computer", async () => {
+  const computer = vi.fn();
+  const result = await handleComputerRun({ botId: "one", threadId: "chat", workingFolder: "/data/task-workspaces/one/chat",
+    allowedRoots: ["/data/task-workspaces/one/chat"], body: { command: "pwd", folder: "/data/task-workspaces/one/other" } }, {
+    computer, runs: {} as ComputerRuns, managedScope: () => ({ owner: "one", id: "task-other", path: "/data/task-workspaces/one/other" }),
+  });
+  expect(result.status).toBe(403);
+  expect(computer).not.toHaveBeenCalled();
 });

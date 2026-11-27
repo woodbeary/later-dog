@@ -108,11 +108,11 @@ describe("ClaudeDriver.decodeConfig", () => {
     if (process.platform !== "win32") expect(hook.command).toMatch(/'\/tmp\/helper\.ts' 'http:\/\/127\.0\.0\.1:4321' '\/data\/it'\\''s\/token'$/);
   });
 
-  it("asks before each shell command only when the home guards heavy commands", () => {
+  it("checks every tool before it runs only when the home guards the turn", () => {
     const plain = claudeHookSettings("/tmp/helper.ts");
     expect(plain).not.toHaveProperty("PreToolUse");
     const guarded = claudeHookSettings("/tmp/helper.ts", { guardShell: true }) as Record<string, Array<{ matcher: string; hooks: Array<{ command: string }> }>>;
-    expect(guarded.PreToolUse!.map((entry) => entry.matcher)).toEqual(["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
+    expect(guarded.PreToolUse!.map((entry) => entry.matcher)).toEqual([""]);
     for (const entry of guarded.PreToolUse!) expect(entry.hooks[0]!.command).toBe(guarded.PostToolUse![0]!.hooks[0]!.command);
   });
 

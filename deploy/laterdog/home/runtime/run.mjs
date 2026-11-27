@@ -1,3 +1,5 @@
+import { folderExclusions, folderMounts, legacyWorkFolderScope, startWorkFolderMounts } from "./work-folder-mounts.mjs";
+import { projectPreviousCloudBackup } from "./previous-backup-compat.mjs";
 import { randomBytes } from "node:crypto";
 import { createArchiver, serveArchive } from "./archive.mjs";
 import { launcherOwnsNoFile } from "./archive-launcher.mjs";
@@ -12,6 +14,8 @@ import { seedIncluded } from "./included.mjs";
 import { SAVE_STATUS_PATH, saveRecorder, slowCopies, writeSaveStatus } from "./save-status.mjs";
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
 import { FINAL_SAVE_MS, collectGarbageWithin, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
+import { restoreUntilDone } from "./restore-until-done.mjs";
+import { holdStopsWhileRestoring } from "./restore-signals.mjs";
 
 const DATA = process.env.HOME || "/data";
 const SCRATCH = "/tmp/laterdog-sync";
@@ -26,7 +30,6 @@ const PUSHED_CODE_GRACE_MS = 30_000;
 const INTERVAL_MS = Number(process.env.LATERDOG_SYNC_INTERVAL_MS || 60_000);
 const SAVE_BUDGET_MS = Math.max(5_000, INTERVAL_MS - 15_000);
 const FINAL_SAVE_BUDGET_MS = FINAL_SAVE_MS - 30_000;
-const RESTORE_ATTEMPTS = 5;
 const GC_EVERY_SAVES = Number(process.env.LATERDOG_GC_EVERY_SAVES || 30);
 const CLEANUP_BUDGET_MS = 15_000;
 const KEPT_RESTORE_POINTS = Number(process.env.LATERDOG_RESTORE_POINTS || RESTORE_POINTS);
@@ -44,37 +47,38 @@ function dogOwner() {
   throw new Error("the dog user is missing from this image");
 }
 
-async function restoreWithRetries(store, owner) {
-  const finished = new Set();
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await restore(DATA, store, owner, { finished });
-    } catch (error) {
-      if (attempt >= RESTORE_ATTEMPTS) throw error;
-      log(`restore attempt ${attempt} failed: ${error.message}${error.cause?.message ? ` (${error.cause.message})` : ""}; ${finished.size} file(s) already back, trying again`);
-      await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
-    }
-  }
-}
-
 async function main() {
   const url = process.env.LATERDOG_STATE_URL;
   const token = process.env.LATERDOG_STATE_TOKEN;
   const store = url && token ? createHttpStore(url, token) : null;
+  const placement = store ? await store.workFolderPlacement() : null;
+  const mounts = folderMounts(DATA, placement);
+  const capabilities = { workFolders: mounts.length > 0 };
+  const exclude = mounts.length ? folderExclusions(mounts) : undefined;
+  const exactScope = legacyWorkFolderScope(DATA, placement);
   let manifest = null;
   let upgraded = null;
   if (store) {
-    const restored = await restoreWithRetries(store, dogOwner());
+    const restoreStore = placement?.mode === "folders" ? { ...store, async manifest() {
+      const current = await store.manifest();
+      return current && projectPreviousCloudBackup(current, placement);
+    } } : store;
+    const owner = dogOwner();
+    const held = holdStopsWhileRestoring({ log });
+    const restored = await restoreUntilDone((finished) => restore(DATA, restoreStore, owner, { finished, exclude, exactScope }), { log });
+    const signalled = held.release();
     manifest = restored.manifest;
     upgraded = upgradeFrom(manifest, APP);
-    log(restored.manifest ? `restored ${restored.files} files` : "a new home: nothing to restore");
+    const restoredLine = restored.manifest ? `restored ${restored.files} files in ${Math.round(restored.ms / 1000)} s after ${restored.attempts} attempt(s)` : "a new home: nothing to restore";
+    log(restoredLine);
+    for (const note of [...restored.notes, ...signalled.map(({ signal, at }) => `${signal} arrived ${Math.round((at - Date.now() + restored.ms) / 1000)} s into the restore and was held until it finished`), restoredLine]) noteHomeHealth(HEALTH_DIR, note, { owner });
     if (upgraded) log(`${APP} replaces ${upgraded.app ?? "an earlier version"}; keeping a restore point before the first save`);
   } else {
     log("no state store: this home keeps nothing across restarts");
   }
   const included = await seedIncluded(process.env.LATERDOG_HOME || join(DATA, ".laterdog"), { key: process.env.LATERDOG_INCLUDED_KEY, api: process.env.LATERDOG_INCLUDED_API }, dogOwner());
   if (included === "seeded" || included === "replaced") log("included later.dog AI, voice and decisions are ready");
-  if (store && !await archiveCompatible(LAUNCHER)) throw new Error("this image predates safe log restoration; rebuild the home image");
+  if (store && !await archiveCompatible(LAUNCHER, capabilities)) throw new Error("the image cannot serve the active home storage format");
   const environment = { ...process.env };
   const archiveCodexSessions = process.env.LATERDOG_ARCHIVE_CODEX_SESSIONS === "1";
   const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, archiveCodexSessions, canRemove: async (file, entry) => {
@@ -95,11 +99,18 @@ async function main() {
     ? devCodeWatcher({ store, base: SERVER_DIR, root: DEV_CODE_DIR, log, onCode: (next) => reload(next), idle: () => homeIdle({ secret: process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET, port: SERVER_PORT }) })
     : null;
   const offered = devCode ? await devCode.first() : null;
-  const pushed = offered && (!archive || await archiveCompatible(offered.launcher)) ? offered : null;
-  if (offered && !pushed) log("the pushed server predates log restoration; using this image");
+  const pushed = offered && (!archive || await archiveCompatible(offered.launcher, capabilities)) ? offered : null;
+  if (offered && !pushed) log("the pushed server cannot serve the active home storage format; using this image");
   if (pushed) log(`running pushed server code ${pushed.hash.slice(0, 12)}${pushed.label ? ` (${pushed.label})` : ""}`);
   let launcher = pushed?.launcher ?? LAUNCHER;
   let child = null;
+  const folderMount = await startWorkFolderMounts({ home: DATA, placement, mounts, owner: dogOwner(), server: SERVER_DIR,
+    onLost: () => { log("Work folder transport stopped; restarting the coordinator."); if (child) child.kill("SIGTERM"); else process.exit(1); },
+  });
+  if (folderMount) {
+    environment.LATERDOG_WORK_FOLDER_LAYOUT = folderMount.file;
+    environment.LATERDOG_WORK_FOLDER_CHECKPOINT_SOCKET = folderMount.checkpoint;
+  }
   let reloading = false;
   let running = null;
   let saves = 0;
@@ -113,7 +124,7 @@ async function main() {
     running = restorePoints.keep()
       .then(() => {
         void saveStatus.started({ final });
-        return snapshot(DATA, store, manifest, { scratch: SCRATCH, memoryScratch: MEMORY_SCRATCH, onCopy: (copy) => void saveStatus.copying(copy), app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter });
+        return snapshot(DATA, store, manifest, { scratch: SCRATCH, memoryScratch: MEMORY_SCRATCH, onCopy: (copy) => void saveStatus.copying(copy), exclude, exactScope, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter });
       })
       .then(async (result) => {
         void saveStatus.finished(result);
@@ -155,6 +166,7 @@ async function main() {
       await archive?.close();
       const finished = await settleWithin((running ?? Promise.resolve()).then(() => save({ final: true })), FINAL_SAVE_MS);
       if (finished === "late") log(`the last save did not finish within ${FINAL_SAVE_MS / 1000} seconds; stopping anyway`);
+      await folderMount?.stop();
       process.exit(code ?? (signal ? 1 : 0));
     })();
     return shuttingDown;
@@ -193,8 +205,8 @@ async function main() {
   };
   const reload = async (next) => {
     if (stopping) return;
-    if (archive && !await archiveCompatible(next.launcher)) {
-      log("the pushed server predates log restoration; keeping the current server");
+    if (archive && !await archiveCompatible(next.launcher, capabilities)) {
+      log("the pushed server cannot serve the active home storage format; keeping the current server");
       return;
     }
     if (stopping || !alive()) return;

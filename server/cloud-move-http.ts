@@ -7,7 +7,7 @@ import {
   previousCloud, previousCloudArchiveBytes, removeMoveFiles, stagePreviousCloud, tidyCloudMoveStorage, totalVolumeBytes, uploadStatus, validUploadDeclaration,
   workspaceContents, workspaceMoveSize, writeUploadPart, type PreviousCloud, type WorkspaceContents,
 } from "./cloud-move.ts";
-import { commitPendingWorkspaceRestore, createWorkspaceBackup, stageWorkspaceBackup } from "./workspace-backup.ts";
+import { estimateAssignedFiles, commitPendingWorkspaceRestore, createWorkspaceBackup, stageWorkspaceBackup } from "./workspace-backup.ts";
 import { CLOUD_MOVE_PROFILE, parseBackupProfile } from "./laterdog/cloud-move-profile.ts";
 import { clearReceivedMove, noteReceivedMovePending, parseMoveSource, readReceivedMove } from "./laterdog/cloud-move-received.ts";
 import type { RequestAuth } from "./request-auth.ts";
@@ -132,7 +132,8 @@ export function createCloudMoveRoutes(options: {
       if (!auth.scopes.includes("admin")) throw failure("Only the owner can copy a workspace.", 403);
       if (method === "GET" && path === `${CLOUD_MOVE_PREFIX}/estimate`) {
         const profile = parseBackupProfile(new URL(req.url ?? "/", "http://cloud-move.invalid").searchParams.get("profile"));
-        json(res, 200, { ...workspaceContents(options.dataDir), ...workspaceMoveSize(options.dataDir, profile), routines: enabledRoutineCount(options.dataDir), maxBytes: CLOUD_MOVE_MAX_BYTES, ...identity });
+        const local=workspaceMoveSize(options.dataDir,profile),assigned=await estimateAssignedFiles(options.dataDir);
+        json(res, 200, { ...workspaceContents(options.dataDir), files:local.files+assigned.files,bytes:local.bytes+assigned.bytes, routines: enabledRoutineCount(options.dataDir), maxBytes: CLOUD_MOVE_MAX_BYTES, ...identity });
         return true;
       }
       if (auth.kind !== "session") throw failure("Copying a workspace needs the owner's signed-in app.", 403);

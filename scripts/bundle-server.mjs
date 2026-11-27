@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { ARCHIVE_CAPABILITY } from "../deploy/laterdog/home/runtime/archive-capability.mjs";
+import { ARCHIVE_CAPABILITY, WORK_FOLDER_PROGRAMS } from "../deploy/laterdog/home/runtime/archive-capability.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const server = join(root, "server");
@@ -54,6 +54,8 @@ const ENTRY_POINTS = [
   "mcp-remote-proxy.ts",
   "harness-mcp-proxy.ts",
   "drivers/agents-proxy.ts",
+  "work-folder-mount-service.ts",
+  "laterdog/engine-folder-cli.ts",
   "laterdog/engine-relay.ts",
   "laterdog/engine-proxy.ts",
   "laterdog/provider-guest.ts",
@@ -82,9 +84,14 @@ if (existsSync(join(root, "enterprise", "server", "index.ts"))) {
   copyFileSync(join(root, "enterprise", "LICENSE"), join(root, "dist-server", "enterprise", "LICENSE"));
 }
 
-writeFileSync(join(root, "dist-server", "cloud-home-capabilities.json"), JSON.stringify({ logArchive: ARCHIVE_CAPABILITY,
-  launcherSha256: createHash("sha256").update(readFileSync(join(root, "dist-server", "cloud-home-start.js"))).digest("hex"),
-  indexSha256: createHash("sha256").update(readFileSync(join(root, "dist-server", "index.js"))).digest("hex") }));
+const bundleHash = name => createHash("sha256").update(readFileSync(join(root, "dist-server", name))).digest("hex");
+writeFileSync(join(root, "dist-server", "cloud-home-capabilities.json"), JSON.stringify({
+  logArchive: ARCHIVE_CAPABILITY,
+  workFolders: 1,
+  workFolderHashes: Object.fromEntries(WORK_FOLDER_PROGRAMS.map(name => [name, bundleHash(name)])),
+  launcherSha256: bundleHash("cloud-home-start.js"),
+  indexSha256: bundleHash("index.js"),
+}));
 
 copyFileSync(join(root, "scripts", "desktop-server-entry.mjs"), join(root, "dist-server", "desktop-entry.mjs"));
 

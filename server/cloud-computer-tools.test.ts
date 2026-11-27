@@ -88,6 +88,21 @@ describe("cloud computer tools", () => {
     expect(seen).toEqual([{ listing: { before: [{ id: "AAAA1111", url: "https://example.com/" }], after: [{ id: "AAAA1111", url: "https://example.com/" }] }, opened: null }]);
   });
 
+  it("runs a relative shell edit in its assigned folder and checkpoints before answering", async () => {
+    const operations: string[] = [];
+    await tools.cloudComputerRpc({ method: "tools/call", params: { name: "exec", arguments: { command: "printf ready > note.md" } } }, {
+      cfg, boxId: () => "bx_23456789", signal: new AbortController().signal,
+      gate: async () => ({ held: false }), assertActive: () => {},
+      workingFolder: async boxId => {
+        operations.push(boxId);
+        return { cwd: "/data/selected project", save: async () => { operations.push("saved"); } };
+      },
+    });
+    expect(calls[0].body.command).toContain("/data/selected project");
+    expect(calls[0].body.command).toContain("|| exit 1");
+    expect(operations).toEqual(["bx_23456789", "saved"]);
+  });
+
   it("leaves a dog's own commands and screenshots unwrapped", async () => {
     const { watch, seen } = watching();
     await tools.cloudComputerRpc({ method: "tools/call", params: { name: "exec", arguments: { command: "echo hi" } } }, {

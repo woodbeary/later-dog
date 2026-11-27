@@ -1,3 +1,4 @@
+import type { FolderScope } from "./work-folder-locations.ts";
 import { execFileSync } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
@@ -19,8 +20,10 @@ export interface ComputerRunRequest {
 }
 
 export interface ComputerRunDeps {
+  managedPath?(botId:string,path:string):string;
+  managedScope?(botId: string, path: string): FolderScope | null;
   runs: ComputerRuns;
-  computer(botId: string, options?: { repository?: string; wanted?: () => boolean; budgetMs?: number }): Promise<{ box: RunBox }>;
+  computer(botId: string, options?: { repository?: string; wanted?: () => boolean; budgetMs?: number; expectedId?: string }): Promise<{ box: RunBox }>;
   repositoryOf?(folder: string): string | null;
   now?(): number;
   jobs?: ComputerJobLedger;
@@ -50,7 +53,7 @@ export const WROTE_BEFORE_START_TEXT = "A new message arrived while the folder w
 export function stoppedWaitText(outcome: RunOutcome): string {
   const still = outcome.state === "running" && outcome.exitCode === null;
   const count = outcome.broughtBack.length;
-  const brought = outcome.outputs === "remote"
+  const brought = outcome.savedWorkFolder ? "its changes were saved in the working folder" : outcome.outputs === "remote"
     ? "its files were kept on your cloud computer"
     : `its files were brought back to your folder (${count ? `${count} changed file${count === 1 ? "" : "s"}` : "no changed files"})`;
   const job = still ? `The job had not finished (run_id ${outcome.id}), and a Stop from the person stops it too.` : outcome.state === "finished" ? `The job finished with exit code ${outcome.exitCode} (run_id ${outcome.id}) and ${brought}.` : outcome.exitCode !== null ? `The job had finished with exit code ${outcome.exitCode} (run_id ${outcome.id}); its files were not brought back.` : `The job stopped on your cloud computer (run_id ${outcome.id}).`;
@@ -76,7 +79,8 @@ export function outcomeText(outcome: RunOutcome): string {
   else if (outcome.state === "failed") lines.push(`Stopped on your cloud computer (run_id ${outcome.id}).`);
   else lines.push(`Finished on your cloud computer with exit code ${outcome.exitCode} (run_id ${outcome.id}).`);
   if (outcome.sentFiles) lines.push(`Sent ${outcome.sentFiles} changed file(s), ${Math.max(1, Math.round(outcome.sentBytes / 1024))} KB.`);
-  if (outcome.outputs === "remote") lines.push("Files were kept on your cloud computer under its normal storage lifetime. Read or reuse them there.");
+  if (outcome.savedWorkFolder) lines.push("Changes were saved in the working folder.");
+  else if (outcome.outputs === "remote") lines.push("Files were kept on your cloud computer under its normal storage lifetime. Read or reuse them there.");
   else if (outcome.broughtBack.length) lines.push(`Brought back ${outcome.broughtBack.length} file(s): ${outcome.broughtBack.slice(0, 20).join(", ")}${outcome.broughtBack.length > 20 ? ", …" : ""}.`);
   else if (outcome.state === "finished") lines.push("It changed no files here.");
   if (outcome.note) lines.push(outcome.note);
@@ -95,7 +99,15 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   if (record && outputs !== undefined && outputs !== (record.outputs ?? "home")) return { status: 409, error: "This run's output location was fixed when it started." };
   if (!record && !command) return { status: 400, error: "Give a command to run, or the run_id of a run that is still going." };
   if (command.length > 4000) return { status: 400, error: "The command is longer than 4,000 characters; put it in a script file in the folder and run that." };
-  const folder = record ? record.folder : allowedFolder(typeof request.body.folder === "string" ? request.body.folder : "", request);
+  const requested = typeof request.body.folder === "string" ? request.body.folder : "";
+  const candidate = requested || request.workingFolder;
+  const resolveAssigned = (path: string) => deps.managedPath?.(request.botId, resolve(path)) ?? resolve(path);
+  const selected = candidate && isAbsolute(candidate) ? resolveAssigned(candidate) : null;
+  const managedFolder = record?.managedFolder ?? (!record && selected ? deps.managedScope?.(request.botId, selected) : null);
+  if (!record && deps.managedScope && (!managedFolder || !selected || !request.allowedRoots.some(root => inside(selected, resolveAssigned(root))) && !managedFolder.id.startsWith("project-"))) {
+    return { status: 403, error: "Choose a work folder assigned to this conversation or a project shared with this dog." };
+  }
+  const folder = record ? record.folder : managedFolder ? selected : allowedFolder(requested, request);
   if (!folder) return { status: 400, error: "Pass folder: an existing project folder in the home, such as your working folder." };
   const subdir = typeof request.body.subdir === "string" ? request.body.subdir : undefined;
   if (subdir && !inside(join(folder, subdir), folder)) return { status: 400, error: "subdir must be inside folder." };
@@ -118,16 +130,16 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   try {
     let outcome = record ? completedRemoteRun(record) : null;
     if (!outcome) {
-      const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
+      const repository = record || managedFolder ? null : (deps.repositoryOf ?? repositoryOf)(folder);
       const now = deps.now ?? Date.now;
       const started = now();
-      const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: asked });
+      const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: asked, ...(record?.managedFolder && record.computerId ? { expectedId: record.computerId } : {}) });
       assignedBox = computer.box;
       if (stopped()) return { status: 409, error: ENDED_TEXT };
       const left = () => stopped() || wrote() ? 0 : started + windowMs - now();
       outcome = record
         ? await deps.runs.finish(computer.box, record, undefined, left)
-        : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, started: recordJob, ...(outputs === "remote" ? { outputs } : {}), ...(request.active ? { active: request.active } : {}) });
+        : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, ...(managedFolder ? { managedFolder } : {}), started: recordJob, ...(outputs === "remote" ? { outputs } : {}), ...(request.active ? { active: request.active } : {}) });
     }
     if (jobs) {
       const stillGoing = outcome.state === "running" && outcome.exitCode === null;

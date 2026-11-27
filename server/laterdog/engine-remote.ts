@@ -1,3 +1,4 @@
+import type { EngineWorkFolder } from "./engine-folder-sync.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -36,6 +37,7 @@ export interface RemoteLaunch {
   env: Record<string, string>;
   roots: EngineFileRoot[];
   outputIds: string[];
+  workFolders?: EngineWorkFolder[];
   pushes?: () => PushedFile[];
   pushEveryMs?: number;
   requireCompleteCheckpoint?: boolean;
@@ -200,8 +202,9 @@ export class RemoteSession extends EventEmitter {
     }
     try {
       this.#inventory = { resident: [], previous: [] };
-      configured = await this.#request({ type: "configure", stateFile: launch.stateFile, lockFile: launch.lockFile, ephemeralCodexHome: launch.ephemeralCodexHome, roots: launch.roots.map((root) => ({ ...root, writable: true })), outputIds: launch.outputIds, names: Object.keys(launch.mcp) }, SYNC_REPLY_MS, true);
+      configured = await this.#request({ type: "configure", stateFile: launch.stateFile, lockFile: launch.lockFile, workFolders: launch.workFolders, ephemeralCodexHome: launch.ephemeralCodexHome, roots: launch.roots.map((root) => ({ ...root, writable: true })), outputIds: launch.outputIds, names: Object.keys(launch.mcp) }, SYNC_REPLY_MS, true);
     } catch (error) { throw new NotDispatched((error as Error).message); }
+    if (configured.refused && configured.refused !== "busy") throw new NotDispatched(configured.refused);
     if (configured.refused === "busy") throw new Error("This chat's engine is still running on the cloud computer; it was not started a second time.");
     const received = this.#inventory;
     this.#inventory = null;
@@ -266,12 +269,21 @@ export class RemoteSession extends EventEmitter {
 
   write(bytes: Buffer): void {
     if (!this.#started || this.#closed) return;
-    if (!this.#launch.acknowledgedInput) { this.#send({ type: "stdin", data: bytes.toString("base64") }); return; }
+    const managed = Boolean(this.#launch.workFolders?.length);
+    if (!this.#launch.acknowledgedInput && !managed) { this.#send({ type: "stdin", data: bytes.toString("base64") }); return; }
     this.#written = this.#written.then(async () => {
+      if (managed) {
+        let message;
+        try { message = JSON.parse(bytes.toString()); } catch {}
+        if (message?.type === "user" || message?.method === "turn/start" || message?.request?.op === "send" || message?.request?.op === "generate") {
+          const receipt = await this.#request({type:"refresh_folders"},SYNC_REPLY_MS,true);
+          if (!receipt?.ready) throw new Error(receipt?.error ?? "The working folder could not be refreshed before the turn");
+        }
+      }
       for (let offset = 0; offset < bytes.length; offset += 256 * 1024) {
         await this.#request({ type: "stdin", data: bytes.subarray(offset, offset + 256 * 1024).toString("base64") }, SYNC_REPLY_MS);
       }
-    }).catch(() => { this.#lost("engine input interrupted"); this.#link.close(); });
+    }).catch(error => { this.#lost(managed && error instanceof Error ? error.message : "engine input interrupted"); this.#link.close(); });
   }
   end(): void {
     void this.#written.then(() => { if (this.#started && !this.#closed) this.#send({ type: "end" }); });

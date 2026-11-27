@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 
 import { writeFileAtomic } from "./atomic.ts";
@@ -10,6 +10,8 @@ import {
   MEMORY_MAX_BYTES,
   MEMORY_MAX_LINES,
   ensureWorkspace,
+  checkWorkspaceRead,
+  workspacePathExists,
   isMemoryTopicName,
   workspaceDir,
 } from "./workspace.ts";
@@ -80,11 +82,12 @@ export function resolveMemoryPath(botId: string, path: string): string {
   let realRoot: string;
   try {
     realRoot = realpathSync(root);
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return absolute;
   }
   let ancestor = dirname(absolute);
-  while (!existsSync(ancestor) && ancestor !== root) ancestor = dirname(ancestor);
+  while (!workspacePathExists(ancestor) && ancestor !== root) ancestor = dirname(ancestor);
   const realAncestor = realpathSync(ancestor);
   if (realAncestor !== realRoot && !realAncestor.startsWith(realRoot + sep)) {
     throw new MemoryStoreError("path", 400, `memory path escapes the workspace: ${JSON.stringify(path)}`);
@@ -95,6 +98,7 @@ export function resolveMemoryPath(botId: string, path: string): string {
     }
   } catch (error) {
     if (error instanceof MemoryStoreError) throw error;
+    checkWorkspaceRead(error);
   }
   return absolute;
 }
@@ -157,7 +161,8 @@ function listMarkdown(dir: string, prefix: string): MemoryFileInfo[] {
   let names: string[];
   try {
     names = readdirSync(dir);
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return [];
   }
   const files: MemoryFileInfo[] = [];
@@ -167,7 +172,7 @@ function listMarkdown(dir: string, prefix: string): MemoryFileInfo[] {
       const info = lstatSync(join(dir, name));
       if (!info.isFile()) continue;
       files.push({ path: `${prefix}/${name}`, name, bytes: info.size, modifiedAt: Math.round(info.mtimeMs) });
-    } catch {}
+    } catch (error) { checkWorkspaceRead(error); }
   }
   return files.sort((a, b) => b.modifiedAt - a.modifiedAt || a.name.localeCompare(b.name));
 }
@@ -180,6 +185,7 @@ export function memoryOverview(botId: string): MemoryOverview {
     raw = readFileSync(resolveMemoryPath(botId, MEMORY_INDEX), "utf8");
   } catch (error) {
     if (error instanceof MemoryStoreError) throw error;
+    checkWorkspaceRead(error);
     raw = "";
   }
   return {
@@ -203,7 +209,8 @@ export function readMemoryDoc(botId: string, path: string): MemoryDoc {
   try {
     const text = readFileSync(absolute, "utf8");
     return { path, text, hash: hashMemoryText(text), exists: true };
-  } catch {
+  } catch (error) {
+    checkWorkspaceRead(error);
     return { path, text: "", hash: hashMemoryText(""), exists: false };
   }
 }

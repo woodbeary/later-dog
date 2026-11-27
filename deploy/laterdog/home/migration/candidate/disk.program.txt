@@ -1,0 +1,208 @@
+import concurrent.futures
+import decimal
+import gzip
+import hashlib
+import http.client
+import json
+import os
+import pathlib
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import threading
+import time
+
+run, identity = sys.argv[1:]
+scratch = pathlib.Path("/candidate-disk")
+scratch.mkdir(mode=0o700, exist_ok=True)
+run_state = pathlib.Path("/run/folder-restore")
+local = threading.local()
+guard = threading.Lock()
+counts = {"scopes": 0, "files": 0, "bytes": 0}
+started = time.time()
+boot = pathlib.Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+disk = identity + "/" + boot + "/" + str(scratch.stat().st_dev)
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+def checksum(data):
+    return hashlib.sha256(data).hexdigest()
+
+def encoded(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
+
+def write_state(state, **extra):
+    with guard:
+        tmp = run_state / "status.tmp"
+        tmp.write_bytes(encoded({"v": 1, "run": run, "candidateDisk": disk, "state": state, "elapsed": int(time.time() - started), **counts, **extra}))
+        tmp.replace(run_state / "status.json")
+
+def read(path, expected=None):
+    for attempt in range(5):
+        try:
+            connection = getattr(local, "http", None)
+            if connection is None:
+                connection = local.http = http.client.HTTPConnection("restore.r2", timeout=120)
+            connection.request("GET", "/" + path)
+            reply = connection.getresponse()
+            data = reply.read()
+            if reply.status >= 500 or reply.status == 429:
+                raise OSError("Restore reader returned " + str(reply.status))
+            require(reply.status == 200, "Missing restore object " + path[:12] + " " + str(reply.status))
+            require(expected is None or checksum(data) == expected, "Immutable object checksum differs")
+            return data
+        except (OSError, http.client.HTTPException):
+            if getattr(local, "http", None):
+                local.http.close()
+            local.http = None
+            if attempt == 4:
+                raise
+            time.sleep(.2 * (2 ** attempt))
+
+def checked_path(name):
+    require(isinstance(name, str) and not any(p in ("", ".", "..") for p in name.split("/")) and "\0" not in name, "Invalid restore name")
+    return name
+
+def meta_time(row):
+    if row.get("mtimeMs") is None:
+        return None
+    return int((decimal.Decimal(str(row["mtimeMs"])) * 1000000).to_integral_value(rounding=decimal.ROUND_HALF_EVEN))
+
+def mode_and_time(p, row):
+    if row["type"] != "link":
+        p.chmod(row["mode"])
+    stamp = meta_time(row)
+    if stamp is not None:
+        os.utime(p, ns=(stamp, stamp), follow_symlinks=False)
+
+def audit(base, rows):
+    expected = {r["path"] for r in rows}
+    actual = {""}
+    for folder, dirs, files in os.walk(base, followlinks=False):
+        for entry in dirs + files:
+            actual.add(str((pathlib.Path(folder) / entry).relative_to(base)))
+    require(actual == expected, "Restored path set differs")
+    result = hashlib.sha256()
+    for row in rows:
+        rel = row["path"]
+        p = base / rel
+        info = p.lstat()
+        kind = row["type"]
+        require(stat.S_IMODE(info.st_mode) == row["mode"], "Restored permissions differ")
+        stamp = meta_time(row)
+        if stamp is not None:
+            require(info.st_mtime_ns == stamp, "Restored modification time differs")
+        size = sha = target = None
+        if kind == "dir":
+            require(stat.S_ISDIR(info.st_mode), "Expected a directory")
+        elif kind == "link":
+            require(stat.S_ISLNK(info.st_mode), "Expected a symbolic link")
+            target = os.readlink(p)
+            require(target == row["target"], "Restored link differs")
+        else:
+            require(kind == "file" and stat.S_ISREG(info.st_mode), "Expected a regular file")
+            size = info.st_size
+            h = hashlib.sha256()
+            with p.open("rb") as fh:
+                for block in iter(lambda: fh.read(2 * 1024 * 1024), b""):
+                    h.update(block)
+            sha = h.hexdigest()
+            require(size == row["size"] and sha == row["sha256"], "Restored file checksum differs")
+            if row.get("hardlink"):
+                other = (base / checked_path(row["hardlink"])).lstat()
+                require(info.st_dev == other.st_dev and info.st_ino == other.st_ino, "Restored hard link differs")
+        fields = [rel, kind, row["mode"], row.get("mtimeMs"), size, sha, target]
+        if row.get("hardlink") is not None:
+            fields.append(row["hardlink"])
+        result.update(encoded(fields) + b"\n")
+    return result.hexdigest()
+
+def restore_scope(item, proof, verification, files):
+    name = item["scope"]
+    require(re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+", name) and name in proof, "Invalid candidate scope")
+    claim = proof[name]
+    require(item["tree"] == claim["sourceTree"] == claim["restoredTree"] and item["revision"] == claim["revision"] and item["manifest"] == claim["manifest"], "Scope does not match verified migration")
+    head = json.loads(read("versions/" + name + "/" + item["revision"]))
+    require(head["revision"] == item["revision"] and head["manifest"] == item["manifest"], "Published folder revision differs")
+    record = json.loads(gzip.decompress(read("plans/" + item["sha256"], item["sha256"])))
+    require(all(record[k] == item[k] for k in ("scope","manifest","tree","revision")) and record["verification"] == verification, "Folder restore plan differs")
+    rows = record["rows"]
+    require(len(rows) == item["entries"] + (1 if item["manifest"] else 0), "Wrong number of paths")
+    directory = scratch / "folders" / checksum(name.encode())
+    marker = directory / "verified"
+    current = directory / "tree"
+    directory.mkdir(parents=True, exist_ok=True)
+    if item["manifest"] is None:
+        require(not rows and item["tree"] == checksum(b"tombstone"), "Unexpected deleted folder contents")
+        if current.exists():
+            shutil.rmtree(current)
+    else:
+        parents = {r["path"]:r for r in rows}
+        require(len(parents) == len(rows) and rows[0]["path"] == "" and rows[0]["type"] == "dir", "Invalid folder plan root")
+        for r in rows[1:]:
+            checked_path(r["path"])
+            require(parents.get(r["path"].rpartition("/")[0],{}).get("type") == "dir", "Restore path has non-directory parent")
+        if not marker.exists() or marker.read_text() != item["tree"] or not current.is_dir():
+            if current.exists():
+                shutil.rmtree(current)
+            current.mkdir(mode=0o700)
+            for r in rows[1:]:
+                if r["type"] == "dir":
+                    (current / r["path"]).mkdir(mode=0o700)
+            def restore_file(r):
+                p = current / r["path"]
+                with p.open("xb") as out:
+                    for h in r["chunks"]:
+                        require(re.fullmatch("[a-f0-9]{64}", h), "Invalid file chunk")
+                        out.write(read("chunks/" + name + "/" + h, h))
+                mode_and_time(p, r)
+            for _ in files.map(restore_file, (r for r in rows if r["type"] == "file" and "hardlink" not in r)):
+                pass
+            for r in rows:
+                p = current / r["path"]
+                if r.get("hardlink"):
+                    target = checked_path(r["hardlink"])
+                    require(parents[target]["type"] == "file" and "hardlink" not in parents[target], "Invalid hard link")
+                    os.link(current / target, p, follow_symlinks=False)
+                if r["type"] == "link":
+                    os.symlink(r["target"], p)
+                    mode_and_time(p, r)
+            for r in reversed(rows):
+                if r["type"] == "dir":
+                    mode_and_time(current / r["path"], r)
+        require(audit(current, rows) == item["tree"], "Physical folder tree does not match the frozen source")
+        marker.write_text(item["tree"])
+    with guard:
+        counts["scopes"] += 1
+        counts["files"] += item["files"]
+        counts["bytes"] += item["bytes"]
+    write_state("restoring")
+
+def main():
+    require(pathlib.Path("/proc/1/comm").read_text().strip() == "sleep", "Unexpected candidate entrypoint")
+    permit = json.loads(read("permit"))
+    require(re.fullmatch(r"[a-f0-9]{7,64}", pathlib.Path("/app/cloud/build").read_text().strip()), "Missing image build")
+    index = json.loads(read("plans/" + permit["index"], permit["index"]))
+    proof = json.loads(read("proof", permit["verification"]))
+    require(index["verification"] == permit["verification"] and proof["baselineManifest"] == permit["baselineManifest"] and proof["mode"] == "folders", "Restore plan is not from this migration")
+    claims = {row["scope"]:row for row in proof["scopes"]}
+    require(sorted(claims) == sorted(item["scope"] for item in index["scopes"]), "Candidate missing a verified scope")
+    write_state("restoring")
+    with concurrent.futures.ThreadPoolExecutor(24) as files, concurrent.futures.ThreadPoolExecutor(5) as scopes:
+        for _ in scopes.map(lambda i:restore_scope(i, claims, permit["verification"], files), sorted(index["scopes"],key=lambda i:-i["bytes"])):
+            pass
+    write_state("coordinator")
+    coord = subprocess.run(["node", "/run/folder-restore/coordinator.mjs"], capture_output=True, timeout=3600)
+    if coord.returncode:
+        raise RuntimeError("Coordinator restore failed: " + coord.stderr.decode(errors="replace")[-1200:])
+    write_state("verified", stable=permit["stable"], baselineManifest=permit["baselineManifest"], verification=permit["verification"], index=permit["index"], image=permit["image"], appStarted=False, restored=True, coordinator=json.loads(coord.stdout), sourceCommit=pathlib.Path("/app/cloud/build").read_text().strip())
+
+try:
+    main()
+except Exception as error:
+    write_state("failed", error=(type(error).__name__ + " " + str(error))[:1800])
+    raise

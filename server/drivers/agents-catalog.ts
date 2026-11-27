@@ -150,7 +150,7 @@ const ROUTINE_FIELDS_SCHEMA = {
   },
 } as const;
 
-const SELF_CHANGE_OUTCOME = " Read the result: a change to your own routines, skills, profile or model applies immediately, and the person sees it with an Undo; a change for another bot may wait for the person's confirmation. If applied, continue the requested work without another confirmation. Only a pending result requires ending the turn and waiting for the in-app decision. Never claim success without an applied result; report failed or cancelled results honestly. This does not elevate another bot's execution permissions.";
+const SELF_CHANGE_OUTCOME = " Read the result: a change to your own routines, skills, profile or model applies at once with an Undo, and on Full access so does a change for another dog; otherwise that may wait for the person. If applied, carry on without asking again; if pending, end the turn. Never claim success without an applied result.";
 
 const TOOL_DEFINITIONS = [
   {
@@ -434,6 +434,25 @@ const TOOL_DEFINITIONS = [
         },
       },
       required: ["name", "role", "instructions"],
+    },
+  },
+  {
+    name: "delete_bot",
+    description: "Delete one of the person's dogs when the person or another of their dogs asks. It moves to Recently deleted with its chats, memory and files kept, and is deleted for good after 30 days. Works on Full access; never the main dog or yourself.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { bot_id: { type: "string", description: "The dog's id from list_bots." } },
+      required: ["bot_id"],
+    },
+  },
+  {
+    name: "restore_bot",
+    description: "Bring a dog back from Recently deleted, with its chats, memory, files and routines. Without name_or_id it lists the dogs there.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { name_or_id: { type: "string", description: "The deleted dog's name or id." } },
     },
   },
   {
