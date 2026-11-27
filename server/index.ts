@@ -10400,6 +10400,7 @@ async function stopBotForEmergencyApprovalDowngrade(botId: string): Promise<void
   await directStop;
 }
 
+startPhases.mark("boot", "turn handling setup");
 routines = new RoutineManager({
   emit: broadcast,
   hasPendingDelegations: (threadId, runId) => roomHandoffs.outstandingDirect(threadId).some(node => roomHandoffs.root(node).routineRunId === runId),
@@ -10515,6 +10516,7 @@ if (CLOUD_HOME && CLOUD_OWNER_KEY && cloudRoutineAuthors) {
   });
   ownerOnlyCache.clear();
 }
+startPhases.mark("boot", "routines");
 orgLibrary = new OrgLibrary({
   dataDir: DATA_DIR,
   store,
@@ -10579,6 +10581,7 @@ async function cloudRoutineReadiness(botId: string, threadId?: string): Promise<
     };
   }
 }
+startPhases.mark("boot", "routine recovery");
 const routineRequests = new RoutineRequestService({
   store,
   routines,
@@ -11158,6 +11161,7 @@ function undoAppliedChange(res: ServerResponse, threadId: string, requestId: str
   json(res, 200, { ok: true, undone: true, ...(result.state === "already_undone" ? { alreadyUndone: true } : {}) });
 }
 
+startPhases.mark("boot", "routine and outbound requests");
 const webhooks = new WebhookManager({
   emit: broadcast,
   botState: unattendedDispatchState,
@@ -11303,6 +11307,7 @@ function roomRoutingInput(
 }
 
 
+startPhases.mark("boot", "webhooks and rooms");
 const approvalBus: ApprovalBus = { store, broadcast, notify, autoApply: fullAccessForSource };
 const macApprovals = new MacApprovals({ store, notify, file: join(DATA_DIR, "mac-access.json") });
 const fullAccessAll = new FullAccessAllSwitch(join(DATA_DIR, "full-access-all.json"));
@@ -14036,6 +14041,7 @@ function providerTurnsRunning(): boolean {
   return groupSpeakers.size > 0 || store.bots.some((bot) => store.tasks(bot.id).some((task) => threadBusy(bot.id, task.threadId)));
 }
 
+startPhases.mark("boot", "approvals and forms");
 const providerReload = createIdleReload({
   busy: providerTurnsRunning,
   reload: reloadProviders,
@@ -14161,6 +14167,7 @@ ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstal
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
 ROUTES.push(createPinOrderRoutes({ order: (ids) => store.orderPins(ids) }));
 ROUTES.push(createAlwaysAllowedRoutes({ dog: (id) => store.bot(id), mayManage: canManageCommandAllowlist, list: alwaysAllowedList, resume: (id) => lastingAllows.resume(id), remove: removeAlwaysAllowed }));
+startPhases.mark("boot", "provider reload and backups");
 const savedCommands = new SavedCommands(DATA_DIR);
 const dogTricks = (bot: BotRecord) => {
   const instance = registry.get(bot.modelSelection.instanceId);
@@ -14646,6 +14653,7 @@ INTERNAL_ROUTES.push(createSwitchAccountRoute({
   preferred: (threadId) => accountBattery.preferredFor(threadId),
   timeZone: () => process.env.TZ,
 }));
+startPhases.mark("boot", "routes and dog services");
 const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"), { syncFolder: assignedJobFolders?.sync });
 const checkComputerJobs = () => void computerJobs.check({
   computer: (botId) => boat.jobComputer(botId),
@@ -14918,6 +14926,7 @@ ROUTES.push(createLiveRoutes({
   },
 }));
 
+startPhases.mark("boot", "computer runs and calls");
 const toolResults = new ToolResults();
 const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   let url: URL;
