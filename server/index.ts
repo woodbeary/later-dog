@@ -432,6 +432,8 @@ import { TurnResources, type TurnOwner } from "./turn-resources.ts";
 import {
   ensureWorkspace,
   ensureTaskWorkspace,
+  taskWorkspacePath,
+  MEMORY_SEED,
   workspaceLocationsPrompt,
   supportsWorkspaceFiles,
   updateMemory,
@@ -9472,13 +9474,13 @@ async function startTurn(
       turnPhases.mark(threadId, "connections");
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
       if (worksInWorkspace) {
-        await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: join(TASK_WORKSPACES_DIR, bot.id, threadId), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
+        await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: taskWorkspacePath(bot.id, threadId), seed: { name: "MEMORY.md", text: MEMORY_SEED }, budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
           gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
         if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while the computer woke");
-        ensureWorkspace(bot.id);
+        if (!mountedFoldersActive()) ensureWorkspace(bot.id);
         if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       }
-      const privateWorkspace = worksInWorkspace ? ensureTaskWorkspace(bot.id, threadId) : undefined;
+      const privateWorkspace = worksInWorkspace ? (mountedFoldersActive() ? taskWorkspacePath(bot.id, threadId) : ensureTaskWorkspace(bot.id, threadId)) : undefined;
       const skillInstructions = renderSkillInstructions(selectedSkills, {
         includeRoot: worksInWorkspace,
       });
