@@ -326,8 +326,8 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
-import { indexCoverageTable, indexOutbox, readForIndex, readMessagesJson, watchMessageWrites } from "./message-db.ts";
-import { HistoryMirror } from "./laterdog/history-mirror.ts";
+import { historyDatabase, indexCoverageTable, indexOutbox, keepHistoryOutbox, readForIndex, watchMessageWrites } from "./message-db.ts";
+import { HistoryWriter } from "./laterdog/history-writer.ts";
 import { SHADOW_INDEX_BUDGETS, SearchIndexWiring } from "./laterdog/search-index-wiring.ts";
 import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
@@ -1065,14 +1065,17 @@ if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () 
 let coordinatorSetting: CoordinatorSetting = readCoordinatorSetting(DATA_DIR);
 const capabilitySigner = CLOUD_HOME ? turnCapabilitySigner({ home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
 const objectQueue = CLOUD_HOME ? new ObjectQueue({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
-const historyMirror = CLOUD_HOME ? new HistoryMirror({
+const historyWriter = CLOUD_HOME ? new HistoryWriter({
   origin: CLOUD_HOME.publicOrigin,
   home: CLOUD_HOME.machineId,
   bootstrapSecret: CLOUD_HOME.bootstrapSecret,
-  read: readMessagesJson,
+  database: historyDatabase,
+  keepOutbox: keepHistoryOutbox,
   ownerOf: (threadId) => store.botByThread(threadId)?.id ?? (store.groupByThread(threadId) ? `room-${store.groupByThread(threadId)!.id}` : null),
+  knownChats: () => store.knownThreadIds(),
+  filled: (threadId) => store.forgetCachedThread(threadId),
+  log: (line) => console.log(line),
 }) : null;
-if (historyMirror) historyMirror.enabled = coordinatorSetting.history === "shadow";
 const queuesInObject = (botId: string) => Boolean(objectQueue) && queueModeFor(coordinatorSetting, botId) === "object";
 const objectRowOf = (item: SteerQueueItem, status: "accepted" | "pending") =>
   ({ id: item.messageId, sendId: item.sendId ?? null, status, payload: item, at: item.queuedAt });
@@ -1165,11 +1168,11 @@ const searchIndex = CLOUD_HOME ? new SearchIndexWiring({
   },
   log: (line) => console.log(line),
 }) : null;
-if (searchIndex || historyMirror) {
+if (searchIndex || historyWriter) {
   const index = searchIndex?.wrote;
   watchMessageWrites({
-    message: (threadId, id) => { index?.message(threadId, id); historyMirror?.wrote(threadId, id); },
-    chat: (threadId) => index?.chat(threadId),
+    message: (threadId, id) => { index?.message(threadId, id); historyWriter?.wake(); },
+    chat: (threadId) => { index?.chat(threadId); historyWriter?.wake(); },
     memory: (botId, path) => index?.memory(botId, path),
   });
 }
@@ -9285,6 +9288,7 @@ async function startTurn(
   const profile = store.bot(botId);
   if (!profile) throw Object.assign(new Error("no such bot"), { status: 404 });
   const threadId = opts?.threadId ?? profile.threadId;
+  await historyWriter?.ensureChat(threadId);
   const continuingRoutine = opts?.cardContinuation ? routineRunContinuedBy(threadId, opts.routineRunId, opts.requestMessageId) : null;
   if (continuingRoutine) {
     const onDispatchError = opts?.onDispatchError;
@@ -14367,11 +14371,11 @@ ROUTES.push(createSearchIndexRoutes({
 if (searchIndex) searchIndex.setMode(readSearchIndexMode(DATA_DIR));
 ROUTES.push(createCoordinatorRoutes({
   available: () => Boolean(CLOUD_HOME),
-  read: () => ({ ...coordinatorSetting, mirror: historyMirror ? { pending: historyMirror.pending(), ...historyMirror.state } : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
+  read: () => ({ ...coordinatorSetting, historyWriter: historyWriter ? historyWriter.state() : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
   change: (change) => {
     coordinatorSetting = mergeCoordinatorSetting(coordinatorSetting, change);
     saveCoordinatorSetting(DATA_DIR, coordinatorSetting);
-    if (historyMirror) historyMirror.enabled = coordinatorSetting.history === "shadow";
+    historyWriter?.setMode(coordinatorSetting.history);
     return coordinatorSetting;
   },
 }));
@@ -17338,6 +17342,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!store.botByThread(threadId) && !store.groupByThread(threadId)) {
         return json(res, 404, { error: "no such conversation" });
       }
+      await historyWriter?.ensureChat(threadId);
       const limit = requestedPageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
       const before = url.searchParams.get("before");
@@ -17354,6 +17359,24 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const view = pageViewOf(url.searchParams);
       return json(res, 200, { ...messagePage(threadId, limit ?? DEFAULT_PAGE, before, view), activeLeafId: store.activeLeaf(threadId),
         versions: branchVersions(store.messagesFor(threadId), store.activeLeaf(threadId)) });
+    }
+
+    m = path.match(/^\/api\/threads\/([\w-]+)\/history$/);
+    if (m && method === "GET") {
+      const threadId = m[1];
+      if (!store.botByThread(threadId) && !store.groupByThread(threadId)) return json(res, 404, { error: "no such conversation" });
+      if (!historyWriter || historyWriter.mode === "off") return json(res, 409, { error: "chat history is not kept in the chat object on this home" });
+      const before = url.searchParams.get("before");
+      const cursor = before === null ? null : Number(before);
+      if (cursor !== null && !Number.isSafeInteger(cursor)) return json(res, 400, { error: "before must be a whole number" });
+      const limit = requestedPageSize(url.searchParams.get("limit")) ?? DEFAULT_PAGE;
+      try {
+        const page = await historyWriter.pageBefore(threadId, cursor, limit);
+        return json(res, 200, { source: "chat-object", more: page.more, activeLeafId: page.leaf,
+          messages: page.rows.map((row) => ({ ...slimMessage(JSON.parse(row.json) as Message), ord: row.ord })) });
+      } catch (error) {
+        return json(res, 503, { error: `chat history is unavailable right now: ${(error as Error).message}` });
+      }
     }
 
     m = path.match(/^\/api\/threads\/([\w-]+)\/messages\/([\w-]+)\/image$/);
@@ -22756,6 +22779,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   const leftoverTurns = inflightTurns.takeLeftovers();
   for (const turn of leftoverTurns) if (queuesInObject(turn.botId)) awaitingPickup.add(turn.threadId);
   followupsReady = true;
+  historyWriter?.setMode(coordinatorSetting.history);
   limitHold.restorePeople();
   drainQueuedSends();
   drainQueuedChannelSends();

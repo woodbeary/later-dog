@@ -4,8 +4,9 @@ import { z } from "zod";
 
 export const CAPABILITY_MODES = ["random", "signed"] as const;
 export const QUEUE_MODES = ["container", "object"] as const;
-export const HISTORY_MODES = ["off", "shadow"] as const;
-export type HistoryMode = (typeof HISTORY_MODES)[number];
+import { HISTORY_MODES, type HistoryMode } from "./history-writer.ts";
+
+export { HISTORY_MODES, type HistoryMode };
 export type CapabilityMode = (typeof CAPABILITY_MODES)[number];
 export type QueueMode = (typeof QUEUE_MODES)[number];
 export const EVERY_DOG = "*";
