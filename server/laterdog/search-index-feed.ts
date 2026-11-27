@@ -82,7 +82,7 @@ export class SearchIndexFeed {
 
   constructor(send: (batch: IndexFeedBatch) => Promise<void>, options: FeedOptions = {}) {
     this.send = send;
-    this.maxBatch = Math.min(options.maxBatch ?? 500, INDEX_FEED_MAX_ITEMS);
+    this.maxBatch = Math.min(options.maxBatch ?? INDEX_FEED_MAX_ITEMS, INDEX_FEED_MAX_ITEMS);
     this.delayMs = options.delayMs ?? 250;
     this.maxPending = options.maxPending ?? 50_000;
     this.retryMs = options.retryMs ?? [1_000, 2_000, 5_000, 15_000, 30_000];

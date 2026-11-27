@@ -101,16 +101,26 @@ describe("person search index", () => {
     expect(index.search({ query: "orthodont" })).toEqual([]);
     expect(index.search({ query: "tuesday" })).toEqual([]);
     expect(index.memory({ query: "Rivera", dogs: ["dog-a"] })).toEqual([]);
-    expect(index.stats()).toMatchObject({ messages: 4, chats: 2, dogs: 1, memoryFiles: 2 });
+    expect(index.stats()).toMatchObject({ messages: 4, memoryFiles: 2 });
     index.feed({ messages: [message("a-main", "m2", "The invoice folder lives in Documents/Billing", { role: "bot", from: "Indigo" })] });
     expect(index.stats().messages).toBe(4);
+  });
+
+  it("drops words too common to narrow a turn-start recall, and refuses a search made only of them", () => {
+    const index = searchIndex(nodeSql(), { broadMatches: 3 });
+    index.feed({ messages: ["the dentist", "the plan", "the lunch", "the dentist again", "plans for lunch"].map((body, i) => message("a-main", `m${i + 1}`, body)) });
+    expect(index.recall({ query: "the dentist", chats: ["a-main"], mode: "any" }).map((hit) => hit.messageId).sort()).toEqual(["m1", "m4"]);
+    expect(index.recall({ query: "the plans", chats: ["a-main"], mode: "any" }).map((hit) => hit.messageId).sort()).toEqual(["m2", "m5"]);
+    expect(() => index.recall({ query: "the", chats: ["a-main"] })).toThrow(/too broad/);
+    expect(index.recall({ query: "the lunch", chats: ["a-main"] }).map((hit) => hit.messageId).sort()).toEqual(["m3", "m5"]);
+    expect(index.recall({ query: "the", chats: ["a-main"], mode: "any" })).toEqual([]);
   });
 
   it("refuses malformed batches whole, without applying part of them", () => {
     const index = seeded();
     expect(() => index.feed({ messages: [message("a-main", "m9", "fine"), message("bad chat", "m10", "nope")] })).toThrow(/not a valid id/);
     expect(index.search({ query: "fine" })).toEqual([]);
-    expect(() => index.feed({ messages: Array.from({ length: 2_001 }, (_, i) => message("a-main", `x${i}`, "t")) })).toThrow(/at most/);
+    expect(() => index.feed({ messages: Array.from({ length: 251 }, (_, i) => message("a-main", `x${i}`, "t")) })).toThrow(/at most/);
     expect(() => index.recall({ query: "x", chats: "a-main" as never })).toThrow(/list/);
   });
 });

@@ -29,6 +29,7 @@ const RECENT_HEAD_CHARS = 240;
 const SUBSTRING_CANDIDATES = 2_000;
 const SHORT_NEEDLE_WINDOW = 50_000;
 const MAX_LIMIT = 1_000;
+export const BROAD_MATCHES = 20_000;
 const IDENTIFIER = /^[A-Za-z0-9_.:-]{1,128}$/;
 const KIND = /^[a-z_-]{1,32}$/;
 
@@ -50,6 +51,7 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS messages_at ON messages(at);
   CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text, content='messages', content_rowid='rid', tokenize='unicode61');
   CREATE VIRTUAL TABLE IF NOT EXISTS messages_tri USING fts5(text, content='messages', content_rowid='rid', tokenize='trigram');
+  CREATE VIRTUAL TABLE IF NOT EXISTS messages_vocab USING fts5vocab('messages_fts', 'row');
   CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
     INSERT INTO messages_fts(rowid, text) VALUES (new.rid, CASE WHEN new.kind = 'activity' THEN NULL ELSE new.text END);
     INSERT INTO messages_tri(rowid, text) SELECT new.rid, new.text WHERE new.kind IN ('text', 'activity');
@@ -159,7 +161,7 @@ export interface SearchIndex {
   stats(): IndexStats;
 }
 
-export function searchIndex(sql: SqlPort): SearchIndex {
+export function searchIndex(sql: SqlPort, { broadMatches = BROAD_MATCHES } = {}): SearchIndex {
   sql.script(SCHEMA);
 
   function upsertMessage(raw: IndexMessage) {
@@ -184,6 +186,24 @@ export function searchIndex(sql: SqlPort): SearchIndex {
     );
   }
 
+  function termMatches(term: string, prefix: boolean): number {
+    const parts = term.toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "").split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    if (!parts.length) return 0;
+    return Math.min(...parts.map((part, at) => (prefix && at === parts.length - 1
+      ? sql.all<{ n: number | null }>("SELECT sum(doc) AS n FROM messages_vocab WHERE term >= ? AND term < ?", part, `${part}\u{10ffff}`)[0]?.n
+      : sql.all<{ n: number }>("SELECT doc AS n FROM messages_vocab WHERE term = ?", part)[0]?.n) ?? 0));
+  }
+
+  function boundedMatch(match: string): string | null {
+    const terms = [...match.matchAll(/"([^"]*)"(\*?)/g)].map(([whole, term, star]) => ({ whole, matches: termMatches(term, star === "*") }));
+    if (match.includes(" OR ")) {
+      const kept = terms.filter((term) => term.matches <= broadMatches);
+      return kept.length ? kept.map((term) => term.whole).join(" OR ") : null;
+    }
+    if (terms.length && Math.min(...terms.map((term) => term.matches)) > broadMatches) fail("query is too broad, try a narrower search");
+    return match;
+  }
+
   return {
     feed(batch) {
       const messages = list<IndexMessage>(batch.messages, "messages");
@@ -204,9 +224,10 @@ export function searchIndex(sql: SqlPort): SearchIndex {
     },
 
     recall(request) {
-      const match = ftsQuery(text(request.query, "query", 2_000), mode(request.mode));
       const chats = scope(request.chats, "chats");
-      if (!match || chats === "[]") return [];
+      const query = ftsQuery(text(request.query, "query", 2_000), mode(request.mode));
+      const match = query && chats !== "[]" ? boundedMatch(query) : null;
+      if (!match) return [];
       const window = rangeClause(range(request.range), "m.at");
       const rows = sql.all<RecallRow>(
         "SELECT m.chat, m.id, m.at, m.role, m.kind, m.from_name, m.peer_name, " +
@@ -299,11 +320,9 @@ export function searchIndex(sql: SqlPort): SearchIndex {
     },
 
     stats() {
-      const [counts] = sql.all<{ messages: number; chats: number; dogs: number }>(
-        "SELECT count(*) AS messages, count(DISTINCT chat) AS chats, count(DISTINCT dog) AS dogs FROM messages",
-      );
+      const [counts] = sql.all<{ messages: number }>("SELECT count(*) AS messages FROM messages");
       const [memory] = sql.all<{ files: number }>("SELECT count(*) AS files FROM memory");
-      return { messages: counts.messages, chats: counts.chats, dogs: counts.dogs, memoryFiles: memory.files, bytes: sql.size() };
+      return { messages: counts.messages, memoryFiles: memory.files, bytes: sql.size() };
     },
   };
 }
