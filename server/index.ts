@@ -158,6 +158,7 @@ import { createRecentlyDeletedRoutes } from "./routes/recently-deleted.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
+import { createDogFolderRoute } from "./routes/dog-folder.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
 import { createHomeLogRoutes } from "./routes/home-log.ts";
 import * as boat from "./computers.ts";
@@ -326,11 +327,15 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
-import { indexCoverageTable, indexOutbox, readForIndex, watchMessageWrites } from "./message-db.ts";
+import { indexCoverageTable, indexOutbox, readForIndex, readMessagesJson, watchMessageWrites } from "./message-db.ts";
+import { HistoryMirror } from "./laterdog/history-mirror.ts";
 import { SHADOW_INDEX_BUDGETS, SearchIndexWiring } from "./laterdog/search-index-wiring.ts";
 import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
+import { createCoordinatorRoutes } from "./routes/coordinator.ts";
+import { readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
+import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
 import { SkillsPromptCache, skillsPromptWorker } from "./skills-prompt-cache.ts";
 import { readMessageText, recallMemoryOffThread, recallMessagesOffThread, recentMessagesOffThread, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
@@ -354,6 +359,8 @@ import {
   restoreSteeredMessages,
   settleHeldSteeredQueue,
 } from "./steer-queue.ts";
+import { adoptSteeredMessage, setSteerQueueSink, steeredItems, type SteerQueueItem } from "./steer-queue.ts";
+import { ObjectQueue, reconcileRow, slotsByDog, type ObjectSlot } from "./laterdog/object-queue.ts";
 import {
   cancelChannelMessage,
   channelQueueIdsNamed,
@@ -475,7 +482,7 @@ import {
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 import { MOUNTED_FOLDER_ANSWER_MS, MountedFolderStalled, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
 import { MountDown } from "./laterdog/mount-guard.ts";
-import { dogFoldersMounted, guardMountedFolders } from "./laterdog/dog-mounts.ts";
+import { dogFiles, dogFoldersMounted, guardMountedFolders, mountGuard } from "./laterdog/dog-mounts.ts";
 import { armSyncTripwire, onMountedSyncCall } from "./laterdog/sync-tripwire.ts";
 import { skillsCall, skillsPromptReady } from "./skills-thread.ts";
 import type { SkillPackageStamp } from "./skills.ts";
@@ -858,7 +865,7 @@ import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts"
 import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createStallWatch, handoffWorking, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
-import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
+import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type InflightLedger, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
 import { createPickupStops, keepsNewerTurn, persistPickupStop } from "./laterdog/pickup-stops.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
 import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
@@ -949,7 +956,7 @@ import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
-import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
+import { poolChosen, poolEngineOpener, poolService, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
@@ -966,7 +973,7 @@ setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
       process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, scope, input.botId, input.computerId,
     ) })));
   },
-} : {}), DATA_DIR));
+} : {}), DATA_DIR, poolService, (path) => dogFiles.mkdir(path)));
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);
@@ -1058,6 +1065,91 @@ const turnPhases = createTurnPhases({ log: (line) => console.log(line) });
 const startPhases = createTurnPhases({ log: (line) => console.log(line), name: "server start" });
 startPhases.begin("boot");
 if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () => turnPhases.current() });
+let coordinatorSetting: CoordinatorSetting = readCoordinatorSetting(DATA_DIR);
+const capabilitySigner = CLOUD_HOME ? turnCapabilitySigner({ home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
+const objectQueue = CLOUD_HOME ? new ObjectQueue({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
+const historyMirror = CLOUD_HOME ? new HistoryMirror({
+  origin: CLOUD_HOME.publicOrigin,
+  home: CLOUD_HOME.machineId,
+  bootstrapSecret: CLOUD_HOME.bootstrapSecret,
+  read: readMessagesJson,
+  ownerOf: (threadId) => store.botByThread(threadId)?.id ?? (store.groupByThread(threadId) ? `room-${store.groupByThread(threadId)!.id}` : null),
+}) : null;
+if (historyMirror) historyMirror.enabled = coordinatorSetting.history === "shadow";
+const queuesInObject = (botId: string) => Boolean(objectQueue) && queueModeFor(coordinatorSetting, botId) === "object";
+const objectRowOf = (item: SteerQueueItem, status: "accepted" | "pending") =>
+  ({ id: item.messageId, sendId: item.sendId ?? null, status, payload: item, at: item.queuedAt });
+setSteerQueueSink({
+  queued: (botId, threadId, item) => { if (queuesInObject(botId)) objectQueue!.put(botId, threadId, [objectRowOf(item, "pending")]); },
+  settled: (botId, threadId, ids, status) => { if (queuesInObject(botId)) objectQueue!.settle(botId, threadId, ids, status); },
+});
+function recordAcceptedSend(botId: string, threadId: string, item: Omit<SteerQueueItem, "messageId" | "queuedAt">): string | null {
+  if (!queuesInObject(botId)) return null;
+  const accepted: SteerQueueItem = { ...item, messageId: `a-${newId()}`, queuedAt: Date.now() };
+  objectQueue!.put(botId, threadId, [objectRowOf(accepted, "accepted")]);
+  return accepted.messageId;
+}
+function forgetAcceptedSend(botId: string, threadId: string, id: string | null): void {
+  if (id) objectQueue?.settle(botId, threadId, [id], null);
+}
+const slotsSent = new Map<string, string>();
+function objectSlotsLedger(ledger: InflightLedger): InflightLedger {
+  return {
+    read: () => ledger.read(),
+    write: (turns) => {
+      ledger.write(turns);
+      if (!objectQueue) return;
+      const byDog = slotsByDog(turns);
+      for (const botId of new Set([...byDog.keys(), ...slotsSent.keys()])) {
+        if (!queuesInObject(botId)) continue;
+        const slots: ObjectSlot[] = byDog.get(botId) ?? [];
+        const sent = JSON.stringify(slots);
+        if (slotsSent.get(botId) === sent) continue;
+        slotsSent.set(botId, sent);
+        objectQueue.slots(botId, slots);
+      }
+    },
+  };
+}
+async function reconcileQueueObjects(): Promise<void> {
+  if (!objectQueue) return;
+  const dogs = store.bots.filter((bot) => queuesInObject(bot.id));
+  if (!dogs.length) return;
+  const local = new Map(chatFollowups("bot").map((row) => [row.id, row.status] as const));
+  const counts = { requeued: 0, dropped: 0, cancelled: 0, slots: 0, pushed: 0, unreachable: 0 };
+  await Promise.all(dogs.map(async (bot) => {
+    const restored = await objectQueue.restore(bot.id);
+    if (!restored) { counts.unreachable += 1; return; }
+    counts.slots += inflightTurns.adopt(restored.slots
+      .filter((slot) => store.taskByThread(bot.id, slot.chat))
+      .map((slot) => ({ botId: bot.id, threadId: slot.chat, since: slot.since, planned: slot.planned })));
+    const known = new Set<string>();
+    for (const [threadId, rows] of Object.entries(restored.chats)) {
+      const messages = store.taskByThread(bot.id, threadId) ? store.messagesFor(threadId) : [];
+      const view = {
+        owned: Boolean(store.taskByThread(bot.id, threadId)),
+        delivered: (row: { id: string; sendId: string | null }) => messages.some((message) => message.role === "user" &&
+          (message.queueId === row.id || (row.sendId !== null && message.sendId === row.sendId))),
+        localStatus: (id: string) => local.get(id) ?? null,
+      };
+      for (const row of rows) {
+        known.add(row.id);
+        const action = reconcileRow(row, view);
+        if (action.kind === "drop") { objectQueue.settle(bot.id, threadId, [row.id], action.status); counts.dropped += 1; }
+        else if (action.kind === "cancel-here") { cancelSteeredMessage(bot.id, row.id, threadId); counts.cancelled += 1; }
+        else if (action.kind === "requeue") {
+          const item = row.payload as SteerQueueItem;
+          if (adoptSteeredMessage(bot.id, threadId, { ...item, messageId: row.id, queuedAt: row.at })) counts.requeued += 1;
+        }
+      }
+    }
+    for (const [threadId, items] of steeredItems(bot.id)) {
+      const missing = items.filter((item) => !known.has(item.messageId));
+      if (missing.length) { objectQueue.put(bot.id, threadId, missing.map((item) => objectRowOf(item, "pending"))); counts.pushed += missing.length; }
+    }
+  }));
+  console.log(`[object queue] restored ${dogs.length} dog(s): ${JSON.stringify(counts)}`);
+}
 const searchIndex = CLOUD_HOME ? new SearchIndexWiring({
   client: searchIndexClient({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }),
   shadowClient: searchIndexClient({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret, budgets: SHADOW_INDEX_BUDGETS }),
@@ -1076,7 +1168,14 @@ const searchIndex = CLOUD_HOME ? new SearchIndexWiring({
   },
   log: (line) => console.log(line),
 }) : null;
-if (searchIndex) watchMessageWrites(searchIndex.wrote);
+if (searchIndex || historyMirror) {
+  const index = searchIndex?.wrote;
+  watchMessageWrites({
+    message: (threadId, id) => { index?.message(threadId, id); historyMirror?.wrote(threadId, id); },
+    chat: (threadId) => index?.chat(threadId),
+    memory: (botId, path) => index?.memory(botId, path),
+  });
+}
 const skillsPrompts = searchIndex ? new SkillsPromptCache(skillsPromptWorker()) : null;
 const promptFromIndex = () => searchIndex?.mode === "remote";
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
@@ -2611,16 +2710,23 @@ function sessionBearer(capability: Omit<InternalCapability, "orphanExpiresAt">):
   const grants = sessionGrants(capability);
   const held = credentials.get(slot);
   if (held?.grants === grants) return held.token;
-  const token = randomBytes(24).toString("hex");
+  const token = newCapabilityToken(capability, `s${randomBytes(12).toString("hex")}`);
   credentials.set(slot, { grants, token });
   return token;
+}
+
+function newCapabilityToken(capability: Pick<InternalCapability, "botId" | "threadId" | "kind">, generation: string): string {
+  const signed = capabilitySigner && coordinatorSetting.capabilities === "signed"
+    ? capabilitySigner.sign({ dog: capability.botId, chat: capability.threadId, generation, kind: capability.kind }, INTERNAL_CAPABILITY_ORPHAN_MS)
+    : null;
+  return signed ?? randomBytes(24).toString("hex");
 }
 
 function mintInternalCapability(capability: Omit<InternalCapability, "orphanExpiresAt">, { perTurn = false } = {}): string {
   if (activeInternalGenerationByThread.get(capability.threadId) !== capability.generation) {
     throw new Error("cannot mint an integration capability for an inactive turn");
   }
-  const token = perTurn ? randomBytes(24).toString("hex") : sessionBearer(capability);
+  const token = perTurn ? newCapabilityToken(capability, capability.generation) : sessionBearer(capability);
   if (internalCapabilities.get(token)?.generation !== capability.generation) {
     internalCapabilities.set(token, {
       ...capability,
@@ -2680,7 +2786,16 @@ function revokeInternalCapabilityForProviderEvent(event: RuntimeEvent): void {
 }
 
 function authorizedInternalCapability(header: string | string[] | undefined): InternalCapability | null {
-  const got = Buffer.from(Array.isArray(header) ? "" : (header ?? ""));
+  const presented = Array.isArray(header) ? "" : (header ?? "");
+  const signed = capabilitySigner?.presented(presented);
+  if (signed) {
+    const capability = capabilitySigner!.genuine(signed) ? internalCapabilities.get(signed) : undefined;
+    if (!capability) return null;
+    if (internalCapabilityIsActive(capability)) return capability;
+    internalCapabilities.delete(signed);
+    return null;
+  }
+  const got = Buffer.from(presented);
   for (const [token, capability] of internalCapabilities) {
     if (!internalCapabilityIsActive(capability)) {
       internalCapabilities.delete(token);
@@ -2766,6 +2881,7 @@ function agentsIntegration(
       LATERDOG_MEMORY_ENABLED: store.bot(botId)?.memoryEnabled === false ? "0" : "1",
       LATERDOG_SHARED_COMPUTERS_ENABLED: lendingEnabled() ? "1" : "0",
       LATERDOG_CLOUD_HOME: CLOUD_HOME ? "1" : "0",
+      LATERDOG_POOL_FOLDER: CLOUD_HOME && poolChosen(DATA_DIR, botId) ? "1" : "0",
       LATERDOG_EMAIL_ME: CLOUD_HOME && deliverOwnerEmail ? "1" : "0",
       LATERDOG_PHONE: phoneToolsEnabled() ? "1" : "0",
       LATERDOG_IN_TASK: startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "1" : "0",
@@ -6222,8 +6338,9 @@ liveStatusLine = (threadId) => compactionLive.current(threadId) ?? statusLines.c
 statusLines.foldLeftovers();
 compactionLive.foldLeftovers();
 let companyShutdown = false;
-const inflightTurns = createInflightTurns(fileInflightLedger(join(DATA_DIR, "turns-running.json")), { stopping: () => companyShutdown });
+const inflightTurns = createInflightTurns(objectSlotsLedger(fileInflightLedger(join(DATA_DIR, "turns-running.json"))), { stopping: () => companyShutdown });
 let pickingUpAfterRestart = true;
+const awaitingPickup = new Set<string>();
 store.onChange((change) => {
   if ((change.type === "message" || change.type === "message.patch") && change.message.needsYou) {
     delegatedWaiting.delete(change.threadId);
@@ -6270,7 +6387,7 @@ const restartPickupHost: RestartPickupHost = {
     return bot && task && !task.archivedAt ? { botId: bot.id, name: bot.name } : null;
   },
   owner: (threadId) => !CLOUD_HOME || cloudOwnerOnlyThread(threadId),
-  queued: (botId, threadId) => hasQueuedSteeredMessages(botId, threadId) || limitHold.holds(threadId),
+  queued: (botId, threadId) => (hasQueuedSteeredMessages(botId, threadId) && !awaitingPickup.has(threadId)) || limitHold.holds(threadId),
   busy: (botId, threadId) => threadBusy(botId, threadId),
   routine: (threadId, at) => Boolean(routines?.runDuring(threadId, at)),
   carriesOnAfterLimit: () => accountBattery.enabled,
@@ -8721,7 +8838,7 @@ function drainQueuedSends() {
       }).catch(reject);
     }),
     (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId) || chatWaitsForAccount(threadId) || heldForSwitchedOff(threadId),
+      || parksBehindCoordination(botId, threadId) || chatWaitsForAccount(threadId) || heldForSwitchedOff(threadId) || awaitingPickup.has(threadId),
   );
 }
 
@@ -8731,7 +8848,7 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
   const off = switchedOffNow(threadId);
   const decision = admit("direct", {}, {
     atCapacity: botAtThreadCapacity(botId),
-    threadBusy: threadBusy(botId, threadId) || behindHeld || off || queuedAhead,
+    threadBusy: threadBusy(botId, threadId) || behindHeld || off || queuedAhead || awaitingPickup.has(threadId),
     groupTurn: Boolean(activeGroupTurnForBot(botId)),
     parksBehindCoordination: parksBehindCoordination(botId, threadId),
   });
@@ -8752,8 +8869,14 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
     } else if (queuedAhead && !behindHeld) queueMicrotask(drainQueuedSends);
     return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason: decision.reason };
   }
-  const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender, trigger, via });
-  return { ok: true as const, threadId, message };
+  const accepted = recordAcceptedSend(botId, threadId, { text, prompt: directPrompt(text, replyTo), replyToId: replyTo?.id, sendId, sender, trigger, via });
+  try {
+    const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender, trigger, via });
+    return { ok: true as const, threadId, message };
+  } catch (error) {
+    forgetAcceptedSend(botId, threadId, accepted);
+    throw error;
+  }
 }
 
 type DirectSendReceipt =
@@ -8874,6 +8997,7 @@ async function acceptDirectSend(
           engineSteersImages: instance?.adapter.capabilities.steerImages === true,
         });
         if (busyAdmission.action === "steer" && instance?.adapter.steer) {
+          recordAcceptedSend(botId, threadId, { text, prompt: directPrompt(text, replyTo), replyToId: replyTo?.id, sendId, sender, trigger, via });
           const words = steerWords(withSteerNote(directPrompt(text, replyTo)));
           const adapter = instance.adapter;
           steered = await steerWhileRunning(
@@ -14269,6 +14393,16 @@ ROUTES.push(createSearchIndexRoutes({
   },
 }));
 if (searchIndex) searchIndex.setMode(readSearchIndexMode(DATA_DIR));
+ROUTES.push(createCoordinatorRoutes({
+  available: () => Boolean(CLOUD_HOME),
+  read: () => ({ ...coordinatorSetting, mirror: historyMirror ? { pending: historyMirror.pending(), ...historyMirror.state } : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
+  change: (change) => {
+    coordinatorSetting = mergeCoordinatorSetting(coordinatorSetting, change);
+    saveCoordinatorSetting(DATA_DIR, coordinatorSetting);
+    if (historyMirror) historyMirror.enabled = coordinatorSetting.history === "shadow";
+    return coordinatorSetting;
+  },
+}));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
 ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
 ROUTES.push(createHomeLogRoutes({ dir: () => (CLOUD_HOME ? join(DATA_DIR, HOME_SERVER_LOG_DIR) : null) }));
@@ -14742,6 +14876,11 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   maxWaitMs: (threadId) => waitCapMs(runningTurnEngines.get(threadId)?.driverKind, mcpCallTimeoutMinutes(cfg)),
   personWrote: (_botId, threadId, since) => store.activePath(threadId).some((message) => message.role === "user" && message.at >= since),
+}));
+INTERNAL_ROUTES.push(createDogFolderRoute({
+  owns: (botId, threadId) => connectorThread(botId, threadId) !== null,
+  folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
+  run: (path, op) => mountGuard.run(path, op),
 }));
 INTERNAL_ROUTES.push(createReactRoute({
   activePath: (threadId) => store.activePath(threadId),
@@ -22645,6 +22784,10 @@ server.listen(PORT, "127.0.0.1", async () => {
   companyRuntimeReady();
   void connectedRepositories.refresh();
   console.log(`later.dog server on http://127.0.0.1:${PORT}`);
+  await reconcileQueueObjects().catch((error) => console.warn(`[object queue] restore failed: ${(error as Error).message}`));
+  if (companyShutdown) return;
+  const leftoverTurns = inflightTurns.takeLeftovers();
+  for (const turn of leftoverTurns) if (queuesInObject(turn.botId)) awaitingPickup.add(turn.threadId);
   followupsReady = true;
   limitHold.restorePeople();
   drainQueuedSends();
@@ -22657,10 +22800,12 @@ server.listen(PORT, "127.0.0.1", async () => {
   memoryUpkeep.start();
   const waiting = limitHold.resume();
   if (waiting.length) console.log(`token battery: ${waiting.length} conversation(s) waiting on a usage limit from a previous run`);
-  void pickUpTurnsAfterRestart(restartPickupHost, inflightTurns.takeLeftovers()).then((outcomes) => {
+  void pickUpTurnsAfterRestart(restartPickupHost, leftoverTurns).then((outcomes) => {
     if (outcomes.length) console.log(`restart pickup: ${outcomes.map((outcome) => `${outcome.threadId} ${outcome.kind}`).join(", ")}`);
   }).finally(() => {
     pickingUpAfterRestart = false;
+    awaitingPickup.clear();
+    drainQueuedSends();
     finishRestartPickup();
   });
 });

@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeRestoreFailure, RESTORE_BACKOFF_MAX_MS, RESTORE_NOTES_KEPT, restoreBackoff, restoreUntilDone } from "../runtime/restore-until-done.mjs";
-import { parseManifest, restore, snapshot } from "../runtime/sync.mjs";
+import { parseManifest, snapshot } from "../runtime/sync.mjs";
+import { restore } from "../runtime/restore-engine.mjs";
 import { HELD_SIGNALS, holdStopsWhileRestoring } from "../runtime/restore-signals.mjs";
 import { EventEmitter } from "node:events";
 
@@ -41,31 +42,26 @@ function memoryStore() {
 const OWNER_COLD_RESTORE_MEASURED_MS = 436_590;
 
 describe("restoring a home until every file is back", () => {
-  it("keeps going past many failed attempts while files keep coming back, so a slow restore never ends the container", async () => {
+  it("keeps reading the saved list past many failed attempts, so a slow store never ends the container", async () => {
     const source = folder();
-    mkdirSync(join(source, "chats"), { recursive: true });
-    for (let i = 0; i < 120; i++) writeFileSync(join(source, "chats", `${i}.json`), `{"chat":${i}}`);
+    writeFileSync(join(source, "chat.json"), '{"chat":1}');
     const store = memoryStore();
     await snapshot(source, store, null, { scratch: folder() });
     let reads = 0;
-    const dropping = { ...store, async get(hash: string) {
-      reads += 1;
-      if (reads % 9 === 0) throw new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) });
-      return store.get(hash);
-    } };
-    const target = folder();
     const waits: number[] = [];
     const lines: string[] = [];
-    const restored = await restoreUntilDone(
-      (finished) => restore(target, dropping, null, { finished, chunkAttempts: 1 }),
-      { log: (line: string) => lines.push(line), wait: async (ms: number) => { waits.push(ms); } },
-    );
-    expect(restored.attempts).toBeGreaterThan(5);
-    expect(restored.files).toBe(120);
-    expect(lines).toHaveLength(restored.attempts - 1);
-    expect(lines[0]).toMatch(/^restore attempt 1 failed after \d+ more file\(s\) came back, \d+ in all, \d+ s in: TypeError: fetch failed \(other side closed \[UND_ERR_SOCKET\]\)$/);
-    for (let i = 0; i < 120; i++) expect(readFileSync(join(target, "chats", `${i}.json`), "utf8")).toBe(`{"chat":${i}}`);
+    const read = await restoreUntilDone(async () => {
+      reads += 1;
+      if (reads < 7) throw new TypeError("fetch failed", { cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }) });
+      return { manifest: await store.manifest() };
+    }, { log: (line: string) => lines.push(line), wait: async (ms: number) => { waits.push(ms); } });
+    expect(read.attempts).toBe(7);
+    expect(lines).toHaveLength(6);
+    expect(lines[0]).toMatch(/^restore attempt 1 failed after 0 more file\(s\) came back, 0 in all, \d+ s in: TypeError: fetch failed \(other side closed \[UND_ERR_SOCKET\]\)$/);
     expect(waits.every((ms, index) => ms === restoreBackoff(index + 1))).toBe(true);
+    const target = folder();
+    expect((await restore(target, store, null)).files).toBe(1);
+    expect(readFileSync(join(target, "chat.json"), "utf8")).toBe('{"chat":1}');
   });
 
   it("gives up only once its time budget is spent, and says why each attempt failed", async () => {
@@ -133,7 +129,7 @@ describe("restoring a home until every file is back", () => {
       return bytes;
     } };
     const target = folder();
-    const restored = await restore(target, cutting, null, { chunkRetryMs: 1 });
+    const restored = await restore(target, cutting, null, { retryMs: 1 });
     expect(restored.files).toBe(20);
     expect(damaged).toBe(3);
     for (let i = 0; i < 20; i++) expect(readFileSync(join(target, `${i}.json`), "utf8")).toBe(readFileSync(join(source, `${i}.json`), "utf8"));

@@ -8,7 +8,7 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { poolChosen } from "../laterdog/pool-opener.ts";
+import { onPool, POOL_LOST_REASON, POOL_WARM_MS, poolChosen, takePoolLoss } from "../laterdog/pool-opener.ts";
 import { acceptedEnginePlacement, botFolderPresent, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { dogFiles } from "../laterdog/dog-mounts.ts";
 import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
@@ -1174,7 +1174,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (!s || s.helpers.running()) return;
       warmEngines.rest(s, {
         pid: s.child.pid,
-        idleMs: placedThreads.has(threadId) ? keepWarm.idleMs(threadId, sessionIdlePolicy("CLAUDE").idleMs) : SESSION_IDLE_MS,
+        idleMs: onPool(threadId) ? POOL_WARM_MS : placedThreads.has(threadId) ? keepWarm.idleMs(threadId, sessionIdlePolicy("CLAUDE").idleMs) : SESSION_IDLE_MS,
         close: (why) => { if (sessions.get(threadId) === s) closeSession(threadId, why); },
       });
     };
@@ -2132,11 +2132,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const endedBeforeTurn = session.turn.awaitingInit === true;
           const refusedResume = Boolean(session.resumeRefused);
           const refusedHelperFlag = !session.sawInit && helperFlagRefused(config.cli, cliVersion?.join(".") ?? null, session.stderr, session.passedHelperFlag);
+          const lostPool = Boolean(turn.botId) && takePoolLoss(turn.botId!, threadId) && retry.attempt < RETRY_MAX_ATTEMPTS - 1;
           if (
             !refusedResume &&
-            (!required || refusedHelperFlag) &&
+            (!required || refusedHelperFlag || lostPool) &&
             !retry.cancelled &&
-            (endedBeforeTurn || refusedHelperFlag || (
+            (endedBeforeTurn || refusedHelperFlag || lostPool || (
               code !== 0 &&
               verdict.transient &&
               !session.turn.sawStreamDelta &&
@@ -2162,13 +2163,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             let delayMs = 0;
             if (!endedBeforeTurn && !refusedHelperFlag) {
               retry.attempt++;
-              delayMs = computeBackoff(retry.attempt - 1);
+              delayMs = lostPool ? 0 : computeBackoff(retry.attempt - 1);
               emit({
                 ...base(threadId, turnId),
                 type: "turn.retrying",
                 attempt: retry.attempt,
                 delayMs,
-                reason: verdict.reason,
+                reason: lostPool ? POOL_LOST_REASON : verdict.reason,
               });
             }
             void (async () => {
