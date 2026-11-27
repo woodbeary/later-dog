@@ -50,6 +50,7 @@ const KINDS: Record<MacTool, MacKind> = {
   mac_send_text: "send",
   mac_send_email: "send",
 };
+const MAC_TOOLS = Object.keys(KINDS) as MacTool[];
 export const MAC_WORDS: Record<MacTool, string> = {
   mac_list_files: "look in a folder on your Mac",
   mac_read_file: "open a file on your Mac",
@@ -266,14 +267,13 @@ export class MacApprovals {
   }
 
   dismissStale(threadIds: Iterable<string>): number {
-    let dismissed = 0;
+    const threads = new Set(threadIds);
     const store = this.deps.store;
-    for (const threadId of threadIds) {
-      for (const message of store.messagesFor(threadId)) {
-        const card = message.card;
-        if (!card?.requestId || card.answered || card.dismissed || !isMacTool(card.tool) || this.open.has(card.requestId)) continue;
-        if (store.patchMessage(threadId, message.id, { card: { ...card, answered: "unavailable", expired: true } })) dismissed += 1;
-      }
+    let dismissed = 0;
+    for (const { threadId, message } of store.openRequestCards(MAC_TOOLS)) {
+      const card = message.card;
+      if (!threads.has(threadId) || !card?.requestId || this.open.has(card.requestId)) continue;
+      if (store.patchMessage(threadId, message.id, { card: { ...card, answered: "unavailable", expired: true } })) dismissed += 1;
     }
     return dismissed;
   }
