@@ -324,7 +324,7 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
-import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
+import { readMessageText, recallMemoryOffThread, recallMessagesOffThread, recentMessagesOffThread, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { IncidentLedger, incidentChip, type Incident, type IncidentKind } from "./incidents.ts";
@@ -459,9 +459,10 @@ import {
   safeRecallText,
   type RecallDog,
 } from "./laterdog/cross-dog-recall.ts";
-import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
+import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 import { mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
 import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
+import { SearchUnavailable } from "./message-search-worker.ts";
 import {
   beginMemoryTurn,
   beginMemoryTurnInBackground,
@@ -15768,7 +15769,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           tool: { name: recallCrossingLabel(bot.name, crossing.count), ok: true },
         });
       };
-      if (method === "GET" && path === "/api/internal/session-search") {
+      if (method === "GET" && path === "/api/internal/session-search") try {
         const fromBotId = String(url.searchParams.get("fromBotId") ?? "");
         const from = store.bot(fromBotId);
         if (!from) return json(res, 403, { error: "unknown sender" });
@@ -15794,6 +15795,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (scope !== "all" && scope !== "conversations" && scope !== "memory") {
           return json(res, 400, { error: "scope must be all, conversations, or memory" });
         }
+        const lending = cloudLendingView(internalCapability);
+        const searchShown = async (threadIds: string[]) => {
+          const wanted = lending ? Math.min(limit * 4, 100) : limit;
+          const found = q ? await recallMessagesOffThread(q, threadIds, wanted, range) : await recentMessagesOffThread(threadIds, range ?? {}, wanted);
+          if (!lending) return found;
+          const shown = new Map<string, boolean>();
+          return found.filter((hit) => {
+            if (!shown.has(hit.threadId)) shown.set(hit.threadId, cloudOwnerOnlyThread(hit.threadId));
+            return shown.get(hit.threadId);
+          }).slice(0, limit);
+        };
         const askedBot = String(url.searchParams.get("bot") ?? "").trim();
         if (askedBot) {
           const dogs = store.bots.filter((bot) => !bot.hidden);
@@ -15802,14 +15814,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (!(picked.length === 1 && picked[0]!.id === from.id)) {
             if (!crossDogRecallAllowed(from, fromThreadId)) return json(res, 403, { error: CROSS_DOG_REFUSAL });
             const chats = crossDogChats(dogs.map(recallDog), store.groups, new Set(picked.map((dog) => dog.id)));
-            const lending = cloudLendingView(internalCapability);
-            const threadIds = [...chats.keys()].filter(lending ? cloudOwnerOnlyThread : () => true);
-            const crossMemory = scope === "conversations" || !q
-              ? []
-              : interleave(picked.filter((dog) => dog.memoryEnabled !== false).map((dog) =>
-                searchMemoryFiles(dog.id, q, limit).map((hit) => ({ ...hit, bot: dog.name, botId: dog.id, snippet: redactSecretsInText(hit.snippet) }))), limit);
+            const memoryDogs = scope === "conversations" || !q ? [] : picked.filter((dog) => dog.memoryEnabled !== false);
+            if (!mountedFoldersActive()) for (const dog of memoryDogs) syncMemoryIndex(dog.id);
+            const crossMemory = interleave((await recallMemoryOffThread(q, memoryDogs.map((dog) => dog.id), limit)).map((found, index) =>
+              found.map((hit) => ({ ...hit, bot: memoryDogs[index]!.name, botId: memoryDogs[index]!.id, snippet: redactSecretsInText(hit.snippet) }))), limit);
             if (scope === "memory") return json(res, 200, { cross: true, hits: [], memoryHits: crossMemory });
-            const crossFound = q ? recallMessages(q, threadIds, limit, range) : recentMessages(threadIds, range ?? {}, limit);
+            const crossFound = await searchShown([...chats.keys()]);
             const crossHits = crossFound.map((hit) => {
               const chat = chats.get(hit.threadId);
               return { ...hit, snippet: redactSecretsInText(hit.snippet), bot: chat?.dog ?? "a dog", chat: chat?.chat ?? "a chat", current: hit.threadId === fromThreadId };
@@ -15828,10 +15838,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           roomByThread.set(group.threadId, group);
           for (const task of group.tasks ?? []) roomByThread.set(task.threadId, group);
         }
-        const ownThreads = [...new Set([from.threadId, ...(from.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])]
-          .filter(cloudLendingView(internalCapability) ? cloudOwnerOnlyThread : () => true);
+        const ownThreads = [...new Set([from.threadId, ...(from.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])];
         const inRoom = Boolean(store.groupByThread(fromThreadId));
-        const found = q ? recallMessages(q, ownThreads, limit, range) : recentMessages(ownThreads, range ?? {}, limit);
+        const found = await searchShown(ownThreads);
         const hits = found.map((hit) => {
           const room = roomByThread.get(hit.threadId);
           return {
@@ -15848,6 +15857,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           discloseRecall(from, fromThreadId, hits.filter((hit) => hit.crossed).map((hit) => hit.threadId));
         }
         return json(res, 200, { hits, memoryHits });
+      } catch (error) {
+        if (error instanceof SearchUnavailable) return json(res, error.status, { error: error.message });
+        throw error;
       }
       if (method === "GET" && path === "/api/internal/session-read") {
         const fromBotId = String(url.searchParams.get("fromBotId") ?? "");

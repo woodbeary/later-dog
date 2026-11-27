@@ -13,23 +13,37 @@ export interface TurnFolders {
   onWait?: (wait: FolderWait) => void;
   makeDir?: (path: string) => Promise<unknown>;
   noticeMs?: number;
+  retryMs?: number;
   now?: () => number;
 }
+
+const STILL_OPENING = new Set(["ETIMEDOUT", "EAGAIN", "EBUSY"]);
 
 export async function prepareTurnFolders(input: TurnFolders): Promise<void> {
   if (!input.active) return;
   const now = input.now ?? Date.now;
   const began = now();
   const deadline = began + input.budgetMs;
+  const retryMs = input.retryMs ?? 3_000;
   const make = input.makeDir ?? ((path: string) => mkdir(path, { recursive: true, mode: 0o700 }));
   let announced = false;
   const notice = setTimeout(() => { announced = true; input.onWait?.({ waiting: true }); }, input.noticeMs ?? MOUNTED_FOLDER_ANSWER_MS);
   const within = async (path: string, work: () => Promise<unknown>) => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const late = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), Math.max(0, deadline - now())); });
-    const done = await Promise.race([work().then(() => true as const), late]);
-    clearTimeout(timer);
-    if (!done) throw new MountedFolderStalled(path);
+    for (;;) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), Math.max(0, deadline - now())); });
+      try {
+        const done = await Promise.race([work().then(() => true as const), late]);
+        if (!done) throw new MountedFolderStalled(path);
+        return;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (error instanceof MountedFolderStalled || !STILL_OPENING.has(code ?? "") || deadline - now() <= retryMs) throw error;
+        await new Promise((resolve) => setTimeout(resolve, retryMs));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
   };
   let opened = false;
   try {
