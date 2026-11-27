@@ -675,7 +675,7 @@ describe("Accounts", () => {
     await remount({ instances: [claude("claude", "Claude"), grokAccount({ authenticated: false })] });
     expect(ids()).toEqual(["claude"]);
     await click(button("Add account"));
-    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex", "grokAgent"]);
+    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex", "grokAgent", "antigravityAgent"]);
     await click(button("Grok", sheet()!));
     expect(sheet()?.getAttribute("aria-label")).toBe("Sign in to Grok");
     expect(lastSignIn()).toMatchObject({ kind: "device", props: { instanceId: "grok", browserPkce: false, provider: "grok", autoStart: true } });
@@ -688,7 +688,7 @@ describe("Accounts", () => {
     expect(document.body.querySelector("[data-accounts-panel] [data-account-grip]")).toBeNull();
 
     await click(button("Add account"));
-    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex", "grokAgent"]);
+    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex", "grokAgent", "antigravityAgent"]);
     const grokTile = sheet()!.querySelector<HTMLButtonElement>('[data-account-engine="grokAgent"]')!;
     expect(grokTile.disabled).toBe(true);
     expect(grokTile.textContent).toBe("GrokSigned in");
@@ -704,7 +704,7 @@ describe("Accounts", () => {
   it("adds Cursor from its own tile with Cursor's sign-in, lists it, and signs it out from its row", async () => {
     await remount({ instances: [claude("claude", "Claude"), grokAccount({ authenticated: false }), cursorAccount({ authenticated: false })] });
     await click(button("Add account"));
-    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex", "grokAgent", "cursorAgent"]);
+    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex", "grokAgent", "cursorAgent", "antigravityAgent"]);
     await click(button("Cursor", sheet()!));
     expect(sheet()?.getAttribute("aria-label")).toBe("Sign in to Cursor");
     expect(lastSignIn()).toMatchObject({ kind: "device", props: { instanceId: "cursor", browserPkce: false, provider: "cursor", autoStart: true } });
@@ -851,12 +851,12 @@ describe("Accounts", () => {
 });
 
 describe("the Add account sheet", () => {
-  it("offers Claude, ChatGPT, Grok and Cursor with no More providers list or key step", async () => {
+  it("offers Claude, ChatGPT, Grok, Cursor and Antigravity with no More providers list or key step", async () => {
     await remount({ instances: [...fixture.state.instances, { instanceId: "openrouter", driverKind: "openai-compat", displayName: "OpenRouter", access: "api", snapshot: { state: "available", authenticated: false }, models: { default: "", options: [] } } as InstanceInfo] });
     await click(button("Add account"));
     const tiles = all("[data-account-engine]").map((element) => element.dataset.accountEngine);
     expect(tiles.slice(0, 2)).toEqual(["claudeAgent", "codex"]);
-    expect(tiles.every((tile) => ["claudeAgent", "codex", "grokAgent", "cursorAgent"].includes(tile!))).toBe(true);
+    expect(tiles.every((tile) => ["claudeAgent", "codex", "grokAgent", "cursorAgent", "antigravityAgent"].includes(tile!))).toBe(true);
     expect(sheet()!.querySelector("[data-more-providers-toggle], [data-more-providers], [data-key-provider]")).toBeNull();
     expect(sheet()!.textContent).not.toContain("More providers");
     expect(sheet()!.textContent).not.toContain("OpenRouter");

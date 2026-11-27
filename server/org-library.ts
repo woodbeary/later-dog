@@ -241,10 +241,10 @@ export interface OrgLibraryDeps {
   store: Store;
   routines: Pick<RoutineManager, "packageStamps" | "update" | "listRoutines" | "remove">;
   skills: {
-    list(botId: string): SkillListing[];
+    list(botId: string): SkillListing[] | Promise<SkillListing[]>;
     stamps(botId: string): Array<{ name: string; enabled: boolean; stamp: SkillPackageStamp }>;
-    setEnabled(botId: string, name: string, enabled: boolean): SkillListing | { error: string };
-    installOrg(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillListing | { error: string };
+    setEnabled(botId: string, name: string, enabled: boolean): SkillListing | { error: string } | Promise<SkillListing | { error: string }>;
+    installOrg(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillListing | { error: string } | Promise<SkillListing | { error: string }>;
   };
   postState?: (message: OrgLibraryStateMessage) => void;
   now?: () => number;
@@ -300,6 +300,7 @@ export class OrgLibrary {
   private readonly failures = new Map<string, OrgLibraryReportEntry>();
   private readonly verified = new Map<string, string>();
   private pending: Promise<void> = Promise.resolve();
+  private switching: Promise<void> = Promise.resolve();
   private recheck: ReturnType<typeof setTimeout> | null = null;
   private lastPosted: OrgLibraryStateMessage | null = null;
   private importing: string | null = null;
@@ -318,8 +319,9 @@ export class OrgLibrary {
     if (this.recheck) clearTimeout(this.recheck);
   }
 
-  settled(): Promise<void> {
-    return this.pending;
+  async settled(): Promise<void> {
+    await this.pending;
+    await this.switching;
   }
 
   lastReport(): OrgLibraryStateMessage | null {
@@ -581,7 +583,9 @@ export class OrgLibrary {
       if (install.status === "withdrawn" || (install.status === "removed" && install.withdrawnHandled === install.sha256)) continue;
       const entry = this.library.catalog.packages.find((candidate) => candidate.packageId === install.packageId);
       if (!entry?.withdrawnReleases.some((withdrawn) => withdrawn.sha256 === install.sha256)) continue;
-      this.switchOff(installId);
+      this.switching = this.switching.then(() => this.switchOff(installId)).catch((error: unknown) => {
+        console.warn(`[org-library] could not switch off a withdrawn release: ${error instanceof Error ? error.message : String(error)}`);
+      });
       if (install.status === "installed") install.status = "withdrawn";
       else install.withdrawnHandled = install.sha256;
       install.updatedAt = this.deps.now?.() ?? Date.now();
@@ -590,11 +594,11 @@ export class OrgLibrary {
     return changed;
   }
 
-  private switchOff(installId: string): void {
+  private async switchOff(installId: string): Promise<void> {
     for (const bot of this.deps.store.bots) {
       for (const skill of this.deps.skills.stamps(bot.id)) {
         if (skill.stamp.installId !== installId || !skill.enabled) continue;
-        const result = this.deps.skills.setEnabled(bot.id, skill.name, false);
+        const result = await this.deps.skills.setEnabled(bot.id, skill.name, false);
         if ("error" in result) console.warn(`[org-library] could not switch off ${skill.name}: ${result.error}`);
       }
     }
@@ -602,9 +606,9 @@ export class OrgLibrary {
       const made = bot.installedPackage;
       if (made?.source !== "org" || made.installId !== installId || !made.presetKey || !made.ref) continue;
       const source = `org:${made.ref}@${made.release}`;
-      for (const skill of this.deps.skills.list(bot.id)) {
+      for (const skill of await this.deps.skills.list(bot.id)) {
         if (skill.source !== source || !skill.enabled) continue;
-        const result = this.deps.skills.setEnabled(bot.id, skill.name, false);
+        const result = await this.deps.skills.setEnabled(bot.id, skill.name, false);
         if ("error" in result) console.warn(`[org-library] could not switch off ${skill.name}: ${result.error}`);
       }
     }
@@ -922,9 +926,9 @@ export class OrgLibrary {
     return { ok: true, status: 201, value: { alreadyAdded: false, result } };
   }
 
-  offeredSkills(botId?: string): { organization: { id: string; name: string } | null; skills: OfferedSkill[] } {
+  async offeredSkills(botId?: string): Promise<{ organization: { id: string; name: string } | null; skills: OfferedSkill[] }> {
     if (!this.library) return { organization: null, skills: [] };
-    const have = new Set(botId && this.deps.store.bot(botId) ? this.deps.skills.list(botId).map((skill) => skill.name) : []);
+    const have = new Set(botId && this.deps.store.bot(botId) ? (await this.deps.skills.list(botId)).map((skill) => skill.name) : []);
     const skills: OfferedSkill[] = [];
     for (const [installId, install] of Object.entries(this.state.installs)) {
       if (install.status !== "installed" || this.currentInstallId(install.packageId) !== installId) continue;
@@ -952,7 +956,7 @@ export class OrgLibrary {
     }
   }
 
-  addOfferedSkill(botId: string, installId: string, name: string): OrgLibraryOutcome<SkillListing> {
+  async addOfferedSkill(botId: string, installId: string, name: string): Promise<OrgLibraryOutcome<SkillListing>> {
     if (!this.library) return refusal(404, "not_listed", NOT_LISTED);
     const bot = this.deps.store.bot(botId);
     if (!bot) return refusal(404, "no_bot", "That dog no longer exists.");
@@ -965,10 +969,10 @@ export class OrgLibrary {
     const referenced = new Set(document.package.agents.flatMap((agent) => agent.skills ?? []));
     const skill = document.package.skills?.entries.find((candidate) => candidate.name === name && !referenced.has(candidate.name));
     if (!skill) return refusal(404, "no_skill", "That trick is not offered by this package.");
-    if (this.deps.skills.list(botId).some((existing) => existing.name === name)) {
+    if ((await this.deps.skills.list(botId)).some((existing) => existing.name === name)) {
       return refusal(409, "skill_exists", `${bot.name} already has a trick named ${name}.`);
     }
-    const added = this.deps.skills.installOrg(botId, `org:${install.ref}@${install.release}`, skill.instructions,
+    const added = await this.deps.skills.installOrg(botId, `org:${install.ref}@${install.release}`, skill.instructions,
       { installId, key: skill.name, release: install.release, ...pair(skill.instructions, skill.instructions) });
     if ("error" in added) return refusal(422, "skill_failed", `The trick could not be added: ${added.error}`);
     return { ok: true, status: 201, value: added };

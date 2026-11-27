@@ -38,6 +38,20 @@ Object.defineProperty(globalThis.navigator, "language", { value: "en", configura
 const { closeMessageDb } = await import("../message-db.ts");
 afterEach(closeMessageDb);
 
+const { armSyncTripwire, onMountedSyncCall } = await import("../laterdog/sync-tripwire.ts");
+const serverFrame = (stack: string) => stack.split("\n").slice(1).find((line) =>
+  /\/server\/.+\.ts:\d+/.test(line) && !/\.test\.ts:|\/server\/testing\/|\/server\/laterdog\/sync-tripwire\.ts:/.test(line));
+const mountedSyncCalls: string[] = [];
+onMountedSyncCall((hit) => {
+  const frame = serverFrame(hit.stack);
+  if (frame) mountedSyncCalls.push(`${hit.call}(${hit.path}) ${frame.trim()}`);
+});
+armSyncTripwire();
+afterEach(() => {
+  const found = mountedSyncCalls.splice(0);
+  if (found.length) throw new Error(`Server code made a synchronous file call on a mounted dog or project folder:\n${found.join("\n")}`);
+});
+
 afterAll(async () => {
   closeMessageDb();
   await removeTempDir(home);

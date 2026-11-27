@@ -592,6 +592,11 @@ function handle(msg: any) {
         writeFileSync(`${process.env.FAKE_ACP_DUMP}.prompt.json`, JSON.stringify(msg.params?.prompt ?? null, null, 2));
       }
       if (failRpc(msg)) return;
+      if (process.env.FAKE_ACP_PROMPT_RESULT) {
+        recordMethod("session/prompt.result");
+        result(msg.id, JSON.parse(process.env.FAKE_ACP_PROMPT_RESULT));
+        return;
+      }
       if (mode === "hang") {
         hangingPromptId = msg.id;
         hangKeepAlive = setInterval(() => {}, 1_000);

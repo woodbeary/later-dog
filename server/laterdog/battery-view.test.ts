@@ -9,7 +9,7 @@ const account = (instanceId: string): BatteryAccount => ({
 const ACCOUNTS = [account("one"), account("two")];
 
 function view(): BatteryView {
-  const battery = new AccountBattery({ config: () => ({ enabled: true, order: { claudeAgent: ["one", "two"] } }), now: () => NOW });
+  const battery = new AccountBattery({ config: () => ({ enabled: true, order: { claudeAgent: ["one", "two"] }, googleKeys: { gemini: "free" } }), now: () => NOW });
   battery.markExhausted("one", { resetsAt: new Date(NOW + 3600_000).toISOString() });
   const choice = (threadId: string) => ({ instanceId: threadId === "picked" ? "two" : "one", model: "claude-opus-5" });
   const status = battery.status(ACCOUNTS, choice, [["covered", { on: "two", model: "claude-opus-5" }], ["picked", { on: "one", model: "claude-opus-5" }]]);

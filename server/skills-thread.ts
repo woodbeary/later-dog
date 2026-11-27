@@ -3,14 +3,18 @@ import { Worker } from "node:worker_threads";
 
 import { dogFoldersMounted, mountGuard } from "./laterdog/dog-mounts.ts";
 import { MOUNTED_FOLDER_ANSWER_MS } from "./laterdog/mounted-folder-gate.ts";
-import * as skills from "./skills.ts";
+import * as skillFunctions from "./skills.ts";
+import { migrateBotSkillsToLibrary } from "./skills-library-migration.ts";
 import { workspaceDir } from "./workspace.ts";
 
 export const SKILL_OPS = [
   "syncSkillLinks", "listSkills", "readSkillFile", "installSkill", "installOrgSkill", "skillPackageStamps", "setSkillEnabled",
   "removeSkill", "stageSkillWrite", "listStagedSkillWrites", "getStagedSkillWrite", "rejectStagedSkillWrite", "applyStagedSkillWrite",
   "applySkillWriteWithReceipt", "undoSkillWrite", "skillsSystemPrompt", "resolveBotSkills", "listBotSkillsWithOrigin",
+  "migrateBotSkillsToLibrary",
 ] as const;
+
+export const skills = { ...skillFunctions, migrateBotSkillsToLibrary };
 
 export type SkillOp = typeof SKILL_OPS[number];
 export const RECEIPT_FAILED = "The receipt for this skill change could not be recorded.";

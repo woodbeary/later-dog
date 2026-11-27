@@ -144,3 +144,43 @@ describe("server code that reads or writes a dog's mounted folder", () => {
     expect(touched).toEqual([]);
   });
 });
+
+describe("the repo-wide tripwire for mounted folders", () => {
+  it("catches server code that makes a synchronous call on a mounted dog folder, and names the allowed desktop branch", async () => {
+    const { onMountedSyncCall, SYNC_CALLS_ALLOWED } = await import("./laterdog/sync-tripwire.ts");
+    const skillsModule = await import("./skills.ts");
+    const caught: string[] = [];
+    const timings: number[] = [];
+    const previous = onMountedSyncCall((hit) => { caught.push(hit.call); timings.push(hit.ms); });
+    vi.stubEnv("LATERDOG_CLOUD_ROLE", "home");
+    vi.stubEnv("LATERDOG_WORK_FOLDER_LAYOUT", "fixture");
+    try {
+      await workspace.ensureWorkspaceReady(bot);
+      skillsModule.syncSkillLinks(bot);
+    } finally {
+      onMountedSyncCall(previous);
+    }
+    expect(caught.length).toBeGreaterThan(0);
+    expect(timings.every((ms) => Number.isFinite(ms) && ms >= 0)).toBe(true);
+    expect(SYNC_CALLS_ALLOWED.map((entry) => entry.frame)).toEqual(["dogTricks"]);
+  });
+});
+
+describe("a dog's per-chat folders on a mounted home", () => {
+  it("keys each chat folder on its own and checks commands there without a synchronous call", async () => {
+    const { mountGuard } = await import("./laterdog/dog-mounts.ts");
+    const { ownerWorkspaceRoots, deletesOutsideWorkspace } = await import("./laterdog/owner-guard.ts");
+    vi.stubEnv("LATERDOG_CLOUD_ROLE", "home");
+    vi.stubEnv("LATERDOG_WORK_FOLDER_LAYOUT", "fixture");
+    const chat = await workspace.ensureTaskWorkspaceReady(bot, "chat-a");
+    const dogChats = join(workspace.TASK_WORKSPACES_DIR, bot);
+    expect(mountGuard.folderOf(join(chat, ".claude", "settings.json"))).toBe(chat);
+    expect(mountGuard.folderOf(join(dogChats, "chat-b", "x"))).toBe(join(dogChats, "chat-b"));
+    expect(mountGuard.folderOf(dogChats)).toBe(dogChats);
+    const before = touched.length;
+    const roots = ownerWorkspaceRoots([chat, dogChats, workspace.workspaceDir(bot)]);
+    expect(roots).toEqual(expect.arrayContaining([chat, dogChats]));
+    expect(deletesOutsideWorkspace("ls -la", { cwd: chat, workspaceRoots: roots })).toBeNull();
+    expect(touched.slice(before)).toEqual([]);
+  });
+});

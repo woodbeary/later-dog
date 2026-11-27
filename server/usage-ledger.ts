@@ -24,6 +24,7 @@ export interface UsageRow {
   input: number;
   output: number;
   cachedInput?: number;
+  cachedWrite?: number;
   promptBytes?: { stable: number; volatile: number };
   costUsd: number | null;
   costSource?: CostSource;
@@ -93,6 +94,7 @@ export function appendUsage(dataDir: string, row: Omit<UsageRow, "at"> & { at?: 
     input: clean(row.input),
     output: clean(row.output),
     ...(typeof row.cachedInput === "number" ? { cachedInput: clean(row.cachedInput) } : {}),
+    ...(typeof row.cachedWrite === "number" ? { cachedWrite: clean(row.cachedWrite) } : {}),
     ...(promptBytes ? { promptBytes } : {}),
     costUsd: finiteOrNull(row.costUsd),
   };
@@ -288,7 +290,7 @@ export function csvCell(value: string | number | null): string {
 }
 
 export function usageCsv(rows: UsageRow[], prices: PriceList | null = null): string {
-  const header = ["time", "bot", "model", "engine", "triggered_by", "input_tokens", "output_tokens", "cached_input_tokens", "cost_usd", "cost_source", ...(prices ? ["billable_usd"] : []), "thread"];
+  const header = ["time", "bot", "model", "engine", "triggered_by", "input_tokens", "output_tokens", "cached_input_tokens", "cost_usd", "cost_source", ...(prices ? ["billable_usd"] : []), "thread", "account", "cache_write_tokens"];
   const lines = [header.join(",")];
   for (const row of rows) {
     lines.push([
@@ -304,6 +306,8 @@ export function usageCsv(rows: UsageRow[], prices: PriceList | null = null): str
       costSourceOf(row),
       ...(prices ? [billableFor(row, prices)] : []),
       row.threadId,
+      row.instanceId,
+      typeof row.cachedWrite === "number" ? clean(row.cachedWrite) : "",
     ].map(csvCell).join(","));
   }
   return lines.join("\n") + "\n";

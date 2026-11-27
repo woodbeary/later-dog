@@ -12,6 +12,8 @@ import { rollbackQuietly } from "./laterdog/safe-rollback.ts";
 import { ensureNativeRuns, deleteNativeRuns } from "./laterdog/native-run-store.ts";
 import { MessageSearchWorker, WITHIN_BUDGET, type ReadQuery } from "./message-search-worker.ts";
 import { searchMessagesInDatabase, type SearchHit } from "./message-search-query.ts";
+import { ftsQuery, rangeClause, type RecallRange, type SearchMode } from "../shared/search-index-query.ts";
+export { recallMatchTerm, recallTerms, type RecallRange, type SearchMode } from "../shared/search-index-query.ts";
 export type { SearchHit } from "./message-search-query.ts";
 
 const DB_FILE = () => join(DATA_DIR, "messages.db");
@@ -58,6 +60,7 @@ function open(): DatabaseSync {
       PRIMARY KEY (thread_id, id)
     );
     CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id);
+    CREATE INDEX IF NOT EXISTS messages_cards ON messages(thread_id) WHERE kind = 'options';
     CREATE TABLE IF NOT EXISTS thread_state (
       thread_id TEXT PRIMARY KEY,
       active_leaf_id TEXT
@@ -443,6 +446,16 @@ export function updateMessage(threadId: string, message: Message): void {
   writes?.message(threadId, message.id);
 }
 
+export function readMessagesJson(threadId: string, ids: readonly string[]): Array<{ id: string; at: number; json: string }> {
+  const statement = db().prepare("SELECT id, at, json FROM messages WHERE thread_id = ? AND id = ?");
+  const rows: Array<{ id: string; at: number; json: string }> = [];
+  for (const id of ids) {
+    const row = statement.get(threadId, id) as { id: string; at: number; json: string } | undefined;
+    if (row) rows.push(row);
+  }
+  return rows;
+}
+
 export function openPermissionCards(): Array<{ threadId: string; message: Message }> {
   const rows = db()
     .prepare(
@@ -453,6 +466,20 @@ export function openPermissionCards(): Array<{ threadId: string; message: Messag
       "AND COALESCE(json_extract(json, '$.card.expired'), 0) = 0",
     )
     .all() as Array<{ thread_id: string; json: string }>;
+  return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
+}
+
+export function openRequestCards(tools: readonly string[]): Array<{ threadId: string; message: Message }> {
+  if (!tools.length) return [];
+  const rows = db()
+    .prepare(
+      "SELECT thread_id, json FROM messages " +
+      `WHERE kind = 'options' AND json_extract(json, '$.card.tool') IN (${tools.map(() => "?").join(", ")}) ` +
+      "AND COALESCE(json_extract(json, '$.card.requestId'), '') <> '' " +
+      "AND json_extract(json, '$.card.answered') IS NULL " +
+      "AND COALESCE(json_extract(json, '$.card.dismissed'), 0) = 0",
+    )
+    .all(...tools) as Array<{ thread_id: string; json: string }>;
   return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
 }
 
@@ -549,49 +576,6 @@ function peerAuthor(peerName: string | null, text: string): string | null {
 
 const PEER_NOTE_HEAD_CHARS = 160;
 
-const STOP_WORDS = new Set(
-  "a an and are as at be by did do for from had has have how i in is it its of on or that the this to was we were what when where which who why with you your".split(" "),
-);
-
-function ftsQuery(query: string, mode: SearchMode = "all"): string | null {
-  const tokens = query
-    .split(/\s+/)
-    .map((token) => token.replace(/"/g, "").trim())
-    .filter(Boolean);
-  if (!tokens.length) return null;
-  const content = tokens.filter((token) => !STOP_WORDS.has(token.toLowerCase()));
-  if (mode === "any") {
-    const terms = recallTerms(query).map(recallMatchTerm).filter(Boolean);
-    return terms.length ? terms.join(" OR ") : null;
-  }
-  return (content.length ? content : tokens).map((token) => `"${token}"`).join(" ");
-}
-
-export function recallMatchTerm(term: string): string | null {
-  if (!/^[\p{L}\p{N}]+$/u.test(term)) return null;
-  if (!/^\p{L}{4,}$/u.test(term)) return `"${term}"`;
-  const stem = term.length > 4 && term.endsWith("s") && !term.endsWith("ss") ? term.slice(0, -1) : term;
-  return `"${stem}"*`;
-}
-
-export type SearchMode = "all" | "any";
-
-const RECALL_FILLER = new Set(
-  "about again also any anything can could does don't know me my please remember remind should tell there they us would hi hello hey thanks thank ok okay yes yeah no i'm im i've i'll i'd you're quick just".split(" "),
-);
-
-export function recallTerms(query: string): string[] {
-  const out: string[] = [];
-  for (const raw of query.split(/\s+|(?<=\p{L})[/,;:.—–-]+(?=\p{L})/u)) {
-    const token = raw.replace(/"/g, "").replace(/^[\s.,;:!?()[\]{}'`“”‘’]+|[\s.,;:!?()[\]{}'`“”‘’]+$/g, "").toLowerCase();
-    if (token.length < 2 && !/\d/.test(token)) continue;
-    if (!/[\p{L}\p{N}]/u.test(token)) continue;
-    if (STOP_WORDS.has(token) || RECALL_FILLER.has(token)) continue;
-    if (!out.includes(token)) out.push(token);
-  }
-  return out.slice(0, 16);
-}
-
 const SNIPPET_TOKENS = 48;
 
 export function readMessageText(
@@ -618,25 +602,6 @@ export function readMessageText(
     ...(row.from_name ? { from: row.from_name } : {}),
     ...(peer ? { peer } : {}),
   };
-}
-
-export interface RecallRange {
-  since?: number;
-  until?: number;
-}
-
-function rangeClause(range: RecallRange | undefined, column: string): { sql: string; params: number[] } {
-  const parts: string[] = [];
-  const params: number[] = [];
-  if (range?.since !== undefined) {
-    parts.push(`${column} >= ?`);
-    params.push(range.since);
-  }
-  if (range?.until !== undefined) {
-    parts.push(`${column} <= ?`);
-    params.push(range.until);
-  }
-  return { sql: parts.map((part) => ` AND ${part}`).join(""), params };
 }
 
 type RecallRow = {
