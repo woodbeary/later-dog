@@ -69,7 +69,7 @@ export type RuntimeEvent = RuntimeEventBase &
         stopReason?: string | null;
         cost?: number | null;
         denials?: string[];
-        usage?: { input: number; output: number; cachedInput?: number };
+        usage?: { input: number; output: number; cachedInput?: number; cachedWrite?: number };
       }
     | {
         type: "cap.exhausted";
@@ -128,12 +128,12 @@ export type RuntimeEvent = RuntimeEventBase &
         approvalScope?: "local-computer";
       }
     | {
-        type: "thread.token-usage.updated"; input: number; output: number; cachedInput?: number;
+        type: "thread.token-usage.updated"; input: number; output: number; cachedInput?: number; cachedWrite?: number;
         contextTokens?: number; contextWindow?: number;
       }
     | {
         type: "runtime.error"; message: string; setup?: boolean; terminal?: boolean; claudeUpdate?: boolean;
-        quota?: { resetsAt?: string; kind?: string };
+        quota?: { resetsAt?: string; kind?: string; scope?: "model" };
       }
     | { type: "runtime.notice"; message: string }
     | { type: "model.changed"; from: string; to: string; cause: "safeguards" | "unavailable"; scope?: string }

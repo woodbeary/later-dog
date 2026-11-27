@@ -24,6 +24,7 @@ export interface UsageRow {
   input: number;
   output: number;
   cachedInput?: number;
+  cachedWrite?: number;
   promptBytes?: { stable: number; volatile: number };
   costUsd: number | null;
   costSource?: CostSource;
@@ -93,6 +94,7 @@ export function appendUsage(dataDir: string, row: Omit<UsageRow, "at"> & { at?: 
     input: clean(row.input),
     output: clean(row.output),
     ...(typeof row.cachedInput === "number" ? { cachedInput: clean(row.cachedInput) } : {}),
+    ...(typeof row.cachedWrite === "number" ? { cachedWrite: clean(row.cachedWrite) } : {}),
     ...(promptBytes ? { promptBytes } : {}),
     costUsd: finiteOrNull(row.costUsd),
   };

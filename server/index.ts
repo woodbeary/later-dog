@@ -266,6 +266,7 @@ import { ComputerControl } from "./computer-control.ts";
 import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
 import { registerEnginesBinDir } from "./engine-install.ts";
 import { registerNativeBinDir } from "./laterdog/native-install.ts";
+import { cacheLine } from "./laterdog/cache-line.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
 import { latestPlanRow, latestPlanRowAt, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
@@ -797,8 +798,9 @@ import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalCandidate } from "./laterdog/account-removal.ts";
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
+import { createGeminiKeyAccountSchema, newAntigravityAccount, newGeminiKeyAccount } from "./laterdog/google-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, googleKeyUse, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -895,6 +897,7 @@ import { createVoiceStreams } from "./laterdog/voice-stream.ts";
 import { createTimeZoneRoutes, currentTimeZone, restoreTimeZone } from "./laterdog/time-zone.ts";
 import { withScheduleLabel } from "./laterdog/routine-schedule-label.ts";
 import { heldAccountReason } from "./laterdog/held-accounts.ts";
+import { createAccountKeeper, createSignInRoutes, keeperRenewing, keptAccounts } from "./laterdog/account-keeper.ts";
 import { createHomeAccountRoutes, withHandedOverEmail } from "./laterdog/home-accounts.ts";
 import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
 import { engineAnswer } from "./laterdog/person-denied.ts";
@@ -1184,6 +1187,13 @@ const HELD_ACCOUNTS_FILE = join(DATA_DIR, "providers", "held-accounts.json");
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId), snapshotFile: join(DATA_DIR, "account-snapshots.json") });
 const supportsApprovalMode = createApprovalModeSupport(registry);
 claudeSignInRefresh.onChange((instanceId) => registry.forgetSnapshot(instanceId));
+const ACCOUNT_KEEPER_FILE = join(DATA_DIR, "providers", "account-keeper.json");
+const accountKeeper = createAccountKeeper({
+  renewing: () => keeperRenewing(ACCOUNT_KEEPER_FILE),
+  accounts: () => hostedModels ? [] : keptAccounts(instanceConfigs(cfg), (instanceId) => Boolean(heldAccountReason(HELD_ACCOUNTS_FILE, instanceId)), DATA_DIR),
+});
+accountKeeper.onChange((instanceId) => registry.forgetSnapshot(instanceId));
+if (CLOUD_HOME && process.platform === "linux") accountKeeper.start();
 registerEnginesBinDir();
 registerNativeBinDir();
 
@@ -1222,9 +1232,12 @@ function batteryAccounts(): BatteryAccount[] {
       instanceId: instance.instanceId, driverKind: instance.driverKind, displayName: instance.displayName || instance.driverKind,
       enabled: instance.enabled,
       eligible: instance.instanceId !== CLAUDE_API_INSTANCE && !managedDesktop.owns(instance.instanceId) && !policyModelRefusal(instance) &&
-        (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key",
+        (instance.driverKind === "geminiAgent"
+          ? googleKeyUse(cfg.accountBattery, instance.instanceId) !== undefined
+          : (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key"),
       ...(snapshot ? signedInReading(snapshot) : {}),
       ...(claudeSignInRefresh.signedOut(instance.instanceId) ? { signedIn: false } : {}),
+      ...(accountKeeper.signedOut(instance.instanceId) ? { signedIn: false } : {}),
       ...(snapshot?.account?.email ? { email: snapshot.account.email } : {}),
       models: instance.models.options.map((option) => option.id), defaultModel: instance.models.default,
     };
@@ -2202,6 +2215,8 @@ function adminAuditPlan(method: string, path: string): AuditPlan | null {
   if (m && method === "POST") plan.engineAction = { id: m[1]!, action: m[2]!.replace("/", "-") };
   if (method === "POST" && path === "/api/instances/claude-accounts") plan.engineAction = { id: "claude", action: "account-add" };
   if (method === "POST" && path === "/api/instances/chatgpt-accounts") plan.engineAction = { id: "chatgpt", action: "account-add" };
+  if (method === "POST" && path === "/api/instances/antigravity-accounts") plan.engineAction = { id: "antigravity", action: "account-add" };
+  if (method === "POST" && path === "/api/instances/gemini-accounts") plan.engineAction = { id: "gemini", action: "account-add" };
   return plan.config || plan.botId || plan.createsBots || plan.deletesBot || plan.createsWebhook || plan.webhookId || plan.sessionId || plan.pairing || plan.engineAction || plan.roomId ? plan : null;
 }
 
@@ -2336,6 +2351,8 @@ const executionEvidence = new ExecutionEvidenceTracker();
 function bookTurnUsage(row: Omit<UsageRow, "at" | "costSource">, tokensReported = true, notificationThreadId = row.threadId): void {
   const cost = tokensReported || row.costUsd !== null ? ledgerCost(row, operatorPrices()) : { costUsd: null };
   const booked = { ...row, ...cost, at: new Date().toISOString() };
+  const cache = cacheLine(booked);
+  if (cache) console.log(cache);
   noteSpend(DATA_DIR, booked, appendUsage(DATA_DIR, booked));
   const state = spendState(cfg, DATA_DIR);
   const alert = takeSpendAlert(DATA_DIR, state);
@@ -6005,7 +6022,7 @@ const groupSpeakers = new Map<string, { botId: string; name: string; color: stri
 type RoutedBy = NonNullable<Message["routedBy"]>;
 const routedRoomReplies = new Map<string, { botId: string; routedBy: RoutedBy }>();
 
-const turnUsage = new Map<string, { input: number; output: number; cachedInput?: number }>();
+const turnUsage = new Map<string, { input: number; output: number; cachedInput?: number; cachedWrite?: number }>();
 const turnContext = new Map<string, { tokens?: number; window?: number }>();
 const liveContext = new LiveContext();
 const helperTurns = new HelperTurnBudget();
@@ -8136,7 +8153,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       }
       break;
     case "thread.token-usage.updated":
-      turnUsage.set(event.threadId, { input: event.input, output: event.output, cachedInput: event.cachedInput });
+      turnUsage.set(event.threadId, { input: event.input, output: event.output, cachedInput: event.cachedInput, cachedWrite: event.cachedWrite });
       if (event.contextTokens !== undefined || event.contextWindow !== undefined) {
         turnContext.set(event.threadId, { tokens: event.contextTokens, window: event.contextWindow });
       }
@@ -8298,6 +8315,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           input: tokens?.input ?? 0,
           output: tokens?.output ?? 0,
           ...(typeof tokens?.cachedInput === "number" ? { cachedInput: tokens.cachedInput } : {}),
+          ...(typeof tokens?.cachedWrite === "number" ? { cachedWrite: tokens.cachedWrite } : {}),
           ...(promptBytes ? { promptBytes } : {}),
           costUsd: event.cost ?? null,
           trigger: routineRun
@@ -8364,6 +8382,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           input: tokens?.input ?? 0,
           output: tokens?.output ?? 0,
           ...(typeof tokens?.cachedInput === "number" ? { cachedInput: tokens.cachedInput } : {}),
+          ...(typeof tokens?.cachedWrite === "number" ? { cachedWrite: tokens.cachedWrite } : {}),
           ...(promptBytes ? { promptBytes } : {}),
           costUsd: event.cost ?? null,
           trigger: routineRun
@@ -14428,6 +14447,7 @@ ROUTES.push(createMacAccountRoutes({
   exclusive: withProviderConfig,
   reload: reloadProviderInstance,
 }));
+ROUTES.push(createSignInRoutes({ keeper: accountKeeper, file: ACCOUNT_KEEPER_FILE, allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth) }));
 ROUTES.push(createHomeAccountRoutes({
   cloudHome: Boolean(CLOUD_HOME),
   dataDir: DATA_DIR,
@@ -20981,6 +21001,37 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       try {
         const { instanceId, instances } = newChatGptAccount(persistableInstanceConfigs(cfg), parsed.data.displayName, { cloudHome: Boolean(CLOUD_HOME), dataDir: DATA_DIR });
         await persistProviderInstance(instanceId, instances);
+        return json(res, 201, { instanceId, instances: await describeInstances() });
+      } finally { providerConfigBusy = false; }
+    }
+
+    if (method === "POST" && path === "/api/instances/antigravity-accounts") {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(res, 415, { error: "content-type must be application/json" });
+      const parsed = createClaudeAccountSchema.pick({ displayName: true }).safeParse(await readBody(req, 8192));
+      if (!parsed.success) return json(res, 400, { error: "Enter an account name (up to 80 characters)." });
+      if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
+      providerConfigBusy = true;
+      try {
+        const { instanceId, instances } = newAntigravityAccount(persistableInstanceConfigs(cfg), parsed.data.displayName);
+        await persistProviderInstance(instanceId, instances);
+        return json(res, 201, { instanceId, instances: await describeInstances() });
+      } finally { providerConfigBusy = false; }
+    }
+
+    if (method === "POST" && path === "/api/instances/gemini-accounts") {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(res, 415, { error: "content-type must be application/json" });
+      const parsed = createGeminiKeyAccountSchema.safeParse(await readBody(req, 8192));
+      if (!parsed.success) return json(res, 400, { error: "Enter an account name, a Gemini API key, and whether it is free tier or allowed paid use." });
+      if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
+      providerConfigBusy = true;
+      try {
+        const { instanceId, instances } = newGeminiKeyAccount(persistableInstanceConfigs(cfg), parsed.data.displayName, parsed.data.apiKey);
+        await persistProviderInstance(instanceId, instances);
+        const battery = { ...(cfg.accountBattery ?? { enabled: false, order: {} }) };
+        battery.googleKeys = { ...battery.googleKeys, [instanceId]: parsed.data.use };
+        saveConfig({ accountBattery: battery });
+        cfg.accountBattery = battery;
+        broadcast({ kind: "config", ...configStatus() });
         return json(res, 201, { instanceId, instances: await describeInstances() });
       } finally { providerConfigBusy = false; }
     }

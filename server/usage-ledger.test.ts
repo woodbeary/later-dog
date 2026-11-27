@@ -38,6 +38,14 @@ describe("usage ledger files", () => {
   beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), "laterdog-usage-")); });
   afterEach(async () => { await removeTempDir(dataDir); });
 
+  it("keeps the written cache count and cleans it like the other counts", async () => {
+    appendUsage(dataDir, row({ at: "2026-09-03T11:00:00.000Z", cachedWrite: 40.9 }));
+    appendUsage(dataDir, row({ at: "2026-09-03T11:01:00.000Z", cachedWrite: -3 }));
+    await flushUsageLedger(dataDir);
+    const rows = readUsage(dataDir, { from: new Date("2026-09-01T00:00:00Z"), to: new Date("2026-09-30T23:59:59Z") });
+    expect(rows.map((entry) => entry.cachedWrite)).toEqual([40, 0]);
+  });
+
   it("treats malformed execution metadata as legacy usage", async () => {
     const at = new Date("2026-11-08T10:00:00Z");
     await appendUsage(dataDir, row({ at: at.toISOString() }));
