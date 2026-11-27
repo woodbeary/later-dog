@@ -217,6 +217,15 @@ export function createInflightTurns(ledger: InflightLedger, options: { now?: () 
       save();
     },
 
+    adopt(turns: readonly InflightTurn[]): number {
+      const known = new Set([...leftovers, ...open.values()].map((turn) => turn.threadId));
+      const added = turns.filter((turn) => !known.has(turn.threadId));
+      if (!added.length) return 0;
+      leftovers = [...leftovers, ...added];
+      save();
+      return added.length;
+    },
+
     takeLeftovers(): InflightTurn[] {
       const taken = leftovers;
       leftovers = [];

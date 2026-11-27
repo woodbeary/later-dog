@@ -331,7 +331,7 @@ import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
-import { readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
+import { readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
 import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
 import { SkillsPromptCache, skillsPromptWorker } from "./skills-prompt-cache.ts";
 import { readMessageText, recallMemoryOffThread, recallMessagesOffThread, recentMessagesOffThread, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
@@ -356,6 +356,8 @@ import {
   restoreSteeredMessages,
   settleHeldSteeredQueue,
 } from "./steer-queue.ts";
+import { adoptSteeredMessage, setSteerQueueSink, steeredItems, type SteerQueueItem } from "./steer-queue.ts";
+import { ObjectQueue, reconcileRow, slotsByDog, type ObjectSlot } from "./laterdog/object-queue.ts";
 import {
   cancelChannelMessage,
   channelQueueIdsNamed,
@@ -858,7 +860,7 @@ import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts"
 import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createStallWatch, handoffWorking, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
-import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
+import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type InflightLedger, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
 import { createPickupStops, keepsNewerTurn, persistPickupStop } from "./laterdog/pickup-stops.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
 import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
@@ -1058,6 +1060,81 @@ startPhases.begin("boot");
 if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () => turnPhases.current() });
 let coordinatorSetting: CoordinatorSetting = readCoordinatorSetting(DATA_DIR);
 const capabilitySigner = CLOUD_HOME ? turnCapabilitySigner({ home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
+const objectQueue = CLOUD_HOME ? new ObjectQueue({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
+const queuesInObject = (botId: string) => Boolean(objectQueue) && queueModeFor(coordinatorSetting, botId) === "object";
+const objectRowOf = (item: SteerQueueItem, status: "accepted" | "pending") =>
+  ({ id: item.messageId, sendId: item.sendId ?? null, status, payload: item, at: item.queuedAt });
+setSteerQueueSink({
+  queued: (botId, threadId, item) => { if (queuesInObject(botId)) objectQueue!.put(botId, threadId, [objectRowOf(item, "pending")]); },
+  settled: (botId, threadId, ids, status) => { if (queuesInObject(botId)) objectQueue!.settle(botId, threadId, ids, status); },
+});
+function recordAcceptedSend(botId: string, threadId: string, item: Omit<SteerQueueItem, "messageId" | "queuedAt">): string | null {
+  if (!queuesInObject(botId)) return null;
+  const accepted: SteerQueueItem = { ...item, messageId: `a-${newId()}`, queuedAt: Date.now() };
+  objectQueue!.put(botId, threadId, [objectRowOf(accepted, "accepted")]);
+  return accepted.messageId;
+}
+function forgetAcceptedSend(botId: string, threadId: string, id: string | null): void {
+  if (id) objectQueue?.settle(botId, threadId, [id], null);
+}
+const slotsSent = new Map<string, string>();
+function objectSlotsLedger(ledger: InflightLedger): InflightLedger {
+  return {
+    read: () => ledger.read(),
+    write: (turns) => {
+      ledger.write(turns);
+      if (!objectQueue) return;
+      const byDog = slotsByDog(turns);
+      for (const botId of new Set([...byDog.keys(), ...slotsSent.keys()])) {
+        if (!queuesInObject(botId)) continue;
+        const slots: ObjectSlot[] = byDog.get(botId) ?? [];
+        const sent = JSON.stringify(slots);
+        if (slotsSent.get(botId) === sent) continue;
+        slotsSent.set(botId, sent);
+        objectQueue.slots(botId, slots);
+      }
+    },
+  };
+}
+async function reconcileQueueObjects(): Promise<void> {
+  if (!objectQueue) return;
+  const dogs = store.bots.filter((bot) => queuesInObject(bot.id));
+  if (!dogs.length) return;
+  const local = new Map(chatFollowups("bot").map((row) => [row.id, row.status] as const));
+  const counts = { requeued: 0, dropped: 0, cancelled: 0, slots: 0, pushed: 0, unreachable: 0 };
+  await Promise.all(dogs.map(async (bot) => {
+    const restored = await objectQueue.restore(bot.id);
+    if (!restored) { counts.unreachable += 1; return; }
+    counts.slots += inflightTurns.adopt(restored.slots
+      .filter((slot) => store.taskByThread(bot.id, slot.chat))
+      .map((slot) => ({ botId: bot.id, threadId: slot.chat, since: slot.since, planned: slot.planned })));
+    const known = new Set<string>();
+    for (const [threadId, rows] of Object.entries(restored.chats)) {
+      const messages = store.taskByThread(bot.id, threadId) ? store.messagesFor(threadId) : [];
+      const view = {
+        owned: Boolean(store.taskByThread(bot.id, threadId)),
+        delivered: (row: { id: string; sendId: string | null }) => messages.some((message) => message.role === "user" &&
+          (message.queueId === row.id || (row.sendId !== null && message.sendId === row.sendId))),
+        localStatus: (id: string) => local.get(id) ?? null,
+      };
+      for (const row of rows) {
+        known.add(row.id);
+        const action = reconcileRow(row, view);
+        if (action.kind === "drop") { objectQueue.settle(bot.id, threadId, [row.id], action.status); counts.dropped += 1; }
+        else if (action.kind === "cancel-here") { cancelSteeredMessage(bot.id, row.id, threadId); counts.cancelled += 1; }
+        else if (action.kind === "requeue") {
+          const item = row.payload as SteerQueueItem;
+          if (adoptSteeredMessage(bot.id, threadId, { ...item, messageId: row.id, queuedAt: row.at })) counts.requeued += 1;
+        }
+      }
+    }
+    for (const [threadId, items] of steeredItems(bot.id)) {
+      const missing = items.filter((item) => !known.has(item.messageId));
+      if (missing.length) { objectQueue.put(bot.id, threadId, missing.map((item) => objectRowOf(item, "pending"))); counts.pushed += missing.length; }
+    }
+  }));
+  console.log(`[object queue] restored ${dogs.length} dog(s): ${JSON.stringify(counts)}`);
+}
 const searchIndex = CLOUD_HOME ? new SearchIndexWiring({
   client: searchIndexClient({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }),
   shadowClient: searchIndexClient({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret, budgets: SHADOW_INDEX_BUDGETS }),
@@ -6224,7 +6301,7 @@ liveStatusLine = (threadId) => compactionLive.current(threadId) ?? statusLines.c
 statusLines.foldLeftovers();
 compactionLive.foldLeftovers();
 let companyShutdown = false;
-const inflightTurns = createInflightTurns(fileInflightLedger(join(DATA_DIR, "turns-running.json")), { stopping: () => companyShutdown });
+const inflightTurns = createInflightTurns(objectSlotsLedger(fileInflightLedger(join(DATA_DIR, "turns-running.json"))), { stopping: () => companyShutdown });
 let pickingUpAfterRestart = true;
 store.onChange((change) => {
   if ((change.type === "message" || change.type === "message.patch") && change.message.needsYou) {
@@ -8737,8 +8814,14 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
     } else if (queuedAhead && !behindHeld) queueMicrotask(drainQueuedSends);
     return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason: decision.reason };
   }
-  const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender, trigger, via });
-  return { ok: true as const, threadId, message };
+  const accepted = recordAcceptedSend(botId, threadId, { text, prompt: directPrompt(text, replyTo), replyToId: replyTo?.id, sendId, sender, trigger, via });
+  try {
+    const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender, trigger, via });
+    return { ok: true as const, threadId, message };
+  } catch (error) {
+    forgetAcceptedSend(botId, threadId, accepted);
+    throw error;
+  }
 }
 
 type DirectSendReceipt =
@@ -8859,6 +8942,7 @@ async function acceptDirectSend(
           engineSteersImages: instance?.adapter.capabilities.steerImages === true,
         });
         if (busyAdmission.action === "steer" && instance?.adapter.steer) {
+          recordAcceptedSend(botId, threadId, { text, prompt: directPrompt(text, replyTo), replyToId: replyTo?.id, sendId, sender, trigger, via });
           const words = steerWords(withSteerNote(directPrompt(text, replyTo)));
           const adapter = instance.adapter;
           steered = await steerWhileRunning(
@@ -22598,6 +22682,8 @@ server.listen(PORT, "127.0.0.1", async () => {
   companyRuntimeReady();
   void connectedRepositories.refresh();
   console.log(`later.dog server on http://127.0.0.1:${PORT}`);
+  await reconcileQueueObjects().catch((error) => console.warn(`[object queue] restore failed: ${(error as Error).message}`));
+  if (companyShutdown) return;
   followupsReady = true;
   limitHold.restorePeople();
   drainQueuedSends();

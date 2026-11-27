@@ -4,8 +4,9 @@ import { INDEX_ROUTE } from "../../../../shared/search-index-protocol.ts";
 import { CAPABILITY_CLAIMS_HEADER } from "./edge-routes.ts";
 import { serveIndex, type IndexPort, type IndexShardPorts } from "./index-routes.ts";
 import { DogIndex, PersonIndex } from "./person-index.ts";
+import { ChatQueue, dogSlots, validQueueRow, validSlot, QUEUE_ROW_STATUSES, type ChatQueuePort, type DogSlot, type DogSlotsPort, type QueueRowStatus } from "./chat-queue.ts";
 
-export { DogIndex, PersonIndex };
+export { ChatQueue, DogIndex, PersonIndex };
 
 export const COORDINATOR_PREFIX = "/api/internal/coordinator/";
 
@@ -13,6 +14,7 @@ export interface CoordinatorEnv {
   DOGS: DurableObjectNamespace<Dog>;
   PERSON_INDEX: DurableObjectNamespace<PersonIndex>;
   DOG_INDEX: DurableObjectNamespace<DogIndex>;
+  CHATS: DurableObjectNamespace<ChatQueue>;
 }
 
 interface TurnRecord {
@@ -54,8 +56,21 @@ export function dogTurns(storage: TurnStorage): DogTurns {
   };
 }
 
-export class Dog extends DurableObject<CoordinatorEnv> implements DogTurns {
+export class Dog extends DurableObject<CoordinatorEnv> implements DogTurns, DogSlotsPort {
   private readonly turns = dogTurns(this.ctx.storage);
+  private readonly held = dogSlots(this.ctx.storage);
+  slots() {
+    return this.held.slots();
+  }
+  setSlots(slots: DogSlot[]) {
+    return this.held.setSlots(slots);
+  }
+  chats() {
+    return this.held.chats();
+  }
+  noteChat(chat: string, queued: boolean) {
+    return this.held.noteChat(chat, queued);
+  }
   openTurn(chat: string, generation: string, issuedAt: number) {
     return this.turns.openTurn(chat, generation, issuedAt);
   }
@@ -80,11 +95,62 @@ function presentedClaims(request: Request): SignedCapabilityClaims | null {
   }
 }
 
-export async function coordinate(request: Request, dogFor: (home: string, dog: string) => DogTurns, indexFor?: (home: string) => IndexShardPorts): Promise<Response> {
+export interface QueuePorts {
+  dog(home: string, dog: string): DogSlotsPort;
+  chat(home: string, chat: string): ChatQueuePort;
+}
+
+export async function serveQueue(body: Record<string, unknown>, claims: SignedCapabilityClaims, ports: QueuePorts): Promise<Response> {
+  const dog = ports.dog(claims.home, claims.dog);
+  switch (body.op) {
+    case "put": {
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      if (!rows.every(validQueueRow)) return answer(400, { error: "bad_rows" });
+      const stored = await ports.chat(claims.home, claims.chat).put(rows);
+      await dog.noteChat(claims.chat, true);
+      return answer(200, { ok: true, stored });
+    }
+    case "settle": {
+      const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === "string") : [];
+      const status = body.status === null ? null : (QUEUE_ROW_STATUSES as readonly unknown[]).includes(body.status) ? body.status as QueueRowStatus : undefined;
+      if (status === undefined) return answer(400, { error: "bad_status" });
+      return answer(200, { ok: true, settled: await ports.chat(claims.home, claims.chat).settle(ids, status) });
+    }
+    case "slots": {
+      const slots = Array.isArray(body.slots) ? body.slots : [];
+      const at = typeof body.at === "number" && Number.isSafeInteger(body.at) ? body.at : null;
+      if (!slots.every(validSlot) || at === null) return answer(400, { error: "bad_slots" });
+      const released = await dog.setSlots(slots);
+      let cleared = 0;
+      for (const chat of released) cleared += await ports.chat(claims.home, chat).release(at);
+      return answer(200, { ok: true, released, cleared });
+    }
+    case "restore": {
+      const chats: Record<string, unknown> = {};
+      for (const chat of await dog.chats()) {
+        const rows = await ports.chat(claims.home, chat).rows();
+        if (rows.length) chats[chat] = rows;
+        else await dog.noteChat(chat, false);
+      }
+      return answer(200, { ok: true, slots: await dog.slots(), chats });
+    }
+    default:
+      return answer(400, { error: "unknown_op" });
+  }
+}
+
+export async function coordinate(request: Request, dogFor: (home: string, dog: string) => DogTurns, indexFor?: (home: string) => IndexShardPorts, queues?: QueuePorts): Promise<Response> {
   const claims = presentedClaims(request);
   if (!claims) return answer(401, { error: "capability_required" });
   const path = new URL(request.url).pathname;
   if (path.startsWith(INDEX_ROUTE)) return indexFor ? serveIndex(request, claims, indexFor(claims.home)) : answer(404, { error: "not_found" });
+  if (path === `${COORDINATOR_PREFIX}queue` && request.method === "POST") {
+    if (claims.kind !== "turns") return answer(403, { error: "capability_wrong-kind" });
+    if (!queues) return answer(404, { error: "not_found" });
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object") return answer(400, { error: "bad_body" });
+    return serveQueue(body, claims, queues);
+  }
   const dog = dogFor(claims.home, claims.dog);
   if (path === `${COORDINATOR_PREFIX}turns` && request.method === "POST") {
     if (claims.kind !== "turns") return answer(403, { error: "capability_wrong-kind" });
@@ -116,6 +182,10 @@ export class CoordinatorApi extends WorkerEntrypoint<CoordinatorEnv> {
         person: () => this.env.PERSON_INDEX.get(this.env.PERSON_INDEX.idFromName(home)) as unknown as IndexPort,
         dog: (dog) => this.env.DOG_INDEX.get(this.env.DOG_INDEX.idFromName(`${home}/${dog}`)) as unknown as IndexPort,
       }),
+      {
+        dog: (home, dog) => this.env.DOGS.get(this.env.DOGS.idFromName(`${home}/${dog}`)),
+        chat: (home, chat) => this.env.CHATS.get(this.env.CHATS.idFromName(`${home}/${chat}`)),
+      },
     );
   }
 }
