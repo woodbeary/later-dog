@@ -232,13 +232,14 @@ impl Engine {
             return Ok(None);
         }
         let _ = fs::remove_file(&job.staging);
-        let file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&job.staging)
-            .map_err(|error| fatal(error, "staging", &job.entry.path))?;
+        let file = match OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&job.staging) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound && !self.phases[job.phase].replace => {
+                self.settle(job_id, "kept");
+                return Ok(None);
+            }
+            Err(error) => return Err(fatal(error, "staging", &job.entry.path)),
+        };
         let file = Arc::new(file);
         if job.entry.chunks.is_empty() {
             self.finish(job_id, &file)?;
@@ -294,6 +295,7 @@ impl Engine {
             let _ = fs::remove_file(&job.staging);
             match placed {
                 Ok(()) => self.settle(job_id, "installed"),
+                Err(error) if error.kind() == ErrorKind::NotFound => self.settle(job_id, "kept"),
                 Err(error) if error.kind() == ErrorKind::AlreadyExists => {
                     self.settle(job_id, if matches(&job.target, &job.entry) { "installed" } else { "kept" })
                 }

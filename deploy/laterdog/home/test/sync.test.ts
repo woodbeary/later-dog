@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { folderExclusions, folderMounts, legacyWorkFolderScope } from "../runtime/work-folder-mounts.mjs";
+import { alreadyUnmounted, folderExclusions, folderMounts, legacyWorkFolderScope } from "../runtime/work-folder-mounts.mjs";
 import { CHUNK_BYTES, chunksOf, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient, MEMORY_MARGIN_BYTES } from "../runtime/sync.mjs";
 import { restore } from "../runtime/restore-engine.mjs";
 
@@ -1457,4 +1457,10 @@ it("keeps rollback files from generated directories and restores regular hard li
   expect(readFileSync(join(fresh, "code", ".cache", "a"), "utf8")).toBe("new bytes");
   await store.putManifest({ ...first.manifest, entries: first.manifest.entries.map((e: {path:string}) => e.path === "code/b" ? { ...e, hardlink: ".cache/local" } : e) });
   await expect(restore(folder(), store, undefined, { exactScope })).rejects.toThrow("Invalid working folder hard link");
+});
+
+it("treats a working folder that a stopping container already unmounted as stopped cleanly, and any other unmount failure as a failure", () => {
+  expect(alreadyUnmounted(Object.assign(new Error("Command failed: umount /run/laterdog-work-folders/tree"), { code: 32, stderr: "umount: /run/laterdog-work-folders/tree: not mounted.\n" }))).toBe(true);
+  expect(alreadyUnmounted(Object.assign(new Error("Command failed"), { code: 32, stderr: "umount: /data/x: target is busy.\n" }))).toBe(false);
+  expect(alreadyUnmounted(Object.assign(new Error("Command failed"), { code: 1, stderr: "not mounted" }))).toBe(false);
 });

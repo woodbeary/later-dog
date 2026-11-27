@@ -188,6 +188,22 @@ describe("a home that serves while the rest comes back", () => {
     await served.close();
   });
 
+  it("keeps the running home's choice when it deletes a folder whose files are still coming back", async () => {
+    const { store, manifest } = await savedHome();
+    const served = await piecesServer(store);
+    for (const entry of restorePlan(manifest, { later: restoresLater(NOW) }).later.files) for (const hash of entry.chunks) served.held.add(hash);
+    const target = folder();
+    const restoring = startRestore({ root: target, manifest, pieces: served.pieces, later: restoresLater(NOW), scratch: folder() });
+    await restoring.boot;
+    rmSync(join(target, ".laterdog", "providers", "codex", "cache"), { recursive: true, force: true });
+    served.open();
+    const all = await restoring.done;
+    expect(all.attempts).toBe(1);
+    expect(all.kept).toEqual([".laterdog/providers/codex/cache/catalog.json"]);
+    expect(readFileSync(join(target, LATER_LOG), "utf8")).toBe("event 39\n".repeat(50));
+    await served.close();
+  });
+
   it("starts the engine again after it dies mid-restore, fetching only what is still missing and never touching what the home has changed", async () => {
     const { source, store, manifest } = await savedHome();
     const served = await piecesServer(store);
