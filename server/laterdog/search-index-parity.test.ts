@@ -152,6 +152,20 @@ describe("shadow reads", () => {
     expect(shadow.same).toBeGreaterThan(shadow.compared / 2);
   });
 
+  it("leave out a chat written during the read and still compare the others", async () => {
+    const before = wiring.status().shadow;
+    const chats = ["dog-b-main", "dog-b-task"];
+    await wiring.recall({ dog: "dog-b", query: "dentist", chats, limit: 1_000 }, async () => {
+      const found = await recallMessagesOffThread("dentist", chats, 1_000);
+      insertMessage("dog-b-main", { id: "m-during", at: T0 + 9_000_000, role: "user", kind: "text", text: "dentist again during the read" } as unknown as Message);
+      return found;
+    });
+    await wiring.settled();
+    const after = wiring.status().shadow;
+    expect(after.mismatch).toBe(before.mismatch);
+    expect(after.compared).toBe(before.compared + 1);
+  });
+
   it("count a message the index lost as a mismatch", async () => {
     const before = wiring.status().shadow.mismatch;
     shard("dog-a").feed({ removeMessages: [{ chat: "dog-a-main", id: recallMessages("dentist", ["dog-a-main"], 1)[0]!.messageId }] });

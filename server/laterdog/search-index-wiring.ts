@@ -30,6 +30,7 @@ const RESCAN_MS = 30 * 60_000;
 const SAMPLES = 20;
 const TIMINGS = 500;
 export const PROMPT_SNAPSHOT_WAIT_MS = 1_500;
+export const SHADOW_INDEX_BUDGETS = { recall: 10_000, recent: 10_000, memory: 10_000, has: 10_000 } as const;
 
 export interface CoverageStore {
   read(): Array<{ chat: string; target: string }>;
@@ -47,6 +48,7 @@ export interface IndexOutbox {
 
 export interface SearchIndexWiringDeps {
   client: SearchIndexClient;
+  shadowClient?: SearchIndexClient;
   outbox: IndexOutbox;
   read(reads: IndexRead[]): Promise<unknown[][]>;
   coverage: CoverageStore;
@@ -190,18 +192,22 @@ export class SearchIndexWiring {
     this.setMode("off");
   }
 
+  private get shadowClient(): SearchIndexClient {
+    return this.deps.shadowClient ?? this.deps.client;
+  }
+
   private touch(chat: string): void {
     this.lastWrite.set(chat, ++this.seq);
   }
 
-  private writeMark(chats: readonly string[]): number {
-    let mark = 0;
-    for (const chat of chats) mark = Math.max(mark, this.lastWrite.get(chat) ?? 0);
-    return mark;
+  private window(chats: readonly string[]): ShadowWindow {
+    return { marks: new Map(chats.map((chat) => [chat, this.lastWrite.get(chat) ?? 0])), busy: new Set(chats.filter((chat) => this.feed?.busy([chat]))) };
   }
 
-  private settledMark(chats: readonly string[]): number | null {
-    return this.feed && !this.feed.busy(chats) ? this.writeMark(chats) : null;
+  private unsettled(window: ShadowWindow): Set<string> {
+    const out = new Set(window.busy);
+    for (const [chat, mark] of window.marks) if ((this.lastWrite.get(chat) ?? 0) !== mark || this.feed?.busy([chat])) out.add(chat);
+    return out;
   }
 
   wrote = {
@@ -344,7 +350,7 @@ export class SearchIndexWiring {
     return Object.fromEntries(Object.entries(batch).filter(([, list]) => list.length)) as IndexFeedBatch;
   }
 
-  private ready(chats: readonly string[], target: string): boolean {
+  private ready(chats: readonly string[], target: string, settled = true): boolean {
     const feed = this.feed;
     if (!feed || feed.failing) return false;
     let ok = true;
@@ -356,7 +362,7 @@ export class SearchIndexWiring {
         if (wanted.includes(target) || target === PERSON_TARGET) this.queue(chat, missing);
       }
     }
-    return ok && !feed.busy(chats);
+    return ok && (!settled || !feed.busy(chats));
   }
 
   private time(op: string, ms: number): void {
@@ -384,13 +390,13 @@ export class SearchIndexWiring {
   }
 
   async recall(ask: RecallAsk, local: () => Promise<IndexRecallHit[]>): Promise<IndexRecallHit[]> {
-    return this.answer("recall", ask.dog ?? PERSON_TARGET, ask.chats, local, () => this.deps.client.recall({
+    return this.answer("recall", ask.dog ?? PERSON_TARGET, ask.chats, local, (client) => client.recall({
       ...(ask.dog ? { dog: ask.dog } : {}), query: ask.query, chats: [...ask.chats], limit: ask.limit, ...(ask.range ? { range: ask.range } : {}), ...(ask.mode ? { mode: ask.mode } : {}),
     }), ask.limit);
   }
 
   async recent(ask: RecentAsk, local: () => Promise<IndexRecallHit[]>): Promise<IndexRecallHit[]> {
-    return this.answer("recent", ask.dog ?? PERSON_TARGET, ask.chats, local, () => this.deps.client.recent({
+    return this.answer("recent", ask.dog ?? PERSON_TARGET, ask.chats, local, (client) => client.recent({
       ...(ask.dog ? { dog: ask.dog } : {}), chats: [...ask.chats], limit: ask.limit, range: ask.range,
     }), ask.limit);
   }
@@ -398,58 +404,62 @@ export class SearchIndexWiring {
   async memory(ask: MemoryAsk, local: () => Promise<LocalMemoryHit[][]>): Promise<LocalMemoryHit[][]> {
     const target = ask.shard ?? PERSON_TARGET;
     const chats = ask.dogs.map((dog) => `${MEMORY_CHAT}${dog}`);
-    const remote = async () => {
-      const hits = await this.deps.client.memory({
+    const remote = async (client: SearchIndexClient) => {
+      const hits = await client.memory({
         ...(ask.shard ? { dog: ask.shard } : {}), query: ask.query, dogs: [...ask.dogs], limit: ask.limit, each: true, ...(ask.mode ? { mode: ask.mode } : {}),
       });
       return hits && ask.dogs.map((dog) => hits.filter((hit) => hit.dog === dog).map(({ file, snippet, at }) => ({ file, snippet, at })));
     };
     if (this.modeNow === "remote" && this.ready(chats, target)) {
-      const found = await this.timed("memory", remote());
+      const found = await this.timed("memory", remote(this.deps.client));
       if (found) {
         this.remote.answered += 1;
         return found;
       }
       this.remote.fellBack += 1;
     }
-    const mark = this.settledMark(chats);
+    const window = this.window(chats);
     const answer = await local();
-    if (this.modeNow === "shadow") this.check(this.compareMemory(ask, target, chats, answer, remote, mark));
+    if (this.modeNow === "shadow") this.check(this.compareMemory(ask, target, chats, answer, remote, window));
     return answer;
   }
 
-  private async answer(op: "recall" | "recent", target: string, chats: readonly string[], local: () => Promise<IndexRecallHit[]>, remote: () => Promise<IndexRecallHit[] | null>, limit: number): Promise<IndexRecallHit[]> {
+  private async answer(op: "recall" | "recent", target: string, chats: readonly string[], local: () => Promise<IndexRecallHit[]>, remote: (client: SearchIndexClient) => Promise<IndexRecallHit[] | null>, limit: number): Promise<IndexRecallHit[]> {
     if (this.modeNow === "remote" && this.ready(chats, target)) {
-      const found = await this.timed(op, remote());
+      const found = await this.timed(op, remote(this.deps.client));
       if (found) {
         this.remote.answered += 1;
         return found;
       }
       this.remote.fellBack += 1;
     }
-    const mark = this.settledMark(chats);
+    const window = this.window(chats);
     const answer = await local();
-    if (this.modeNow === "shadow") this.check(this.compareMessages(op, target, chats, answer, remote, limit, mark));
+    if (this.modeNow === "shadow") this.check(this.compareMessages(op, target, chats, answer, remote, limit, window));
     return answer;
   }
 
-  private async compareMessages(op: string, target: string, chats: readonly string[], local: IndexRecallHit[], remote: () => Promise<IndexRecallHit[] | null>, limit: number, mark: number | null): Promise<void> {
+  private async compareMessages(op: string, target: string, chats: readonly string[], local: IndexRecallHit[], remote: (client: SearchIndexClient) => Promise<IndexRecallHit[] | null>, limit: number, window: ShadowWindow): Promise<void> {
     try {
-      if (mark === null || !this.ready(chats, target) || this.writeMark(chats) !== mark) return this.count("skipped");
-      const found = await this.timed(op, remote());
+      if (!this.ready(chats, target, false)) return this.count("skipped");
+      const found = await this.timed(`shadow ${op}`, remote(this.shadowClient));
       if (!found) return this.count("unavailable");
-      if (this.writeMark(chats) !== mark) return this.count("skipped");
+      const unsettled = this.unsettled(window);
+      if (unsettled.size === chats.length) return this.count("skipped");
+      const stable = (hit: IndexRecallHit) => !unsettled.has(hit.threadId);
       const shard = target === PERSON_TARGET ? undefined : target;
       const outcome = await judge({
-        local: local.map((hit) => ({ key: `${hit.threadId}\n${hit.messageId}`, snippet: hit.snippet, extra: `${hit.from ?? ""}|${hit.peer ?? ""}|${hit.kind ?? ""}|${hit.at}` })),
-        remote: found.map((hit) => ({ key: `${hit.threadId}\n${hit.messageId}`, snippet: hit.snippet, extra: `${hit.from ?? ""}|${hit.peer ?? ""}|${hit.kind ?? ""}|${hit.at}` })),
+        localCount: local.length,
+        remoteCount: found.length,
+        local: local.filter(stable).map((hit) => ({ key: `${hit.threadId}\n${hit.messageId}`, snippet: hit.snippet, extra: `${hit.from ?? ""}|${hit.peer ?? ""}|${hit.kind ?? ""}|${hit.at}` })),
+        remote: found.filter(stable).map((hit) => ({ key: `${hit.threadId}\n${hit.messageId}`, snippet: hit.snippet, extra: `${hit.from ?? ""}|${hit.peer ?? ""}|${hit.kind ?? ""}|${hit.at}` })),
         limit,
         localSums: async (keys) => {
           const [rows] = await this.deps.read([messagesByKeys(keys.map(splitKey).map(([chat, id]) => ({ chat, id })))]) as [MessageRow[]];
           return new Map(rows.map((row) => [`${row.thread_id}\n${row.id}`, messageSum(row)]));
         },
         remoteSums: async (keys) => {
-          const held = await this.deps.client.has({ ...(shard ? { dog: shard } : {}), messages: keys.map(splitKey).map(([chat, id]) => ({ chat, id })) });
+          const held = await this.shadowClient.has({ ...(shard ? { dog: shard } : {}), messages: keys.map(splitKey).map(([chat, id]) => ({ chat, id })) });
           return held && new Map(held.messages.map((row) => [`${row.chat}\n${row.id}`, row.sum]));
         },
       });
@@ -460,15 +470,19 @@ export class SearchIndexWiring {
     }
   }
 
-  private async compareMemory(ask: MemoryAsk, target: string, chats: readonly string[], local: LocalMemoryHit[][], remote: () => Promise<LocalMemoryHit[][] | null>, mark: number | null): Promise<void> {
+  private async compareMemory(ask: MemoryAsk, target: string, chats: readonly string[], local: LocalMemoryHit[][], remote: (client: SearchIndexClient) => Promise<LocalMemoryHit[][] | null>, window: ShadowWindow): Promise<void> {
     try {
-      if (mark === null || !this.ready(chats, target) || this.writeMark(chats) !== mark) return this.count("skipped");
-      const found = await this.timed("memory", remote());
+      if (!this.ready(chats, target, false)) return this.count("skipped");
+      const found = await this.timed("shadow memory", remote(this.shadowClient));
       if (!found) return this.count("unavailable");
-      if (this.writeMark(chats) !== mark) return this.count("skipped");
+      const unsettled = this.unsettled(window);
+      if (unsettled.size === chats.length) return this.count("skipped");
       const shard = target === PERSON_TARGET ? undefined : target;
-      for (const [at, dog] of ask.dogs.entries()) {
+      const stableDogs = [...ask.dogs.entries()].filter(([, dog]) => !unsettled.has(`${MEMORY_CHAT}${dog}`));
+      for (const [index, [at, dog]] of stableDogs.entries()) {
         const outcome = await judge({
+          localCount: (local[at] ?? []).length,
+          remoteCount: (found[at] ?? []).length,
           local: (local[at] ?? []).map((hit) => ({ key: `${dog}\n${hit.file}`, snippet: hit.snippet, extra: String(hit.at) })),
           remote: (found[at] ?? []).map((hit) => ({ key: `${dog}\n${hit.file}`, snippet: hit.snippet, extra: String(hit.at) })),
           limit: ask.limit,
@@ -477,16 +491,16 @@ export class SearchIndexWiring {
             return new Map(rows.map((row) => [`${row.bot_id}\n${row.path}`, memorySum(row)]));
           },
           remoteSums: async (keys) => {
-            const held = await this.deps.client.has({ ...(shard ? { dog: shard } : {}), memory: keys.map(splitKey).map(([owner, path]) => ({ dog: owner, path })) });
+            const held = await this.shadowClient.has({ ...(shard ? { dog: shard } : {}), memory: keys.map(splitKey).map(([owner, path]) => ({ dog: owner, path })) });
             return held && new Map(held.memory.map((row) => [`${row.dog}\n${row.path}`, row.sum]));
           },
         });
-        if (outcome.outcome !== "same" || at === ask.dogs.length - 1) {
+        if (outcome.outcome !== "same" || index === stableDogs.length - 1) {
           this.count(outcome.outcome, outcome.outcome === "mismatch" ? { op: "memory", shard: shard ? "dog" : "person", ...outcome.detail } : undefined);
           if (outcome.outcome !== "same") return;
         }
       }
-      if (!ask.dogs.length) this.count("same");
+      if (!stableDogs.length) this.count("same");
     } catch (error) {
       this.deps.log(`search-index: shadow memory failed: ${error instanceof Error ? error.message : String(error)}`);
       this.count("unavailable");
@@ -569,7 +583,14 @@ function splitKey(key: string): [string, string] {
   return [key.slice(0, at), key.slice(at + 1)];
 }
 
+interface ShadowWindow {
+  marks: Map<string, number>;
+  busy: Set<string>;
+}
+
 export interface JudgeInput {
+  localCount?: number;
+  remoteCount?: number;
   local: ReadonlyArray<{ key: string; snippet: string; extra: string }>;
   remote: ReadonlyArray<{ key: string; snippet: string; extra: string }>;
   limit: number;
@@ -587,8 +608,8 @@ export async function judge(input: JudgeInput): Promise<{ outcome: "same" | "ran
   const changed = input.local.filter((hit) => remoteBy.has(hit.key) && (remoteBy.get(hit.key)!.snippet !== hit.snippet || remoteBy.get(hit.key)!.extra !== hit.extra)).map((hit) => hit.key);
   if (changed.length) return { outcome: "mismatch", detail: { reason: "content", keys: changed.slice(0, 5).map(hidden) } };
   if (sameOrder) return { outcome: "same", detail: {} };
-  const localTruncated = input.local.length >= input.limit;
-  const remoteTruncated = input.remote.length >= input.limit;
+  const localTruncated = (input.localCount ?? input.local.length) >= input.limit;
+  const remoteTruncated = (input.remoteCount ?? input.remote.length) >= input.limit;
   if (onlyRemote.length && !localTruncated) return { outcome: "mismatch", detail: { reason: "extra", keys: onlyRemote.slice(0, 5).map(hidden) } };
   if (onlyLocal.length && !remoteTruncated) return { outcome: "mismatch", detail: { reason: "missing", keys: onlyLocal.slice(0, 5).map(hidden) } };
   const [localSums, remoteSums] = await Promise.all([input.localSums([...onlyLocal, ...onlyRemote]), input.remoteSums([...onlyLocal, ...onlyRemote])]);

@@ -325,7 +325,7 @@ import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./dri
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
 import { indexCoverageTable, indexOutbox, readForIndex, watchMessageWrites } from "./message-db.ts";
-import { SearchIndexWiring } from "./laterdog/search-index-wiring.ts";
+import { SHADOW_INDEX_BUDGETS, SearchIndexWiring } from "./laterdog/search-index-wiring.ts";
 import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
@@ -1059,6 +1059,7 @@ startPhases.begin("boot");
 if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () => turnPhases.current() });
 const searchIndex = CLOUD_HOME ? new SearchIndexWiring({
   client: searchIndexClient({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }),
+  shadowClient: searchIndexClient({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret, budgets: SHADOW_INDEX_BUDGETS }),
   outbox: indexOutbox,
   read: readForIndex,
   coverage: {
