@@ -158,6 +158,7 @@ import { createRecentlyDeletedRoutes } from "./routes/recently-deleted.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
+import { createDogFolderRoute } from "./routes/dog-folder.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
 import { createHomeLogRoutes } from "./routes/home-log.ts";
 import * as boat from "./computers.ts";
@@ -481,7 +482,7 @@ import {
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 import { MOUNTED_FOLDER_ANSWER_MS, MountedFolderStalled, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
 import { MountDown } from "./laterdog/mount-guard.ts";
-import { dogFoldersMounted, guardMountedFolders } from "./laterdog/dog-mounts.ts";
+import { dogFiles, dogFoldersMounted, guardMountedFolders, mountGuard } from "./laterdog/dog-mounts.ts";
 import { armSyncTripwire, onMountedSyncCall } from "./laterdog/sync-tripwire.ts";
 import { skillsCall, skillsPromptReady } from "./skills-thread.ts";
 import type { SkillPackageStamp } from "./skills.ts";
@@ -954,7 +955,7 @@ import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
-import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
+import { poolChosen, poolEngineOpener, poolService, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
@@ -971,7 +972,7 @@ setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
       process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, scope, input.botId, input.computerId,
     ) })));
   },
-} : {}), DATA_DIR));
+} : {}), DATA_DIR, poolService, (path) => dogFiles.mkdir(path)));
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);
@@ -2879,6 +2880,7 @@ function agentsIntegration(
       LATERDOG_MEMORY_ENABLED: store.bot(botId)?.memoryEnabled === false ? "0" : "1",
       LATERDOG_SHARED_COMPUTERS_ENABLED: lendingEnabled() ? "1" : "0",
       LATERDOG_CLOUD_HOME: CLOUD_HOME ? "1" : "0",
+      LATERDOG_POOL_FOLDER: CLOUD_HOME && poolChosen(DATA_DIR, botId) ? "1" : "0",
       LATERDOG_EMAIL_ME: CLOUD_HOME && deliverOwnerEmail ? "1" : "0",
       LATERDOG_PHONE: phoneToolsEnabled() ? "1" : "0",
       LATERDOG_IN_TASK: startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "1" : "0",
@@ -14859,6 +14861,11 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   maxWaitMs: (threadId) => waitCapMs(runningTurnEngines.get(threadId)?.driverKind, mcpCallTimeoutMinutes(cfg)),
   personWrote: (_botId, threadId, since) => store.activePath(threadId).some((message) => message.role === "user" && message.at >= since),
+}));
+INTERNAL_ROUTES.push(createDogFolderRoute({
+  owns: (botId, threadId) => connectorThread(botId, threadId) !== null,
+  folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
+  run: (path, op) => mountGuard.run(path, op),
 }));
 INTERNAL_ROUTES.push(createReactRoute({
   activePath: (threadId) => store.activePath(threadId),
