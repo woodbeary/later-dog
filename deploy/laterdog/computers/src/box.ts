@@ -7,6 +7,7 @@ export const BOX_INSTANCE = "standard-3";
 const RECORD = "box";
 const AGENT = ["/usr/bin/tini", "--", "node", "/usr/local/lib/laterdog/box-agent.mjs"];
 const AGENT_TIMEOUT_MS = 15_000;
+const RUN_TIMEOUT_MS = 320_000;
 const ALWAYS_ON_MS = 5 * 60 * 60_000;
 const KEEP_AWAKE_MS = 30_000;
 const SAVE_EVERY_MS = 10 * 60_000;
@@ -14,7 +15,7 @@ const SAVED_AT = "saved-at";
 const SHA256 = /^[0-9a-f]{64}$/;
 
 
-export interface SavedProfile { dog: string; bytes: number; sha256: string; savedAt: string }
+export interface SavedProfile { dog: string; bytes: number; sha256: string; savedAt: string; from?: string; movedAt?: string }
 
 interface BoxRecord {
   person: string;
@@ -95,11 +96,11 @@ export class PersonalBox extends DurableObject<Env> {
     return { started: true, generation: next.generation };
   }
 
-  private async agent(path: string, init?: RequestInit): Promise<Response | undefined> {
+  private async agent(path: string, init?: RequestInit, timeoutMs = AGENT_TIMEOUT_MS): Promise<Response | undefined> {
     const container = this.ctx.container;
     if (!container?.running) return undefined;
     try {
-      return await within(container.getTcpPort(BOX_AGENT_PORT).fetch(`http://box${path}`, init), AGENT_TIMEOUT_MS);
+      return await within(container.getTcpPort(BOX_AGENT_PORT).fetch(`http://box${path}`, init), timeoutMs);
     } catch {
       return undefined;
     }
@@ -123,7 +124,7 @@ export class PersonalBox extends DurableObject<Env> {
   }
 
   async save(dog: string): Promise<SavedProfile | undefined> {
-    const response = await this.agent(`/profiles/${encodeURIComponent(dog)}`);
+    const response = await this.agent(`/profiles/${encodeURIComponent(dog)}`, undefined, RUN_TIMEOUT_MS);
     const bytes = Number(response?.headers.get("content-length"));
     const sha256 = response?.headers.get("x-laterdog-sha256") ?? "";
     if (!response || response.status !== 200 || !response.body || !Number.isSafeInteger(bytes) || !SHA256.test(sha256)) {
@@ -133,7 +134,10 @@ export class PersonalBox extends DurableObject<Env> {
     const sized = new FixedLengthStream(bytes);
     const piping = response.body.pipeTo(sized.writable);
     const savedAt = new Date().toISOString();
-    await this.env.BOX_STATE.put(profileKey(this.person(), dog), sized.readable, { sha256, customMetadata: { sha256, savedAt } });
+    const key = profileKey(this.person(), dog);
+    const moved = (await this.env.BOX_STATE.head(key))?.customMetadata;
+    const kept: Record<string, string> = moved?.from && moved.movedAt ? { from: moved.from, movedAt: moved.movedAt } : {};
+    await this.env.BOX_STATE.put(key, sized.readable, { sha256, customMetadata: { sha256, savedAt, ...kept } });
     await piping;
     return { dog, bytes, sha256, savedAt };
   }
@@ -148,14 +152,14 @@ export class PersonalBox extends DurableObject<Env> {
     if (!SHA256.test(sha256)) { await saved.body.cancel(); return "refused"; }
     const sized = new FixedLengthStream(saved.size);
     const piping = saved.body.pipeTo(sized.writable);
-    const answer = await this.agent(`/profiles/${encodeURIComponent(dog)}`, { method: "PUT", headers: { "x-laterdog-sha256": sha256, "content-length": String(saved.size) }, body: sized.readable });
+    const answer = await this.agent(`/profiles/${encodeURIComponent(dog)}`, { method: "PUT", headers: { "x-laterdog-sha256": sha256, "content-length": String(saved.size) }, body: sized.readable }, RUN_TIMEOUT_MS);
     await piping.catch(() => undefined);
     return answer?.status === 200 ? "restored" : "refused";
   }
 
   async saved(): Promise<SavedProfile[]> {
     const listed = await this.env.BOX_STATE.list({ prefix: `box/${this.person()}/profiles/`, include: ["customMetadata"] });
-    return listed.objects.map((object) => ({ dog: object.key.split("/").pop()!.replace(/\.tgz$/, ""), bytes: object.size, sha256: object.customMetadata?.sha256 ?? "", savedAt: object.customMetadata?.savedAt ?? object.uploaded.toISOString() }));
+    return listed.objects.map((object) => ({ dog: object.key.split("/").pop()!.replace(/\.tgz$/, ""), bytes: object.size, sha256: object.customMetadata?.sha256 ?? "", savedAt: object.customMetadata?.savedAt ?? object.uploaded.toISOString(), ...(object.customMetadata?.from ? { from: object.customMetadata.from } : {}), ...(object.customMetadata?.movedAt ? { movedAt: object.customMetadata.movedAt } : {}) }));
   }
 
   async open(dog: string): Promise<BoxAnswer | undefined> {
@@ -169,6 +173,18 @@ export class PersonalBox extends DurableObject<Env> {
     const closed = await this.answer(`/desktops/${encodeURIComponent(dog)}`, { method: "DELETE" });
     if (closed?.status === 200) await this.save(dog);
     return closed;
+  }
+
+  async run(dog: string, body: unknown): Promise<{ status: number; text: string } | undefined> {
+    const call = () => this.agent(`/desktops/${encodeURIComponent(dog)}/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, RUN_TIMEOUT_MS);
+    let response = await call();
+    if (response?.status === 404) {
+      await response.body?.cancel();
+      const opened = await this.open(dog);
+      if (opened?.status !== 200) return opened ? { status: opened.status, text: JSON.stringify(opened.body) } : undefined;
+      response = await call();
+    }
+    return response ? { status: response.status, text: await response.text() } : undefined;
   }
 
   async input(dog: string, body: unknown): Promise<BoxAnswer | undefined> {

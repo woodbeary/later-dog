@@ -210,6 +210,7 @@ export async function cloudComputerRpc(
     tabs?: (boxId: string, tool: string) => TabWatch;
     vault?: VaultItems;
     workingFolder?(boxId: string): Promise<{ cwd: string; save(): Promise<void> }>;
+    screen?: RemoteExec;
   },
 ): Promise<{ tools: typeof CLOUD_COMPUTER_TOOLS } | CloudComputerResult> {
   if (request?.method === "tools/list") {
@@ -241,12 +242,13 @@ export async function cloudComputerRpc(
   const control = await deps.gate();
   deps.assertActive();
   if (control.held) return { isError: true, content: [{ type: "text", text: control.blockedReason || CONTROL_REFUSAL_PLAIN }] };
-  const boxId = deps.boxId();
+  const onScreen = deps.screen && params.name !== "exec" ? deps.screen : undefined;
+  const boxId = deps.boxId() ?? (onScreen ? "personal-box" : undefined);
   if (!boxId) return { isError: true, content: [{ type: "text", text: CLOUD_COMPUTER_NOT_READY }] };
   if (params.name === "fill_secure_field") {
     if (!deps.secureForms) return { isError: true, content: [{ type: "text", text: SECURE_FORMS_UNAVAILABLE }] };
     const filled = await fillSecureField(args as Record<string, unknown>, deps.secureForms, (command) =>
-      runCommand(deps.cfg, boxId, isolatedRemoteCommand(command), { signal: deps.signal }), !servedByComputers(boxId));
+      onScreen ? onScreen(command, deps.signal) : runCommand(deps.cfg, boxId, isolatedRemoteCommand(command), { signal: deps.signal }), !onScreen && !servedByComputers(boxId));
     deps.signal.throwIfAborted();
     deps.assertActive();
     return { ...(filled.ok ? {} : { isError: true }), content: [{ type: "text", text: filled.text }] };
@@ -260,7 +262,7 @@ export async function cloudComputerRpc(
   try {
     if (folder) deps.assertActive();
     const result = await runCloudComputerTool(deps.cfg, boxId, params.name as string, args as Record<string, unknown>, deps.signal,
-      deps.tabs?.(boxId, params.name as string), deps.vault, undefined, checkpoint, folder?.cwd);
+      onScreen ? undefined : deps.tabs?.(boxId, params.name as string), deps.vault, onScreen, checkpoint, folder?.cwd);
     deps.assertActive();
     return result;
   } finally {

@@ -2,7 +2,7 @@ import type { Refusal } from "./auth";
 import { apiError, json } from "./http";
 import type { PersonalBox } from "./box";
 import type { ComputerView } from "./computer";
-import { inventoryRow, moveProfile, type MovableComputer } from "./box-migrate";
+import { inventoryRow, moveProfile, retirementCheck, type MovableComputer } from "./box-migrate";
 
 export const BOX_DESKTOPS = 6;
 const DOG = /^[\w-]{1,64}$/;
@@ -16,12 +16,12 @@ const BAD_DOG: Refusal = { status: 400, code: "invalid_dog", message: "A dog id 
 const MOVE_PATH = /^\/v1\/box\/moves\/([^/]+)\/from\/([^/]+)$/;
 const COMPUTER_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const NOT_YOURS: Refusal = { status: 404, code: "computer_not_found", message: "No such computer." };
-const DESKTOP_PATH = /^\/v1\/box\/desktops\/([^/]+)(\/screenshot|\/viewer|\/input|\/save)?$/;
+const DESKTOP_PATH = /^\/v1\/box\/desktops\/([^/]+)(\/screenshot|\/viewer|\/input|\/save|\/run)?$/;
 
 export type BoxRoute =
-  | { op: "view" | "start" | "stop" | "profiles" | "inventory" }
+  | { op: "view" | "start" | "stop" | "profiles" | "inventory" | "retirement" }
   | { op: "move"; dog: string; computer: string }
-  | { op: "open" | "close" | "screenshot" | "viewer" | "input" | "save"; dog: string }
+  | { op: "open" | "close" | "screenshot" | "viewer" | "input" | "save" | "run"; dog: string }
   | { op: "method_not_allowed"; allow: string[] };
 
 export function boxRoute(method: string, pathname: string): BoxRoute | undefined {
@@ -29,6 +29,7 @@ export function boxRoute(method: string, pathname: string): BoxRoute | undefined
     const op = ({ GET: "view", POST: "start", DELETE: "stop" } as const)[method as "GET" | "POST" | "DELETE"];
     return op ? { op } : { op: "method_not_allowed", allow: ["GET", "POST", "DELETE"] };
   }
+  if (pathname === "/v1/box/retirement") return method === "GET" ? { op: "retirement" } : { op: "method_not_allowed", allow: ["GET"] };
   if (pathname === "/v1/box/moves") return method === "GET" ? { op: "inventory" } : { op: "method_not_allowed", allow: ["GET"] };
   const move = MOVE_PATH.exec(pathname);
   if (move) return method === "POST" ? { op: "move", dog: decodeURIComponent(move[1]!), computer: decodeURIComponent(move[2]!) } : { op: "method_not_allowed", allow: ["POST"] };
@@ -37,6 +38,7 @@ export function boxRoute(method: string, pathname: string): BoxRoute | undefined
   if (!match) return undefined;
   const dog = decodeURIComponent(match[1]!);
   if (match[2] === "/screenshot") return method === "GET" ? { op: "screenshot", dog } : { op: "method_not_allowed", allow: ["GET"] };
+  if (match[2] === "/run") return method === "POST" ? { op: "run", dog } : { op: "method_not_allowed", allow: ["POST"] };
   if (match[2] === "/save") return method === "POST" ? { op: "save", dog } : { op: "method_not_allowed", allow: ["POST"] };
   if (match[2] === "/input") return method === "POST" ? { op: "input", dog } : { op: "method_not_allowed", allow: ["POST"] };
   if (match[2] === "/viewer") return method === "GET" ? { op: "viewer", dog } : { op: "method_not_allowed", allow: ["GET"] };
@@ -81,6 +83,8 @@ export async function boxRequest(route: BoxRoute, request: Request, place: BoxPl
       const computers = await owner.computers();
       return json({ computers: computers.map((view) => inventoryRow(view, null)), packaged: [...saved.values()] });
     }
+    case "retirement":
+      return json({ computers: retirementCheck(await owner.computers(), await box.saved().catch(() => [])), deletes: "none: this only reports" });
     case "move": {
       if (!COMPUTER_ID.test(route.computer)) return apiError(NOT_YOURS);
       if (!(await owner.computers()).some((view) => view.id === route.computer)) return apiError(NOT_YOURS);
@@ -107,6 +111,13 @@ export async function boxRequest(route: BoxRoute, request: Request, place: BoxPl
       if (!shot) return apiError(NOT_STARTED);
       if (shot.png) return new Response(shot.png, { headers: { "content-type": "image/png", "cache-control": "no-store" } });
       return json(shot.body, shot.status);
+    }
+    case "run": {
+      let body: unknown;
+      try { body = JSON.parse(await request.text()); } catch { return json({ error: { code: "invalid_json", message: "The body is not valid JSON." } }, 400); }
+      await box.ensure(person);
+      const ran = await box.run(route.dog, body);
+      return ran ? new Response(ran.text, { status: ran.status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } }) : apiError(NOT_STARTED);
     }
     case "input": {
       let body: unknown;
