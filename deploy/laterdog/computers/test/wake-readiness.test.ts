@@ -197,4 +197,22 @@ describe("working folders before computer sleep",()=>{
     }finally{vi.useRealTimers();}
     expect(killed).toBe(1);expect(container.running).toBe(true);expect(container.snapshots).toBe(0);
   });
+  it("gives up a sleep whose snapshot never finishes, so a reset of the same computer can still run",{timeout:20_000},async()=>{
+    const w=await world();
+    const id=await created(w),container=w.containers.get(id)!;
+    vi.spyOn(container,"snapshotContainer").mockImplementation(()=>new Promise(()=>{}));
+    vi.useFakeTimers({toFake:["setTimeout","clearTimeout","Date"]});
+    try{
+      const sleeping=w.fetch(apiRequest("POST",`/v1/computers/${id}/sleep`,OWNER_KEY));
+      let settled=false;void sleeping.then(()=>{settled=true;});
+      for(let n=0;n<40&&!settled;n++)await vi.advanceTimersByTimeAsync(MINUTE);
+      expect(settled).toBe(true);
+      const refused=await sleeping;
+      expect(refused.status).toBe(502);
+      expect((await body(refused)).error.message).toContain("time limit");
+    }finally{vi.useRealTimers();}
+    vi.mocked(container.snapshotContainer).mockRestore();
+    const reset=await w.fetch(apiRequest("POST",`/v1/computers/${id}/reset`,OWNER_KEY));
+    expect(reset.status).toBe(200);
+  });
 });

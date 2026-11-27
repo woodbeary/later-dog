@@ -222,6 +222,7 @@ interface RunResult {
 }
 
 export const FOLDER_FLUSH_LIMIT_MS = 20 * MINUTE;
+export const SLEEP_SAVE_LIMIT_MS = FOLDER_FLUSH_LIMIT_MS + 10 * MINUTE;
 
 export class DogComputer extends DurableObject<Env> {
   private readonly policy = idlePolicy(this.env);
@@ -421,13 +422,17 @@ export class DogComputer extends DurableObject<Env> {
       this.closeViewers(4001, "The computer went to sleep.");
       await this.publish();
       if (container.running) {
-        await this.quitBrowser(record.id);
-        await this.run(["sync"], { timeoutMs: 30_000, cap: 1024 }).catch(() => undefined);
         const started = Date.now();
         let snapshot: ContainerSnapshot;
         try {
-          await this.flushWorkFolders();
-          snapshot = await container.snapshotContainer({ name: `${record.id}-g${record.generation}` });
+          const saved = await within((async () => {
+            await this.quitBrowser(record.id);
+            await this.run(["sync"], { timeoutMs: 30_000, cap: 1024 }).catch(() => undefined);
+            await this.flushWorkFolders();
+            return container.snapshotContainer({ name: `${record.id}-g${record.generation}` });
+          })(), SLEEP_SAVE_LIMIT_MS);
+          if (!saved) throw new Error("The computer's save before sleep ran past its time limit");
+          snapshot = saved;
         } catch (error) {
           const restored = this.update((r) => {
             r.state = previous === "stopping" ? "running" : previous;
