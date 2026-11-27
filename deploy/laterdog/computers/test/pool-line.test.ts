@@ -195,7 +195,8 @@ describe("the warm engine pool", () => {
 
   it("adds a host after two minutes above 80% and drains back to one after fifteen quiet minutes", async () => {
     const w = await world();
-    const made = agents(w, () => new FakeAgent(4096 * MIB, 3500 * MIB, 10 * MIB));
+    let count = 0;
+    const made = agents(w, () => new FakeAgent(4096 * MIB, count++ === 0 ? 3500 * MIB : 100 * MIB, 10 * MIB));
     await open(w, "chat-1");
     for (let i = 0; i < 5; i++) await tick(w, 31_000);
     expect((await pool(w)).hosts.length).toBe(2);

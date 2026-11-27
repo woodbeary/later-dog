@@ -45,9 +45,17 @@ pub fn host() -> HostLoad {
     let meminfo = fs::read_to_string("/proc/meminfo").unwrap_or_default();
     let fallback = meminfo_load(&meminfo).unwrap_or(HostLoad { limit: 1, used: 0 });
     let read = |name: &str| fs::read_to_string(format!("/sys/fs/cgroup/{name}"));
-    match (read("memory.max"), read("memory.current"), read("memory.stat")) {
-        (Ok(max), Ok(current), Ok(stat)) => cgroup_load(&max, &current, &stat, fallback.limit).unwrap_or(fallback),
-        _ => fallback,
+    let cgroup = match (read("memory.max"), read("memory.current"), read("memory.stat")) {
+        (Ok(max), Ok(current), Ok(stat)) => cgroup_load(&max, &current, &stat, fallback.limit),
+        _ => None,
+    };
+    widest(fallback, cgroup)
+}
+
+pub fn widest(machine: HostLoad, cgroup: Option<HostLoad>) -> HostLoad {
+    match cgroup {
+        Some(group) => HostLoad { limit: group.limit.min(machine.limit), used: group.used.max(machine.used) },
+        None => machine,
     }
 }
 
@@ -133,7 +141,7 @@ mod tests {
     fn reads_proportional_memory_and_the_real_uid() {
         assert_eq!(kib_field("Rss:  2048 kB\nPss:   1024 kB\n", "Pss"), Some(1024 * 1024));
         assert_eq!(kib_field("Pss_Anon: 7 kB\n", "Pss"), None);
-        assert_eq!(real_uid("Name:\tclaude\nUid:\t20001\t20001\t20001\t20001\n"), Some(20001));
+        assert_eq!(real_uid("Name:\tengine\nUid:\t20001\t20001\t20001\t20001\n"), Some(20001));
     }
 
     #[test]
@@ -146,7 +154,13 @@ mod tests {
         let load = cgroup_load("12884901888\n", "4000000000\n", "anon 1\ninactive_file 1000000000\n", 16_000_000_000).unwrap();
         assert_eq!(load, HostLoad { limit: 12_884_901_888, used: 3_000_000_000 });
         assert_eq!(cgroup_load("max\n", "100\n", "", 5000).unwrap().limit, 5000);
+        let machine = HostLoad { limit: 8_000, used: 900 };
+        assert_eq!(widest(machine, Some(HostLoad { limit: 8_000, used: 3 })), machine);
+        assert_eq!(widest(machine, Some(HostLoad { limit: 4_000, used: 2_000 })), HostLoad { limit: 4_000, used: 2_000 });
         assert_eq!(cpu_count("200000 100000\n"), Some(2.0));
+        let machine = HostLoad { limit: 8_000, used: 900 };
+        assert_eq!(widest(machine, Some(HostLoad { limit: 8_000, used: 3 })), machine);
+        assert_eq!(widest(machine, Some(HostLoad { limit: 4_000, used: 2_000 })), HostLoad { limit: 4_000, used: 2_000 });
         assert_eq!(cpu_count("max 100000\n"), None);
         assert_eq!(cpu_usec("usage_usec 1500\nuser_usec 1\n"), Some(1500));
         assert_eq!(meminfo_load("MemTotal: 1000 kB\nMemFree: 1 kB\nMemAvailable: 400 kB\n"), Some(HostLoad { limit: 1024000, used: 614400 }));

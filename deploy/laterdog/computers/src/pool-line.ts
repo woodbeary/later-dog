@@ -188,9 +188,12 @@ export class PoolLine extends DurableObject<Env> {
   async open(home: string, spec: EngineSpec, wait = true): Promise<Opened> {
     const began = Date.now();
     this.home(home);
-    if (this.hosts().filter((host) => host.state !== "draining").length === 0) await this.addHost();
     const skip = new Set<string>();
     let scaledOut = false;
+    if (this.hosts().filter((host) => host.state !== "draining").length === 0) {
+      await this.addHost();
+      scaledOut = true;
+    }
     for (let attempt = 0; attempt <= this.settings.maxHosts + 1; attempt++) {
       const hosts = this.hosts();
       let target = place(hosts, spec.chat, this.sticky(spec.chat), skip);
@@ -228,9 +231,9 @@ export class PoolLine extends DurableObject<Env> {
           this.ctx.storage.sql.exec("UPDATE hosts SET load = ? WHERE id = ?", JSON.stringify(load), id);
         }
         const warm = answer.status === 200;
-        console.log(`laterdog computers: [pool] ${warm ? "warm" : "cold"} ${spec.chat} on ${id} in ${Date.now() - began} ms${target.sticky ? " (sticky)" : ""}`);
+        console.log(`laterdog computers: [pool] ${warm ? "warm" : "cold"} ${spec.chat} on ${id} in ${Date.now() - began} ms${target.sticky && warm ? " (sticky)" : ""}`);
         await this.arm(Date.now() + CHECK_MS);
-        return { value: { chat: spec.chat, host: id, state: warm ? "warm" : "cold", sticky: target.sticky, placeMs: Date.now() - began, engine, scaledOut, stream: streamPath(spec.chat) } };
+        return { value: { chat: spec.chat, host: id, state: warm ? "warm" : "cold", sticky: target.sticky && warm, placeMs: Date.now() - began, engine, scaledOut, stream: streamPath(spec.chat) } };
       }
       if (answer && answer.status === 400) {
         const error = answer.body.error;

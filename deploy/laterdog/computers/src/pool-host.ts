@@ -5,7 +5,7 @@ import { within } from "./http";
 const RECORD = "pool-host";
 const AGENT = "/usr/local/bin/laterdog-pool-agent";
 const AGENT_TIMEOUT_MS = 10_000;
-const ALWAYS_ON_MS = 24 * 60 * 60_000;
+const ALWAYS_ON_MS = 5 * 60 * 60_000;
 
 interface HostRecord {
   id: string;

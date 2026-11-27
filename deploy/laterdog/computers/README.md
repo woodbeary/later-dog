@@ -220,6 +220,15 @@ port 7171 and keeps one engine per chat warm:
   512 MB of memory; package installs are off (`PIP_NO_INDEX`, offline package managers, no sudo). A program an engine
   starts without a shell is not held to the 60 seconds.
 
+Measured on Nov 26, 2026 on a throwaway Worker (pool image = task image plus the agent, engine started with no
+sign-in): a pool host answered 12.2 s after the start (7.7 s for the next one); the agent used 0.8 MB of memory; an
+idle warm engine 113 to 177 MB (proportional, so engines that share pages count less); opening a new engine took
+120 to 180 ms end to end and reopening a warm one 84 ms (33 ms inside the Worker); the stream attached in 243 ms and
+the engine's first output came 85 ms after the input. Two engines closed together 121 s after their last use with
+`POOL_IDLE_SECONDS` at 120; with the budget at 10% the line added a second host and each host closed its least
+recently used engine (`memory`) to start a new one. The host's cost at the measured 2% to 5% CPU is $0.076 to $0.079
+an hour. The 60-second and 512 MB command limits and the scratch limit were not exercised live.
+
 `node scripts/pool-image.mjs --base <task image> --to registry.cloudflare.com/<account>/<repository>:<tag>` builds the
 agent for `x86_64-unknown-linux-musl` (cargo with `rust-lld`, no other toolchain) and appends it to the task image as one
 layer. `cargo test` in `pool-agent/` runs its own tests.
