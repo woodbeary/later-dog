@@ -15,7 +15,7 @@ import { deferRareToolsFor } from "./defer-by-model.ts";
 
 const everything: CatalogProfile = {
   skillAuthoring: true, sharedComputers: true, voiceNotes: true, cloudHome: true, emailMe: true, phone: true,
-  memoryEnabled: true, insideTask: false, botId: WATCHER_OPTIONS_CARD_BOT_ID,
+  memoryEnabled: true, insideTask: false, poolFolder: true, botId: WATCHER_OPTIONS_CARD_BOT_ID,
 };
 const plain: CatalogProfile = { skillAuthoring: false, sharedComputers: false, voiceNotes: false, cloudHome: false, memoryEnabled: true, insideTask: true, botId: "b" };
 

@@ -158,6 +158,7 @@ import { createRecentlyDeletedRoutes } from "./routes/recently-deleted.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
+import { createDogFolderRoute } from "./routes/dog-folder.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
 import { createHomeLogRoutes } from "./routes/home-log.ts";
 import * as boat from "./computers.ts";
@@ -475,7 +476,7 @@ import {
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 import { MOUNTED_FOLDER_ANSWER_MS, MountedFolderStalled, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
 import { MountDown } from "./laterdog/mount-guard.ts";
-import { dogFoldersMounted, guardMountedFolders } from "./laterdog/dog-mounts.ts";
+import { dogFiles, dogFoldersMounted, guardMountedFolders, mountGuard } from "./laterdog/dog-mounts.ts";
 import { armSyncTripwire, onMountedSyncCall } from "./laterdog/sync-tripwire.ts";
 import { skillsCall, skillsPromptReady } from "./skills-thread.ts";
 import type { SkillPackageStamp } from "./skills.ts";
@@ -799,7 +800,7 @@ import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import { createGeminiKeyAccountSchema, newAntigravityAccount, newGeminiKeyAccount } from "./laterdog/google-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, googleKeyUse, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, percentLeft, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, googleKeyUse, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -834,6 +835,7 @@ import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
 import { CompactionCarry } from "./laterdog/after-compaction.ts";
+import { HandoffCompactions } from "./laterdog/handoff-compaction.ts";
 import { onlyTapbackText, replyTapback, replyTapbackStreamChunk, tapbackTarget, tapbackStreamChunk, tapbackTurnKey, withTapback } from "./laterdog/tapback.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { pushWorthy } from "./laterdog/push-gate.ts";
@@ -947,7 +949,7 @@ import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
-import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
+import { poolChosen, poolEngineOpener, poolService, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
@@ -964,7 +966,7 @@ setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
       process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, scope, input.botId, input.computerId,
     ) })));
   },
-} : {}), DATA_DIR));
+} : {}), DATA_DIR, poolService, (path) => dogFiles.mkdir(path)));
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);
@@ -2764,6 +2766,7 @@ function agentsIntegration(
       LATERDOG_MEMORY_ENABLED: store.bot(botId)?.memoryEnabled === false ? "0" : "1",
       LATERDOG_SHARED_COMPUTERS_ENABLED: lendingEnabled() ? "1" : "0",
       LATERDOG_CLOUD_HOME: CLOUD_HOME ? "1" : "0",
+      LATERDOG_POOL_FOLDER: CLOUD_HOME && poolChosen(DATA_DIR, botId) ? "1" : "0",
       LATERDOG_EMAIL_ME: CLOUD_HOME && deliverOwnerEmail ? "1" : "0",
       LATERDOG_PHONE: phoneToolsEnabled() ? "1" : "0",
       LATERDOG_IN_TASK: startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "1" : "0",
@@ -6533,6 +6536,7 @@ function observedTurnResults(threadId: string) {
 const turnCheckpoints = new Map<string, { botId: string; cwd: string; hash: string; pin: string }>();
 const liveTurnByThread = new Map<string, string>();
 const compactionCarry = new CompactionCarry();
+const handoffCompactions = new HandoffCompactions();
 
 function forgetTurnCheckpoint(threadId: string): void {
   const checkpoint = turnCheckpoints.get(threadId);
@@ -10029,6 +10033,14 @@ async function startTurn(
       });
       handoffs.dispatching(threadId, dispatchClaimId, dispatchContext.handoff);
       turnPhases.mark(threadId, "recall");
+      const handoffWindow = instance.driverKind === "claudeAgent" && accountBattery.enabled ? handoffCompactions.window(threadId, {
+        driverKind: instance.driverKind, instanceId,
+        left: percentLeft(latestPlanRow(instanceId), Date.now()),
+        nextDriverKind: accountBattery.nextWhenOut(bot.modelSelection, batteryAccounts(), threadId,
+          [...((liveBot ?? bot).fallback ?? []), ...(cfg.automaticRecovery?.enabled && cfg.automaticRecovery.backup ? [cfg.automaticRecovery.backup] : [])])?.driverKind,
+        contextTokens: turnContext.get(threadId)?.tokens,
+      }) : undefined;
+      if (handoffWindow) console.log(`[handoff-compaction] chat=${threadId} account=${instanceId} window=${handoffWindow}`);
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: bot.id,
@@ -10061,6 +10073,7 @@ async function startTurn(
         integrations,
         mcpFromUserConfig: claudeUserMcpEnabled(cfg) && !managedPolicy.restrictsMcp(),
         mcpCallTimeoutMs: mcpCallTimeoutMinutes(cfg) * 60_000,
+        ...(handoffWindow ? { compactWindow: handoffWindow } : {}),
         cwd,
       }), () => !directTurnClaimExists(bot.id, dispatchClaimId, threadId), async () => {
         await instance.adapter.interruptTurn(threadId).catch(() => {});
@@ -14716,6 +14729,11 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   maxWaitMs: (threadId) => waitCapMs(runningTurnEngines.get(threadId)?.driverKind, mcpCallTimeoutMinutes(cfg)),
   personWrote: (_botId, threadId, since) => store.activePath(threadId).some((message) => message.role === "user" && message.at >= since),
+}));
+INTERNAL_ROUTES.push(createDogFolderRoute({
+  owns: (botId, threadId) => connectorThread(botId, threadId) !== null,
+  folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
+  run: (path, op) => mountGuard.run(path, op),
 }));
 INTERNAL_ROUTES.push(createReactRoute({
   activePath: (threadId) => store.activePath(threadId),

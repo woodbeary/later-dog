@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { removeTempDir } from "../server/testing/cleanup.ts";
+import { usageCsv } from "../server/usage-ledger.ts";
 import { buildReport, formatReport, readRows } from "./cache-hit-report.mjs";
 
 const SCRIPT = join(import.meta.dirname, "cache-hit-report.mjs");
@@ -82,5 +83,17 @@ describe("cache hit report", () => {
 
   it("fails clearly on a missing ledger", () => {
     expect(() => execFileSync(process.execPath, [SCRIPT, join(tmpdir(), "no-such-ledger-dir")], { encoding: "utf8", stdio: "pipe" })).toThrow();
+  });
+
+  it("reads the app's usage export the same way as the ledger for turns that report cache numbers", () => {
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-cache-csv-"));
+    dirs.push(dir);
+    const file = join(dir, "usage.csv");
+    const measuredRows = ROWS.filter((entry) => entry.cachedInput !== undefined);
+    writeFileSync(file, usageCsv(measuredRows as never));
+    const fromCsv = buildReport(readRows(file));
+    const fromLedger = buildReport(measuredRows);
+    expect(fromCsv.byAccount).toEqual(fromLedger.byAccount);
+    expect(fromCsv.total).toEqual(fromLedger.total);
   });
 });
