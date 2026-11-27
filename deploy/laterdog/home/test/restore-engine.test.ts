@@ -234,7 +234,7 @@ describe("a home that serves while the rest comes back", () => {
 });
 
 describe("an engine of its own", () => {
-  it("keeps restoring when a stop signal reaches the home's process group, since the home holds that signal until the files it needs are back", async () => {
+  it("keeps restoring through a stop signal, which the home holds until the files it needs are back, and stops when the home goes away", async () => {
     const { store, manifest } = await savedHome();
     const served = await piecesServer(store);
     for (const entry of restorePlan(manifest, { later: restoresLater(NOW) }).boot.files) for (const hash of entry.chunks) served.held.add(hash);
@@ -243,8 +243,9 @@ describe("an engine of its own", () => {
     const restoring = startRestore({ root: folder(), manifest, pieces: served.pieces, later: restoresLater(NOW), scratch, log: (line: string) => lines.push(line) });
     let pid = "";
     while (!pid) { try { pid = execFileSync("pgrep", ["-f", scratch], { encoding: "utf8" }).trim(); } catch { await pause(10); } }
-    const group = execFileSync("ps", ["-o", "pgid=", "-p", pid], { encoding: "utf8" }).trim();
-    expect(group).not.toBe(execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf8" }).trim());
+    process.kill(Number(pid), "SIGTERM");
+    process.kill(Number(pid), "SIGINT");
+    await pause(100);
     served.open();
     expect((await restoring.done).attempts).toBe(1);
     expect(lines.filter((line) => line.includes("stopped"))).toEqual([]);

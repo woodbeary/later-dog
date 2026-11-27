@@ -485,7 +485,15 @@ fn store_from_environment(parallel: usize) -> Result<Store, String> {
     Ok(Store { agent, pieces, authorization, host })
 }
 
+fn hold_stop_signals() {
+    unsafe {
+        libc::signal(libc::SIGTERM, libc::SIG_IGN);
+        libc::signal(libc::SIGINT, libc::SIG_IGN);
+    }
+}
+
 fn main() {
+    hold_stop_signals();
     let path = std::env::args().nth(1).unwrap_or_else(|| {
         eprintln!("usage: laterdog-restore <plan.json>");
         std::process::exit(2)
@@ -519,7 +527,7 @@ fn main() {
     let listener = Arc::clone(&engine);
     thread::spawn(move || {
         for line in io::stdin().lock().lines() {
-            let Ok(line) = line else { break };
+            let Ok(line) = line else { std::process::exit(1) };
             if let Ok(request) = serde_json::from_str::<Value>(&line) {
                 if let Some(paths) = request.get("want").and_then(Value::as_array) {
                     let paths: Vec<String> = paths.iter().filter_map(|path| path.as_str().map(str::to_string)).collect();
@@ -527,6 +535,7 @@ fn main() {
                 }
             }
         }
+        std::process::exit(1)
     });
     let workers: Vec<_> = (0..parallel)
         .map(|_| {
