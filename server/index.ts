@@ -1046,6 +1046,8 @@ const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivit
 })) : null;
 const turnTiming = createTurnTiming({ log: (line) => console.log(line) });
 const turnPhases = createTurnPhases({ log: (line) => console.log(line) });
+const startPhases = createTurnPhases({ log: (line) => console.log(line), name: "server start" });
+startPhases.begin("boot");
 if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () => turnPhases.current() });
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
@@ -2311,7 +2313,9 @@ function resyncOpenCodeProviderKeys(): void {
       .then(() => broadcast({ kind: "config", ...configStatus() }), () => {});
   }
 }
+startPhases.mark("boot", "settings and secrets");
 await registry.load(providerConfigs(), decorateHostedProvider);
+startPhases.mark("boot", "engines");
 const availableSkills = () => loadUserSkills(join(DATA_DIR, "skills"));
 
 const listBotSkills = (bot: BotRecord) =>
@@ -3856,12 +3860,14 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 let bootSelection = { instanceId: "", model: "" };
 let enginesRead: Promise<void> | null = null;
 const presetStore = createPresetStore();
+startPhases.mark("boot", "services");
 const store = new Store(
   () => bootSelection,
   (selection) => withNewBotEffort(selection, cfg.newBots?.effort, offeredEffortLevels(registry.get(selection.instanceId), selection.model)),
   (instanceId) => registry.cliTarget(instanceId)?.driverKind,
   () => newDogComputer(Boolean(CLOUD_HOME)),
 );
+startPhases.mark("boot", "chats loaded");
 const teamComputers = new TeamComputers(join(DATA_DIR, "team-computers.json"), ENVIRONMENT_ID);
 let followupsReady = false;
 const sendSequencer = new SendSequencer();
@@ -22398,6 +22404,7 @@ for (const row of chatFollowups()) {
   }
   settleChatFollowups([row.id], null);
 }
+startPhases.mark("boot", "routes and watchers");
 restoreSteeredMessages();
 restoreChannelMessages();
 
@@ -22427,7 +22434,9 @@ try {
   if (movedAutoPins) console.log(`Works on: moved ${movedAutoPins} auto-pinned thread(s) to their bot's current Works on`);
 }
 
+startPhases.mark("boot", "interrupted work restored");
 server.listen(PORT, "127.0.0.1", async () => {
+  startPhases.end("boot", "listening");
   companyRuntimeReady();
   void connectedRepositories.refresh();
   console.log(`later.dog server on http://127.0.0.1:${PORT}`);
