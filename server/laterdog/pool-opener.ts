@@ -17,6 +17,9 @@ export const POOL_SHELL_DIR = "/usr/local/lib/laterdog-pool/bin";
 export const POOL_COMMAND_MS = 60_000;
 const OPEN_TIMEOUT_MS = 120_000;
 const ATTACH_TIMEOUT_MS = 20_000;
+export const POOL_PING_MS = 15_000;
+export const POOL_SILENT_MS = 45_000;
+export const POOL_EXIT_LINE = JSON.stringify({ type: "native_exit", code: null, signal: "SIGKILL" });
 const CLAUDE_CLI = "@anthropic-ai/claude-code";
 
 export function poolChosen(dataDir: string, botId: string): boolean {
@@ -58,7 +61,7 @@ export function poolChat(botId: string, threadId: string): string {
 export interface PoolOpened { status: number; slot?: number; state?: string; refusal?: string }
 export interface PoolService {
   open(chat: string, env: Record<string, string>, signal?: AbortSignal): Promise<PoolOpened>;
-  close(chat: string): Promise<void>;
+  close(chat: string): Promise<boolean>;
   stream(chat: string, signal?: AbortSignal): Promise<WebSocket>;
 }
 
@@ -80,7 +83,11 @@ export function poolService(): PoolService | null {
         refusal: response.ok ? undefined : `${String(body?.error?.code ?? response.status)}: ${String(body?.error?.message ?? "the pool refused the engine")}` };
     },
     async close(chat) {
-      await fetch(`${base}/${chat}`, { method: "DELETE", headers, signal: AbortSignal.timeout(15_000) }).then((response) => response.body?.cancel(), () => undefined);
+      try {
+        const response = await fetch(`${base}/${chat}`, { method: "DELETE", headers, signal: AbortSignal.timeout(15_000) });
+        await response.body?.cancel();
+        return response.status === 200 || response.status === 404;
+      } catch { return false; }
     },
     stream(chat, signal) {
       const url = new URL(`${base}/${chat}/stream`);
@@ -120,20 +127,34 @@ export function attachPool(socket: WebSocket, signal?: AbortSignal): Promise<Web
   });
 }
 
-export function poolLink(socket: WebSocket, stop: () => void): EngineLink {
+export function poolLink(socket: WebSocket, stop: () => Promise<boolean>, timing: { pingMs: number; silentMs: number } = { pingMs: POOL_PING_MS, silentMs: POOL_SILENT_MS }): EngineLink {
   const link = new EventEmitter() as EngineLink;
   let closed = false;
   let partial: Buffer = Buffer.alloc(0);
+  let heard = Date.now();
   const waiting: string[] = [];
   const deliver = (line: string) => { if (link.listenerCount("line")) link.emit("line", line); else waiting.push(line); };
   link.on("newListener", (name) => { if (name === "line") queueMicrotask(() => { for (const line of waiting.splice(0)) link.emit("line", line); }); });
   const close = (why: string) => {
     if (closed) return;
     closed = true;
-    stop();
-    link.emit("close", why);
+    clearInterval(beat);
+    try { socket.terminate(); } catch {}
+    void stop().catch(() => false).then((stopped) => {
+      if (stopped) deliver(POOL_EXIT_LINE);
+      link.emit("close", why);
+    });
   };
+  const beat = setInterval(() => {
+    if (Date.now() - heard > timing.silentMs) { close("the pool stream went silent"); return; }
+    try { socket.ping(); } catch {}
+  }, timing.pingMs);
+  beat.unref?.();
+  const hear = () => { heard = Date.now(); };
+  socket.on("pong", hear);
+  socket.on("ping", hear);
   socket.on("message", (data: WebSocket.RawData, binary: boolean) => {
+    hear();
     const bytes = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
     if (!binary) {
       let frame: { channel?: string; code?: unknown; reason?: unknown; message?: unknown };
@@ -155,11 +176,7 @@ export function poolLink(socket: WebSocket, stop: () => void): EngineLink {
   socket.on("close", () => close("pool stream closed"));
   socket.on("error", () => close("pool stream failed"));
   link.send = (line) => { if (!closed) socket.send(Buffer.from(`${line}\n`)); };
-  link.close = () => {
-    if (closed) return;
-    try { socket.close(); } catch {}
-    close("closed by the home");
-  };
+  link.close = () => close("closed by the home");
   return link;
 }
 
@@ -228,7 +245,7 @@ export async function openOnPool(pool: PoolService, botId: string, plan: ClaudeR
     try {
       const socket = await pool.stream(chat, signal);
       poolLaunch(plan, opened.slot, computerProxy, layout);
-      return { link: poolLink(socket, () => { void pool.close(chat); }), state: opened.state ?? "cold", slot: opened.slot };
+      return { link: poolLink(socket, () => pool.close(chat)), state: opened.state ?? "cold", slot: opened.slot };
     } catch (error) {
       if (attempt === 0 && error instanceof PoolNotWarm && !signal?.aborted) continue;
       await pool.close(chat);

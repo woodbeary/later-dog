@@ -95,6 +95,11 @@ export class PoolHost extends DurableObject<Env> {
       labels: { pool: next.id, generation: String(next.generation) },
     });
     await container.setInactivityTimeout(ALWAYS_ON_MS);
+    const started = Date.now();
+    container.monitor().then(
+      () => console.error(`laterdog computers: [pool] ${next.id} generation ${next.generation} stopped after ${Date.now() - started} ms`),
+      (error: unknown) => console.error(`laterdog computers: [pool] ${next.id} generation ${next.generation} failed after ${Date.now() - started} ms: ${error instanceof Error ? error.message : String(error)}`),
+    );
     console.log(`laterdog computers: [pool] start ${next.id} (generation ${next.generation})`);
     return { started: true, generation: next.generation };
   }

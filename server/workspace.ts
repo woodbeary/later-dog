@@ -18,11 +18,15 @@ export function supportsWorkspaceFiles(driverKind: string): boolean {
   return !["grok", "openai-compat", "minimax", "mistral", "cerebras"].includes(driverKind);
 }
 
-export function ensureTaskWorkspace(botId: string, threadId: string): string {
+export function taskWorkspacePath(botId: string, threadId: string): string {
   if (![botId, threadId].every((id) => /^[A-Za-z0-9_-]{1,128}$/.test(id))) {
     throw new Error("Invalid bot or thread id for a task workspace.");
   }
-  const dir = join(TASK_WORKSPACES_DIR, botId, threadId);
+  return join(TASK_WORKSPACES_DIR, botId, threadId);
+}
+
+export function ensureTaskWorkspace(botId: string, threadId: string): string {
+  const dir = taskWorkspacePath(botId, threadId);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
