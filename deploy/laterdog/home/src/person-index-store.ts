@@ -6,6 +6,8 @@ import {
   type IndexFeedBatch,
   type IndexHasAnswer,
   type IndexHasRequest,
+  type IndexFilesRequest,
+  type IndexMemoryText,
   type IndexMemoryHit,
   type IndexMemoryRequest,
   type IndexMessage,
@@ -170,6 +172,7 @@ export interface SearchIndex {
   memory(request: IndexMemoryRequest): IndexMemoryHit[];
   search(request: IndexSearchRequest): IndexSearchHit[];
   has(request: IndexHasRequest): IndexHasAnswer;
+  files(request: IndexFilesRequest): IndexMemoryText[];
   stats(): IndexStats;
 }
 
@@ -293,17 +296,19 @@ export function searchIndex(sql: SqlPort, { broadMatches = BROAD_MATCHES, substr
     memory(request) {
       const queryMode = mode(request.mode);
       const match = ftsQuery(text(request.query, "query", 2_000), queryMode);
-      const dogs = scope(request.dogs, "dogs");
-      if (!match || dogs === "[]") return [];
-      const rows = sql.all<{ dog: string; path: string; mtime: number; snippet: string }>(
+      const dogs = list<unknown>(request.dogs, "dogs", INDEX_SCOPE_MAX).map((dog) => identifier(dog, "dogs"));
+      if (!match || !dogs.length) return [];
+      const limit = limitOf(request.limit, 12);
+      const read = (scope: string[]) => sql.all<{ dog: string; path: string; mtime: number; snippet: string }>(
         "SELECT f.dog, f.path, f.mtime, " +
           `snippet(memory_fts, 0, '[', ']', '…', ${SNIPPET_TOKENS}) AS snippet ` +
           "FROM memory_fts JOIN memory f ON f.rid = memory_fts.rowid " +
           "WHERE memory_fts MATCH ? AND f.dog IN (SELECT value FROM json_each(?)) " +
           (queryMode === "any" ? "AND f.path NOT IN ('MEMORY.md', 'memory/archive.md') AND f.path NOT LIKE 'memory/log/%' " : "") +
           "ORDER BY bm25(memory_fts), f.mtime DESC LIMIT ?",
-        match, dogs, limitOf(request.limit, 12),
+        match, JSON.stringify(scope), limit,
       );
+      const rows = request.each ? dogs.flatMap((dog) => read([dog])) : read(dogs);
       return rows.map((row) => ({ dog: row.dog, file: row.path, at: row.mtime, snippet: folded(row.snippet) }));
     },
 
@@ -347,6 +352,12 @@ export function searchIndex(sql: SqlPort, { broadMatches = BROAD_MATCHES, substr
         memory: memory.flatMap(([dog, path]) => sql.all<{ mtime: number; text: string }>("SELECT mtime, text FROM memory WHERE dog = ? AND path = ?", dog, path)
           .map((row) => ({ dog, path, mtime: row.mtime, sum: textSum(row.text) }))),
       };
+    },
+
+    files(request) {
+      const dogs = list<unknown>(request.dogs, "dogs", 64).map((dog) => identifier(dog, "dogs"));
+      return dogs.flatMap((dog) => sql.all<{ path: string; text: string; mtime: number }>("SELECT path, text, mtime FROM memory WHERE dog = ? ORDER BY path", dog)
+        .map((row) => ({ dog, path: row.path, text: row.text, mtime: row.mtime })));
     },
 
     stats() {

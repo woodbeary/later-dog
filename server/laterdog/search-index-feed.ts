@@ -2,12 +2,13 @@ import {
   INDEX_BUDGET_MS,
   INDEX_FEED_MAX_ITEMS,
   INDEX_ROUTE,
-  INDEX_TEXT_MAX_CHARS,
   type IndexFeedBatch,
-  type IndexMemoryFile,
+  type IndexHasAnswer,
+  type IndexFilesRequest,
+  type IndexHasRequest,
+  type IndexMemoryText,
   type IndexMemoryHit,
   type IndexMemoryRequest,
-  type IndexMessage,
   type IndexOperation,
   type IndexRecallHit,
   type IndexRecallRequest,
@@ -18,37 +19,22 @@ import {
 } from "../../shared/search-index-protocol.ts";
 import { capabilitySecret, signCapabilitySync } from "./signed-capability-node.ts";
 
-export interface IndexableMessage {
-  id: string;
-  at: number;
-  role: string;
-  kind: string;
-  text?: string | null;
-  tool?: { name?: string | null } | null;
-  from?: { name?: string | null } | null;
+export type FeedKey =
+  | { kind: "message"; chat: string; id: string }
+  | { kind: "chat"; chat: string }
+  | { kind: "memory"; dog: string; path: string };
+
+export interface FeedTargets {
+  dogs?: readonly string[];
+  person?: boolean;
 }
 
-export function indexMessage(dog: string, chat: string, message: IndexableMessage, peer?: string | null): IndexMessage {
-  const text = (message.kind === "activity" ? message.tool?.name : message.text) ?? "";
-  return {
-    chat,
-    id: message.id,
-    dog,
-    at: message.at,
-    role: message.role,
-    kind: message.kind,
-    text: text.slice(0, INDEX_TEXT_MAX_CHARS),
-    ...(message.from?.name ? { from: message.from.name } : {}),
-    ...(peer ? { peer } : {}),
-  };
+export interface FeedEntry {
+  key: FeedKey;
+  auto: boolean;
+  dogs: ReadonlySet<string>;
+  person: boolean;
 }
-
-type Pending =
-  | { kind: "message"; value: IndexMessage }
-  | { kind: "removeMessage"; value: { chat: string; id: string } }
-  | { kind: "removeChat"; value: string }
-  | { kind: "memory"; value: IndexMemoryFile }
-  | { kind: "removeMemory"; value: { dog: string; path: string } };
 
 export interface FeedOptions {
   maxBatch?: number;
@@ -62,11 +48,21 @@ export interface FeedState {
   sent: number;
   failures: number;
   dropped: number;
-  needsBackfill: boolean;
+  lastError: string | null;
+}
+
+export function chatOf(key: FeedKey): string {
+  return key.kind === "memory" ? `@memory:${key.dog}` : key.chat;
+}
+
+function keyOf(key: FeedKey): string {
+  if (key.kind === "message") return `m ${key.chat} ${key.id}`;
+  if (key.kind === "chat") return `c ${key.chat}`;
+  return `f ${key.dog} ${key.path}`;
 }
 
 export class SearchIndexFeed {
-  private readonly pending = new Map<string, Pending>();
+  private readonly pending = new Map<string, { key: FeedKey; auto: boolean; dogs: Set<string>; person: boolean }>();
   private readonly maxBatch: number;
   private readonly delayMs: number;
   private readonly maxPending: number;
@@ -75,41 +71,52 @@ export class SearchIndexFeed {
   private flushing: Promise<void> | null = null;
   private attempt = 0;
   private stopped = false;
+  private inflight: FeedKey[] = [];
   private readonly waiters: Array<() => void> = [];
-  readonly state: FeedState = { pending: 0, sent: 0, failures: 0, dropped: 0, needsBackfill: false };
+  readonly state: FeedState = { pending: 0, sent: 0, failures: 0, dropped: 0, lastError: null };
 
   private readonly send: (batch: IndexFeedBatch) => Promise<void>;
+  private readonly resolve: (entries: FeedEntry[]) => Promise<IndexFeedBatch>;
+  private readonly onDrop: () => void;
+  private readonly onSent: (keys: FeedKey[]) => void;
 
-  constructor(send: (batch: IndexFeedBatch) => Promise<void>, options: FeedOptions = {}) {
+  constructor(send: (batch: IndexFeedBatch) => Promise<void>, resolve: (entries: FeedEntry[]) => Promise<IndexFeedBatch>, options: FeedOptions & { onDrop?: () => void; onSent?: (keys: FeedKey[]) => void } = {}) {
     this.send = send;
+    this.resolve = resolve;
+    this.onDrop = options.onDrop ?? (() => {});
+    this.onSent = options.onSent ?? (() => {});
     this.maxBatch = Math.min(options.maxBatch ?? INDEX_FEED_MAX_ITEMS, INDEX_FEED_MAX_ITEMS);
     this.delayMs = options.delayMs ?? 250;
-    this.maxPending = options.maxPending ?? 50_000;
+    this.maxPending = options.maxPending ?? 200_000;
     this.retryMs = options.retryMs ?? [1_000, 2_000, 5_000, 15_000, 30_000];
   }
 
-  message(dog: string, chat: string, message: IndexableMessage, peer?: string | null): void {
-    this.put(`m ${chat} ${message.id}`, { kind: "message", value: indexMessage(dog, chat, message, peer) });
+  get failing(): boolean {
+    return this.attempt > 0;
   }
 
-  removeMessage(chat: string, id: string): void {
-    this.put(`m ${chat} ${id}`, { kind: "removeMessage", value: { chat, id } });
+  get size(): number {
+    return this.pending.size;
   }
 
-  removeChat(chat: string): void {
-    for (const [key, item] of this.pending) {
-      if (item.kind === "message" && item.value.chat === chat) this.pending.delete(key);
-      if (item.kind === "removeMessage" && item.value.chat === chat) this.pending.delete(key);
-    }
-    this.put(`c ${chat}`, { kind: "removeChat", value: chat });
+  busy(chats: Iterable<string>): boolean {
+    if (!this.pending.size && !this.inflight.length) return false;
+    const scope = new Set(chats);
+    for (const entry of this.pending.values()) if (scope.has(chatOf(entry.key))) return true;
+    return this.inflight.some((key) => scope.has(chatOf(key)));
   }
 
-  memory(file: IndexMemoryFile): void {
-    this.put(`f ${file.dog} ${file.path}`, { kind: "memory", value: { ...file, text: file.text.slice(0, INDEX_TEXT_MAX_CHARS) } });
+  message(chat: string, id: string, targets?: FeedTargets): void {
+    this.put({ kind: "message", chat, id }, targets);
   }
 
-  removeMemory(dog: string, path: string): void {
-    this.put(`f ${dog} ${path}`, { kind: "removeMemory", value: { dog, path } });
+  removeChat(chat: string, targets?: FeedTargets): void {
+    for (const [name, entry] of this.pending) if (entry.key.kind === "message" && entry.key.chat === chat) this.pending.delete(name);
+    this.put({ kind: "chat", chat }, targets);
+  }
+
+  memory(dog: string, path: string, targets?: FeedTargets): void {
+    this.put({ kind: "memory", dog, path }, targets);
   }
 
   drained(): Promise<void> {
@@ -121,6 +128,7 @@ export class SearchIndexFeed {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    for (const resolve of this.waiters.splice(0)) resolve();
   }
 
   flush(): Promise<void> {
@@ -128,21 +136,25 @@ export class SearchIndexFeed {
     this.timer = null;
     this.flushing ??= this.flushAll().finally(() => {
       this.flushing = null;
-      if (this.pending.size) this.schedule(this.attempt ? this.retryMs[Math.min(this.attempt, this.retryMs.length) - 1]! : this.delayMs);
+      if (this.pending.size && !this.stopped) this.schedule(this.attempt ? this.retryMs[Math.min(this.attempt, this.retryMs.length) - 1]! : this.delayMs);
       else for (const resolve of this.waiters.splice(0)) resolve();
     });
     return this.flushing;
   }
 
-  private put(key: string, item: Pending): void {
+  private put(key: FeedKey, targets?: FeedTargets): void {
     if (this.stopped) return;
-    this.pending.delete(key);
-    this.pending.set(key, item);
-    while (this.pending.size > this.maxPending) {
-      const oldest = this.pending.keys().next().value as string;
-      this.pending.delete(oldest);
-      this.state.dropped += 1;
-      this.state.needsBackfill = true;
+    const name = keyOf(key);
+    const held = this.pending.get(name);
+    this.pending.delete(name);
+    const entry = { key, auto: targets === undefined || Boolean(held?.auto), dogs: new Set(held?.dogs ?? []), person: Boolean(held?.person) };
+    for (const dog of targets?.dogs ?? []) entry.dogs.add(dog);
+    if (targets?.person) entry.person = true;
+    this.pending.set(name, entry);
+    if (this.pending.size > this.maxPending) {
+      this.state.dropped += this.pending.size;
+      this.pending.clear();
+      this.onDrop();
     }
     this.state.pending = this.pending.size;
     if (!this.attempt) this.schedule(this.delayMs);
@@ -160,33 +172,27 @@ export class SearchIndexFeed {
   private async flushAll(): Promise<void> {
     while (this.pending.size && !this.stopped) {
       const taken = [...this.pending.entries()].slice(0, this.maxBatch);
-      for (const [key] of taken) this.pending.delete(key);
+      for (const [name] of taken) this.pending.delete(name);
+      this.inflight = taken.map(([, entry]) => entry.key);
       try {
-        await this.send(batchOf(taken.map(([, item]) => item)));
+        const batch = await this.resolve(taken.map(([, entry]) => entry));
+        if (Object.keys(batch).length) await this.send(batch);
         this.state.sent += taken.length;
+        this.onSent(taken.filter(([name, entry]) => (entry.auto || entry.key.kind === "chat") && !this.pending.has(name)).map(([, entry]) => entry.key));
         this.attempt = 0;
-      } catch {
-        for (const [key, item] of taken) if (!this.pending.has(key)) this.pending.set(key, item);
+        this.state.lastError = null;
+      } catch (error) {
+        for (const [name, entry] of taken) if (!this.pending.has(name)) this.pending.set(name, entry);
         this.state.failures += 1;
+        this.state.lastError = error instanceof Error ? error.message : String(error);
         this.attempt += 1;
         break;
       } finally {
+        this.inflight = [];
         this.state.pending = this.pending.size;
       }
     }
   }
-}
-
-function batchOf(items: Pending[]): IndexFeedBatch {
-  const batch: Required<IndexFeedBatch> = { messages: [], removeMessages: [], removeChats: [], memory: [], removeMemory: [] };
-  for (const item of items) {
-    if (item.kind === "message") batch.messages.push(item.value);
-    else if (item.kind === "removeMessage") batch.removeMessages.push(item.value);
-    else if (item.kind === "removeChat") batch.removeChats.push(item.value);
-    else if (item.kind === "memory") batch.memory.push(item.value);
-    else batch.removeMemory.push(item.value);
-  }
-  return Object.fromEntries(Object.entries(batch).filter(([, list]) => list.length)) as IndexFeedBatch;
 }
 
 export interface IndexClientOptions {
@@ -204,7 +210,9 @@ export interface SearchIndexClient {
   recent(request: IndexRecentRequest): Promise<IndexRecallHit[] | null>;
   memory(request: IndexMemoryRequest): Promise<IndexMemoryHit[] | null>;
   search(request: IndexSearchRequest): Promise<IndexSearchHit[] | null>;
-  stats(): Promise<IndexStats | null>;
+  has(request: IndexHasRequest): Promise<IndexHasAnswer | null>;
+  files(request: IndexFilesRequest): Promise<IndexMemoryText[] | null>;
+  stats(dog?: string): Promise<IndexStats | null>;
 }
 
 const CLIENT_SLACK_MS = 250;
@@ -245,7 +253,9 @@ export function searchIndexClient(options: IndexClientOptions): SearchIndexClien
     recent: (request) => orNull(call("recent", request)),
     memory: (request) => orNull(call("memory", request)),
     search: (request) => orNull(call("search", request)),
-    stats: () => orNull(call("stats", {})),
+    has: (request) => orNull(call("has", request)),
+    files: (request) => orNull(call("files", request)),
+    stats: (dog) => orNull(call("stats", dog ? { dog } : {})),
   };
 }
 

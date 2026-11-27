@@ -1,64 +1,94 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IndexFeedBatch } from "../../shared/search-index-protocol.ts";
 import { capabilityKey, verifyCapability } from "../../shared/signed-capability.ts";
-import { SearchIndexFeed, compareHits, indexMessage, searchIndexClient } from "./search-index-feed.ts";
+import { SearchIndexFeed, compareHits, searchIndexClient, type FeedEntry, type FeedKey } from "./search-index-feed.ts";
 
 const HOME = "h0123456789abcdef01234567";
-const text = (id: string, body: string) => ({ id, at: 1_000, role: "user", kind: "text", text: body });
+
+function resolver(texts: Map<string, string>) {
+  return async (entries: FeedEntry[]): Promise<IndexFeedBatch> => {
+    const batch: IndexFeedBatch = {};
+    for (const entry of entries) {
+      const key = entry.key;
+      const shards = { dogs: [...entry.dogs], person: entry.person || entry.auto };
+      if (key.kind === "chat") (batch.removeChats ??= []).push({ chat: key.chat, ...shards });
+      else if (key.kind === "memory") (batch.memory ??= []).push({ dog: key.dog, path: key.path, text: texts.get(key.path) ?? "", mtime: 1, bytes: 1, ...shards });
+      else if (texts.has(key.id)) (batch.messages ??= []).push({ chat: key.chat, id: key.id, dog: "dog", at: 1, role: "user", kind: "text", text: texts.get(key.id)!, ...shards });
+      else (batch.removeMessages ??= []).push({ chat: key.chat, id: key.id, ...shards });
+    }
+    return batch;
+  };
+}
 
 describe("index feed", () => {
-  it("maps messages the way the home's database indexes them", () => {
-    expect(indexMessage("dog", "chat", { id: "1", at: 5, role: "bot", kind: "activity", tool: { name: "web_search" } })).toMatchObject({ kind: "activity", text: "web_search" });
-    expect(indexMessage("dog", "chat", { id: "2", at: 5, role: "bot", kind: "image" }).text).toBe("");
-    expect(indexMessage("dog", "chat", { ...text("3", "hi"), from: { name: "Indigo" } }, "Clover")).toMatchObject({ from: "Indigo", peer: "Clover" });
-    expect(indexMessage("dog", "chat", text("4", "x".repeat(70_000))).text).toHaveLength(64_000);
-  });
-
-  it("batches, keeps only the latest change per message, and drops a removed chat's pending changes", async () => {
+  it("batches keys, reads each one's latest state when it sends, and drops a removed chat's pending messages", async () => {
     const batches: IndexFeedBatch[] = [];
-    const feed = new SearchIndexFeed(async (batch) => void batches.push(batch), { maxBatch: 2, delayMs: 5 });
-    feed.message("dog", "chat-1", text("a", "first"));
-    feed.message("dog", "chat-1", text("a", "second"));
-    feed.message("dog", "chat-2", text("b", "gone"));
-    feed.removeChat("chat-2");
-    feed.memory({ dog: "dog", path: "memory/x.md", text: "note", mtime: 1, bytes: 4 });
-    feed.removeMemory("dog", "memory/y.md");
+    const texts = new Map([["a", "first"]]);
+    const sent: FeedKey[][] = [];
+    const feed = new SearchIndexFeed(async (batch) => void batches.push(batch), resolver(texts), { maxBatch: 2, delayMs: 5, onSent: (keys) => sent.push(keys) });
+    feed.message("chat-1", "a");
+    texts.set("a", "second");
+    feed.message("chat-1", "a");
+    feed.message("chat-2", "b");
+    feed.removeChat("chat-2", { dogs: ["dog-b"] });
+    feed.memory("dog", "memory/x.md", { dogs: ["dog"], person: false });
+    feed.message("chat-1", "gone");
+    expect(feed.busy(["chat-1"])).toBe(true);
+    expect(feed.busy(["chat-9"])).toBe(false);
     await feed.drained();
     expect(batches).toEqual([
-      { messages: [expect.objectContaining({ id: "a", text: "second" })], removeChats: ["chat-2"] },
-      { memory: [expect.objectContaining({ path: "memory/x.md" })], removeMemory: [{ dog: "dog", path: "memory/y.md" }] },
+      { messages: [expect.objectContaining({ id: "a", text: "second", person: true, dogs: [] })], removeChats: [{ chat: "chat-2", dogs: ["dog-b"], person: false }] },
+      { memory: [expect.objectContaining({ path: "memory/x.md", dogs: ["dog"], person: false })], removeMessages: [{ chat: "chat-1", id: "gone", dogs: [], person: true }] },
     ]);
+    expect(sent.flat().map((key) => key.kind)).toEqual(["message", "chat", "message"]);
     expect(feed.state).toMatchObject({ pending: 0, sent: 4, failures: 0 });
+    expect(feed.busy(["chat-1"])).toBe(false);
   });
 
-  it("keeps changes through failures and sends them once the index answers, newer changes winning", async () => {
+  it("merges the shards a key is sent to and keeps it automatic once a write asked for it", async () => {
+    const entries: FeedEntry[][] = [];
+    const feed = new SearchIndexFeed(async () => {}, async (taken) => { entries.push(taken); return {}; }, { delayMs: 5 });
+    feed.message("chat", "a", { dogs: ["dog-a"], person: false });
+    feed.message("chat", "a", { dogs: ["dog-b"] });
+    feed.message("chat", "a");
+    await feed.drained();
+    expect(entries.flat()).toEqual([{ key: { kind: "message", chat: "chat", id: "a" }, auto: true, dogs: new Set(["dog-a", "dog-b"]), person: false }]);
+  });
+
+  it("keeps keys through failures and sends them once the index answers", async () => {
     vi.useFakeTimers();
     try {
       let up = false;
       const batches: IndexFeedBatch[] = [];
+      const texts = new Map([["a", "one"]]);
       const feed = new SearchIndexFeed(async (batch) => {
         if (!up) throw new Error("down");
         batches.push(batch);
-      }, { delayMs: 10, retryMs: [100, 200] });
-      feed.message("dog", "chat", text("a", "one"));
+      }, resolver(texts), { delayMs: 10, retryMs: [100, 200] });
+      feed.message("chat", "a");
       await vi.advanceTimersByTimeAsync(20);
-      expect(feed.state.failures).toBe(1);
-      feed.message("dog", "chat", text("a", "two"));
+      expect(feed.state).toMatchObject({ failures: 1, lastError: "down" });
+      expect(feed.failing).toBe(true);
+      texts.set("a", "two");
+      feed.message("chat", "a");
       await vi.advanceTimersByTimeAsync(50);
       expect(batches).toEqual([]);
       up = true;
       await vi.advanceTimersByTimeAsync(100);
       expect(batches).toEqual([{ messages: [expect.objectContaining({ text: "two" })] }]);
       expect(feed.state).toMatchObject({ pending: 0, failures: 1, sent: 1 });
+      expect(feed.failing).toBe(false);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("caps what it holds and says a backfill is needed instead of growing without bound", async () => {
-    const feed = new SearchIndexFeed(async () => { throw new Error("down"); }, { maxPending: 3, delayMs: 60_000 });
-    for (let i = 0; i < 5; i++) feed.message("dog", "chat", text(`m${i}`, "t"));
-    expect(feed.state).toMatchObject({ pending: 3, dropped: 2, needsBackfill: true });
+  it("drops everything it holds past its cap and says so, so every chat is fed again", () => {
+    let dropped = 0;
+    const feed = new SearchIndexFeed(async () => { throw new Error("down"); }, resolver(new Map()), { maxPending: 3, delayMs: 60_000, onDrop: () => { dropped += 1; } });
+    for (let i = 0; i < 5; i++) feed.message("chat", `m${i}`);
+    expect(feed.state).toMatchObject({ pending: 1, dropped: 4 });
+    expect(dropped).toBe(1);
     feed.stop();
   });
 });

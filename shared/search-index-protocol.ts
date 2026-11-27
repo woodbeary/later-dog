@@ -2,9 +2,9 @@ import type { RecallRange, SearchMode } from "./search-index-query.ts";
 
 export const INDEX_ROUTE = "/api/internal/index/";
 export const INDEX_FEED_MAX_ITEMS = 250;
-export const INDEX_TEXT_MAX_CHARS = 64_000;
+export const INDEX_TEXT_MAX_CHARS = 400_000;
 export const INDEX_SCOPE_MAX = 5_000;
-export const INDEX_BUDGET_MS = { recall: 500, recent: 500, memory: 500, search: 1_000, has: 1_000, feed: 10_000, stats: 1_000 } as const;
+export const INDEX_BUDGET_MS = { recall: 500, recent: 500, memory: 500, search: 1_000, has: 1_000, files: 500, feed: 10_000, stats: 1_000 } as const;
 export const INDEX_FEED_MAX_SHARDS = 64;
 export type IndexOperation = keyof typeof INDEX_BUDGET_MS;
 
@@ -74,6 +74,7 @@ export interface IndexMemoryRequest extends IndexShardChoice {
   dogs: string[];
   limit?: number;
   mode?: SearchMode;
+  each?: boolean;
 }
 
 export interface IndexSearchRequest {
@@ -110,6 +111,17 @@ export interface IndexSearchHit {
   matchStart: number;
   matchLength: number;
   from?: string;
+}
+
+export interface IndexFilesRequest extends IndexShardChoice {
+  dogs: string[];
+}
+
+export interface IndexMemoryText {
+  dog: string;
+  path: string;
+  text: string;
+  mtime: number;
 }
 
 export interface IndexStatsRequest extends IndexShardChoice {}

@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type {
   IndexFeedBatch,
+  IndexFilesRequest,
   IndexHasRequest,
   IndexMemoryRequest,
   IndexRecallRequest,
@@ -38,6 +39,9 @@ abstract class IndexObject extends DurableObject {
   has(request: IndexHasRequest) {
     return this.index.has(request);
   }
+  files(request: IndexFilesRequest) {
+    return this.index.files(request);
+  }
   stats() {
     return this.index.stats();
   }
@@ -48,5 +52,5 @@ export class PersonIndex extends IndexObject {
 }
 
 export class DogIndex extends IndexObject {
-  protected readonly index = searchIndex(durableSql(this.ctx.storage), { substring: false });
+  protected readonly index = searchIndex(durableSql(this.ctx.storage), { substring: false, broadMatches: Number.POSITIVE_INFINITY });
 }

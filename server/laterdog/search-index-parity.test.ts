@@ -3,9 +3,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { Message } from "../store.ts";
 
 
-const { closeMessageDb, indexMemoryFile, insertMessage, recallMemory, recallMessages, recentMessages, searchMessages } = await import("../message-db.ts");
+const { closeMessageDb, indexCoverageTable, indexMemoryFile, indexOutbox, insertMessage, readForIndex, recallMemory, recallMessages, recallMessagesOffThread, recentMessages, searchMessages, watchMessageWrites } = await import("../message-db.ts");
 const { searchIndex } = await import("../../deploy/laterdog/home/src/person-index-store.ts");
-const { SearchIndexFeed, compareHits } = await import("./search-index-feed.ts");
+const { splitFeed } = await import("../../deploy/laterdog/home/src/index-routes.ts");
+const { compareHits } = await import("./search-index-feed.ts");
+const { SearchIndexWiring } = await import("./search-index-wiring.ts");
+type Index = ReturnType<typeof searchIndex>;
 
 function nodeSql(database = new DatabaseSync(":memory:")) {
   return {
@@ -42,15 +45,51 @@ const CHATS = DOGS.flatMap((dog) => [`${dog}-main`, `${dog}-task`]);
 const T0 = Date.UTC(2026, 9, 1);
 
 const index = searchIndex(nodeSql());
-const sent: Array<{ chat: string; message: Message; dog: string }> = [];
+const shards = new Map<string, Index>();
+const shard = (dog: string) => shards.get(dog) ?? shards.set(dog, searchIndex(nodeSql(), { substring: false, broadMatches: Number.POSITIVE_INFINITY })).get(dog)!;
+let indexUp = true;
+const target = (request: { dog?: string }) => (request.dog ? shard(request.dog) : index);
+const strip = <T extends { dog?: string }>({ dog: _dog, ...request }: T) => request;
+const up = <T>(work: () => T): Promise<T | null> => Promise.resolve(indexUp ? work() : null);
+const client = {
+  feed: async (batch: Parameters<Index["feed"]>[0]) => {
+    if (!indexUp) throw new Error("index down");
+    for (const part of splitFeed(batch)) (part.dog ? shard(part.dog) : index).feed(part.batch);
+  },
+  recall: (request: Parameters<Index["recall"]>[0] & { dog?: string }) => up(() => target(request).recall(strip(request))),
+  recent: (request: Parameters<Index["recent"]>[0] & { dog?: string }) => up(() => target(request).recent(strip(request))),
+  memory: (request: Parameters<Index["memory"]>[0] & { dog?: string }) => up(() => target(request).memory(strip(request))),
+  search: (request: Parameters<Index["search"]>[0]) => up(() => index.search(request)),
+  has: (request: Parameters<Index["has"]>[0] & { dog?: string }) => up(() => target(request).has(strip(request))),
+  files: (request: Parameters<Index["files"]>[0] & { dog?: string }) => up(() => target(request).files(strip(request))),
+  stats: () => up(() => index.stats()),
+};
+const ROOM = "room-ab";
+const owners = (chat: string) => (chat === ROOM ? ["dog-a", "dog-b"] : [chat.replace(/-(main|task)$/, "")]);
+const wiring = new SearchIndexWiring({
+  client,
+  outbox: indexOutbox,
+  read: readForIndex,
+  coverage: {
+    read: () => indexCoverageTable.read("h-test"),
+    add: (chat, targets) => indexCoverageTable.add("h-test", chat, targets),
+    drop: (chat) => indexCoverageTable.drop("h-test", chat),
+    clear: () => indexCoverageTable.clear("h-test"),
+  },
+  ownersOf: owners,
+  log: (line) => { if (line.includes("failed")) console.error(line); },
+  pageGapMs: 0,
+  feedDelayMs: 1,
+});
 
 beforeAll(async () => {
   const next = random(42);
   const pick = <T>(list: readonly T[]) => list[Math.floor(Math.pow(next(), 1.7) * list.length)]!;
-  const feed = new SearchIndexFeed(async (batch) => void index.feed(batch), { maxBatch: 300, delayMs: 1 });
+  watchMessageWrites(wiring.wrote);
   for (let i = 0; i < 1_500; i++) {
-    const chat = pick(CHATS);
-    const dog = chat.replace(/-(main|task)$/, "");
+    if (i === 900) wiring.setMode("shadow");
+    const chat = i % 11 === 0 ? ROOM : pick(CHATS);
+    const dog = owners(chat)[0]!;
     const length = 4 + Math.floor(next() * 30);
     const text = Array.from({ length }, () => (next() < 0.4 ? pick(FILLER) : pick(WORDS))).join(" ");
     const roll = next();
@@ -58,22 +97,101 @@ beforeAll(async () => {
       ? { id: `m${i}`, at: T0 + i * 1_000, role: "bot", kind: "activity", tool: { name: pick(["web_search", "read_file", "send_text"]), ok: true } }
       : roll < 0.1
         ? { id: `m${i}`, at: T0 + i * 1_000, role: "bot", kind: "digest", text }
-        : { id: `m${i}`, at: T0 + i * 1_000, role: next() < 0.5 ? "user" : "bot", kind: "text", text, ...(next() < 0.2 ? { from: { botId: dog, name: `Name ${dog}` } } : {}) }) as unknown as Message;
+        : roll < 0.12
+          ? { id: `m${i}`, at: T0 + i * 1_000, role: "user", kind: "text", text: `[Message from @Clover, another bot in this later.dog workspace] ${text}` }
+          : { id: `m${i}`, at: T0 + i * 1_000, role: next() < 0.5 ? "user" : "bot", kind: "text", text, ...(next() < 0.2 ? { from: { botId: dog, name: `Name ${dog}` } } : {}) }) as unknown as Message;
     insertMessage(chat, message);
-    feed.message(dog, chat, message as never);
-    sent.push({ chat, message, dog });
   }
   for (const dog of DOGS) {
     for (let f = 0; f < 6; f++) {
       const text = Array.from({ length: 40 }, () => pick(WORDS)).join(" ");
       const path = f === 0 ? "MEMORY.md" : `memory/topic-${f}.md`;
       indexMemoryFile(dog, path, text, { mtimeMs: T0 + f, bytes: text.length });
-      feed.memory({ dog, path, text, mtime: T0 + f, bytes: text.length });
     }
   }
-  await feed.flush();
-  await feed.drained();
-  return () => closeMessageDb();
+  await wiring.settled();
+  return async () => {
+    wiring.stop();
+    watchMessageWrites(null);
+    closeMessageDb();
+  };
+});
+
+describe("the feed and backfill", () => {
+  it("fill the person index with every message and each dog's shard with its own chats and rooms, and empty the outbox", () => {
+    expect(index.stats().messages).toBe(1_500);
+    expect(shard("dog-a").recent({ chats: [ROOM], limit: 1_000 }).length).toBe(shard("dog-b").recent({ chats: [ROOM], limit: 1_000 }).length);
+    expect(shard("dog-c").recent({ chats: [ROOM], limit: 10 })).toEqual([]);
+    expect(shard("dog-c").stats().memoryFiles).toBe(6);
+    expect(indexOutbox.all()).toEqual([]);
+    expect(wiring.status()).toMatchObject({ mode: "shadow", feed: { failing: false, pending: 0 }, backfill: { chatsQueued: 0 } });
+  });
+});
+
+describe("shadow reads", () => {
+  it("find no difference in data between the home's database and the dog shards, only rank order", async () => {
+    for (const query of queries) {
+      for (const dog of DOGS) {
+        const chats = [`${dog}-main`, `${dog}-task`, ...(dog === "dog-c" ? [] : [ROOM])];
+        await wiring.recall({ dog, query, chats, limit: 18, mode: "any" }, () => recallMessagesOffThread(query, chats, 18, undefined, "any"));
+        await wiring.recall({ dog, query, chats, limit: 12 }, () => recallMessagesOffThread(query, chats, 12));
+        await wiring.memory({ shard: dog, query, dogs: [dog], limit: 12, mode: "any" }, async () => [recallMemory(query, dog, 12, "any")]);
+      }
+      await wiring.recall({ query, chats: CHATS, limit: 12 }, () => recallMessagesOffThread(query, CHATS, 12));
+      await wiring.memory({ query, dogs: DOGS, limit: 5 }, async () => DOGS.map((dog) => recallMemory(query, dog, 5)));
+    }
+    await wiring.recent({ dog: "dog-a", chats: ["dog-a-main", ROOM], limit: 12, range: {} }, async () => recentMessages(["dog-a-main", ROOM], {}, 12));
+    await wiring.settled();
+    const { shadow } = wiring.status();
+    expect(shadow.samples).toEqual([]);
+    expect(shadow.mismatch).toBe(0);
+    expect(shadow.unavailable + shadow.skipped).toBe(0);
+    expect(shadow.compared).toBe(queries.length * 11 + 1);
+    expect(shadow.same).toBeGreaterThan(shadow.compared / 2);
+  });
+
+  it("count a message the index lost as a mismatch", async () => {
+    const before = wiring.status().shadow.mismatch;
+    shard("dog-a").feed({ removeMessages: [{ chat: "dog-a-main", id: recallMessages("dentist", ["dog-a-main"], 1)[0]!.messageId }] });
+    await wiring.recall({ dog: "dog-a", query: "dentist", chats: ["dog-a-main"], limit: 1_000 }, () => recallMessagesOffThread("dentist", ["dog-a-main"], 1_000));
+    await wiring.settled();
+    expect(wiring.status().shadow.mismatch).toBe(before + 1);
+    expect(wiring.status().shadow.samples.at(-1)).toMatchObject({ op: "recall", shard: "dog", reason: "missing" });
+  });
+});
+
+describe("prompt memory", () => {
+  it("uses the turn's own snapshot when it comes in time, else the dog's shard, else the home's copy, and never the folder", async () => {
+    const snapshot = new Map([["MEMORY.md", "from the folder"]]);
+    expect(await wiring.promptMemory("dog-a", Promise.resolve(snapshot))).toBe(snapshot);
+    const stuck = new Promise<null>(() => {});
+    const fromIndex = await wiring.promptMemory("dog-a", stuck);
+    expect(fromIndex.get("MEMORY.md")).toBe(shard("dog-a").files({ dogs: ["dog-a"] }).find((file) => file.path === "MEMORY.md")!.text);
+    expect(fromIndex.size).toBe(6);
+    indexUp = false;
+    const fromHome = await wiring.promptMemory("dog-b", null);
+    indexUp = true;
+    expect([...fromHome.keys()].sort()).toEqual(shard("dog-b").files({ dogs: ["dog-b"] }).map((file) => file.path).sort());
+    expect(wiring.status().prompt).toMatchObject({ snapshot: 1, index: 1, local: 1, mountReadsAvoided: 2 });
+  });
+});
+
+describe("remote reads", () => {
+  it("answer from the dog's shard, and from the home's database when the index is down or a chat is not covered yet", async () => {
+    wiring.setMode("remote");
+    try {
+      const chats = ["dog-b-main", "dog-b-task"];
+      const local = async () => [{ threadId: "local", messageId: "local", at: 0, role: "user", snippet: "local" }];
+      expect(await wiring.recall({ dog: "dog-b", query: "invoice", chats, limit: 12 }, local)).toEqual(shard("dog-b").recall({ query: "invoice", chats, limit: 12 }));
+      indexUp = false;
+      expect(await wiring.recall({ dog: "dog-b", query: "invoice", chats, limit: 12 }, local)).toEqual(await local());
+      indexUp = true;
+      expect(await wiring.recall({ dog: "dog-b", query: "invoice", chats: [...chats, "dog-a-main"], limit: 12 }, local)).toEqual(await local());
+      expect(wiring.status().remote).toMatchObject({ answered: 1, fellBack: 1 });
+    } finally {
+      wiring.setMode("shadow");
+    }
+  });
 });
 
 const queries = [...WORDS.slice(0, 30), "dentist invoice", "flights lisbon booking", "the", "remind me about my passport and visa", "Taxes receipts", "garden-fence"];

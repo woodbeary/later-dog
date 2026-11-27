@@ -185,7 +185,7 @@ import { connectorCallFromFrame, connectorRefusalText, connectorUnrecognizedText
 import { connectorCardText } from "./connector-card-text.ts";
 import { withMainDogRouting } from "./laterdog/main-dog-prompt.ts";
 import { MAIN_DOG_DELETE_REFUSAL, MAIN_DOG_REQUIRED } from "../shared/main-dog.ts";
-import { buildRecall, buildRecallInBackground } from "./recall.ts";
+import { buildRecall, buildRecallInBackground, type RecallLookups } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
 import { appendAboutMe, commitLearned, holdLearned, listPendingLearned, planLearned } from "./profile-learned.ts";
 import { canAccessTeam, canReachPeer, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, PEERS_PROMPT, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomRosterLine } from "./peer-roster.ts";
@@ -324,6 +324,12 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
+import { indexCoverageTable, indexOutbox, readForIndex, watchMessageWrites } from "./message-db.ts";
+import { SearchIndexWiring } from "./laterdog/search-index-wiring.ts";
+import { searchIndexClient } from "./laterdog/search-index-feed.ts";
+import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
+import { createSearchIndexRoutes } from "./routes/search-index.ts";
+import { SkillsPromptCache, skillsPromptWorker } from "./skills-prompt-cache.ts";
 import { readMessageText, recallMemoryOffThread, recallMessagesOffThread, recentMessagesOffThread, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
@@ -1049,6 +1055,26 @@ const turnPhases = createTurnPhases({ log: (line) => console.log(line) });
 const startPhases = createTurnPhases({ log: (line) => console.log(line), name: "server start" });
 startPhases.begin("boot");
 if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () => turnPhases.current() });
+const searchIndex = CLOUD_HOME ? new SearchIndexWiring({
+  client: searchIndexClient({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }),
+  outbox: indexOutbox,
+  read: readForIndex,
+  coverage: {
+    read: () => indexCoverageTable.read(CLOUD_HOME.machineId),
+    add: (chat, targets) => indexCoverageTable.add(CLOUD_HOME.machineId, chat, targets),
+    drop: (chat) => indexCoverageTable.drop(CLOUD_HOME.machineId, chat),
+    clear: () => indexCoverageTable.clear(CLOUD_HOME.machineId),
+  },
+  ownersOf: (chat) => {
+    const bot = store.botByThread(chat);
+    if (bot) return [bot.id];
+    return store.groupByThread(chat)?.memberIds ?? [];
+  },
+  log: (line) => console.log(line),
+}) : null;
+if (searchIndex) watchMessageWrites(searchIndex.wrote);
+const skillsPrompts = searchIndex ? new SkillsPromptCache(skillsPromptWorker()) : null;
+const promptFromIndex = () => searchIndex?.mode === "remote";
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
 const deskBrainRoute = deskVerify && deskPrompts ? createDeskBrainRoute({
@@ -2023,6 +2049,7 @@ async function autoRecallInBackground(bot: BotRecord, threadId: string, message:
       message,
       threadIds,
       docs: opts.docs ?? undefined,
+      lookups: indexedRecallLookups(bot.id),
       mayShow: (id) => !CLOUD_HOME || cloudOwnerOnlyThread(id),
       label: (id) => {
         const room = roomByThread.get(id);
@@ -2039,6 +2066,17 @@ async function autoRecallInBackground(bot: BotRecord, threadId: string, message:
     console.warn(`auto-recall failed for ${bot.id}: ${(err as Error).message}`);
     return "";
   }
+}
+
+function indexedRecallLookups(botId: string): RecallLookups | undefined {
+  const index = searchIndex;
+  if (!index || index.mode === "off") return undefined;
+  return {
+    memory: async (query, dog, limit) => (await index.memory({ shard: botId, query, dogs: [dog], limit, mode: "any" },
+      () => recallMemoryOffThread(query, [dog], limit, "any")))[0] ?? [],
+    messages: (query, threadIds, limit) => index.recall({ dog: botId, query, chats: threadIds, limit, mode: "any" },
+      () => recallMessagesOffThread(query, threadIds, limit, undefined, "any")),
+  };
 }
 
 function withRecalled(recalled: string, text: string): string {
@@ -9825,8 +9863,13 @@ async function startTurn(
 
       turnPhases.mark(threadId, "computer and prompt");
       if (memoryHead) {
-        memoryDocs = await memoryHead;
+        memoryDocs = promptFromIndex() && searchIndex ? await searchIndex.promptMemory(bot.id, memoryHead) : await memoryHead;
         turnPhases.mark(threadId, "memory snapshot wait");
+      }
+      const assignedSkills = skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined;
+      const skillsFromCache = privateWorkspace && promptFromIndex() && skillsPrompts ? (await skillsPrompts.get(bot.id, assignedSkills)).text : null;
+      if (searchIndex?.mode === "shadow" && mountedFoldersActive()) {
+        searchIndex.noteMountRead(bot.id, [...(bot.memoryEnabled !== false && !memoryDocs ? ["memory"] : []), ...(privateWorkspace ? ["skills"] : [])]);
       }
       if (checkpointCwd && snapshotHead) {
         const before = await snapshotHead.claim();
@@ -9889,7 +9932,7 @@ async function startTurn(
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const memoryText = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn });
       turnPhases.mark(threadId, "memory prompt");
-      const skillsText = privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "";
+      const skillsText = skillsFromCache ?? (privateWorkspace ? skillsSystemPrompt(bot.id, assignedSkills) : "");
       turnPhases.mark(threadId, "skills prompt");
       const recentText = recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() }));
       const conversation = conversationText(threadId, providerText);
@@ -11770,7 +11813,10 @@ async function runGroupMemberTurn(
   if (worksInWorkspace) await prepareTurnFolders({ workspace: workspaceDir(bot.id), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
     gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
-  if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
+  const roomMemoryHead = workspace && bot.memoryEnabled !== false && promptFromIndex() ? beginMemoryTurnInBackground(bot.id, threadId) : null;
+  if (workspace && bot.memoryEnabled !== false && !roomMemoryHead) beginMemoryTurn(bot.id, threadId);
+  const roomMemoryDocs = roomMemoryHead && searchIndex ? await searchIndex.promptMemory(bot.id, roomMemoryHead) : null;
+  if (searchIndex?.mode === "shadow" && workspace && bot.memoryEnabled !== false && mountedFoldersActive()) searchIndex.noteMountRead(bot.id, ["memory"]);
   const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, workspace && cloudGuestOpened(threadId)
     ? ensureTaskWorkspace(bot.id, threadId)
     : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId)));
@@ -11778,6 +11824,7 @@ async function runGroupMemberTurn(
     const drift = checkSoulDrift(bot.id, bot.soul ?? "", bot.soulHash ?? "");
     if (drift.drift !== Boolean(bot.soulDrift)) store.patchBot(bot.id, { soulDrift: drift.drift });
   }
+  if (roomMemoryDocs) readMemoryFromSnapshot(bot.id, roomMemoryDocs);
   const roomMemory = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: roomForeign });
   const recentLines = recentWork(recentWorkSources(bot), bot, { userName, currentThreadId: threadId, ...recentWorkFilter() });
   const roomComputerPromptKind = resolveComputerPromptKind(
@@ -14125,6 +14172,16 @@ ROUTES.push(createEnginePlacementRoutes({
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
 }));
 ROUTES.push(createEnginePoolRoutes({ read: () => poolSetting(DATA_DIR), save: (setting) => savePoolSetting(DATA_DIR, setting) }));
+ROUTES.push(createSearchIndexRoutes({
+  status: () => searchIndex?.status() ?? null,
+  setMode: (mode) => {
+    if (!searchIndex) return null;
+    saveSearchIndexMode(DATA_DIR, mode);
+    searchIndex.setMode(mode);
+    return searchIndex.status();
+  },
+}));
+if (searchIndex) searchIndex.setMode(readSearchIndexMode(DATA_DIR));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
 ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
 ROUTES.push(createHomeLogRoutes({ dir: () => (CLOUD_HOME ? join(DATA_DIR, HOME_SERVER_LOG_DIR) : null) }));
@@ -15839,9 +15896,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 400, { error: "scope must be all, conversations, or memory" });
         }
         const lending = cloudLendingView(internalCapability);
-        const searchShown = async (threadIds: string[]) => {
+        const searchShown = async (threadIds: string[], dog?: string) => {
           const wanted = lending ? Math.min(limit * 4, 100) : limit;
-          const found = q ? await recallMessagesOffThread(q, threadIds, wanted, range) : await recentMessagesOffThread(threadIds, range ?? {}, wanted);
+          const local = () => q ? recallMessagesOffThread(q, threadIds, wanted, range) : recentMessagesOffThread(threadIds, range ?? {}, wanted);
+          const found = !searchIndex || searchIndex.mode === "off" ? await local()
+            : q ? await searchIndex.recall({ ...(dog ? { dog } : {}), query: q, chats: threadIds, limit: wanted, ...(range ? { range } : {}) }, local)
+            : await searchIndex.recent({ ...(dog ? { dog } : {}), chats: threadIds, limit: wanted, range: range ?? {} }, local);
           if (!lending) return found;
           const shown = new Map<string, boolean>();
           return found.filter((hit) => {
@@ -15859,7 +15919,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const chats = crossDogChats(dogs.map(recallDog), store.groups, new Set(picked.map((dog) => dog.id)));
             const memoryDogs = scope === "conversations" || !q ? [] : picked.filter((dog) => dog.memoryEnabled !== false);
             if (!mountedFoldersActive()) for (const dog of memoryDogs) syncMemoryIndex(dog.id);
-            const crossMemory = interleave((await recallMemoryOffThread(q, memoryDogs.map((dog) => dog.id), limit)).map((found, index) =>
+            const memoryIds = memoryDogs.map((dog) => dog.id);
+            const crossLocal = () => recallMemoryOffThread(q, memoryIds, limit);
+            const crossFoundMemory = !searchIndex || searchIndex.mode === "off" || !memoryIds.length ? await crossLocal()
+              : await searchIndex.memory({ query: q, dogs: memoryIds, limit }, crossLocal);
+            const crossMemory = interleave(crossFoundMemory.map((found, index) =>
               found.map((hit) => ({ ...hit, bot: memoryDogs[index]!.name, botId: memoryDogs[index]!.id, snippet: redactSecretsInText(hit.snippet) }))), limit);
             if (scope === "memory") return json(res, 200, { cross: true, hits: [], memoryHits: crossMemory });
             const crossFound = await searchShown([...chats.keys()]);
@@ -15873,7 +15937,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             return json(res, 200, { cross: true, hits: crossHits, memoryHits: crossMemory });
           }
         }
-        const memoryHits = scope === "conversations" || !q || from.memoryEnabled === false ? [] : searchMemoryFiles(from.id, q, limit);
+        const ownMemory = async () => {
+          if (!searchIndex || searchIndex.mode === "off") return searchMemoryFiles(from.id, q, limit);
+          syncMemoryIndex(from.id);
+          return (await searchIndex.memory({ shard: from.id, query: q, dogs: [from.id], limit }, async () => [searchMemoryFiles(from.id, q, limit)]))[0] ?? [];
+        };
+        const memoryHits = scope === "conversations" || !q || from.memoryEnabled === false ? [] : await ownMemory();
         if (scope === "memory") return json(res, 200, { hits: [], memoryHits });
         const roomByThread = new Map<string, GroupRecord>();
         for (const group of store.groups) {
@@ -15883,7 +15952,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const ownThreads = [...new Set([from.threadId, ...(from.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])];
         const inRoom = Boolean(store.groupByThread(fromThreadId));
-        const found = await searchShown(ownThreads);
+        const found = await searchShown(ownThreads, from.id);
         const hits = found.map((hit) => {
           const room = roomByThread.get(hit.threadId);
           return {
