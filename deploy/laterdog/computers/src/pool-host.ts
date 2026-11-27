@@ -6,6 +6,7 @@ const RECORD = "pool-host";
 const AGENT = "/usr/local/bin/laterdog-pool-agent";
 const AGENT_TIMEOUT_MS = 10_000;
 const ALWAYS_ON_MS = 5 * 60 * 60_000;
+export const KEEP_AWAKE_MS = 10_000;
 
 interface HostRecord {
   id: string;
@@ -114,6 +115,7 @@ export class PoolHost extends DurableObject<Env> {
       (error: unknown) => console.error(`laterdog computers: [pool] ${next.id} generation ${next.generation} failed after ${Date.now() - started} ms: ${error instanceof Error ? error.message : String(error)}`),
     );
     console.log(`laterdog computers: [pool] start ${next.id} (generation ${next.generation})`);
+    await this.ctx.storage.setAlarm(Date.now() + KEEP_AWAKE_MS);
     return { started: true, generation: next.generation };
   }
 
@@ -151,8 +153,15 @@ export class PoolHost extends DurableObject<Env> {
   async remove(): Promise<void> {
     const record = this.load();
     if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => undefined);
+    await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
     console.log(`laterdog computers: [pool] removed ${record?.id ?? "a host"}`);
+  }
+
+  override async alarm(): Promise<void> {
+    if (!this.load() || !this.ctx.container?.running) return;
+    await this.status();
+    await this.ctx.storage.setAlarm(Date.now() + KEEP_AWAKE_MS);
   }
 
   override async fetch(request: Request): Promise<Response> {
