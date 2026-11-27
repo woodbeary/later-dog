@@ -158,6 +158,7 @@ import { createRecentlyDeletedRoutes } from "./routes/recently-deleted.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
+import { createDogFolderRoute } from "./routes/dog-folder.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
 import { createHomeLogRoutes } from "./routes/home-log.ts";
 import * as boat from "./computers.ts";
@@ -265,6 +266,7 @@ import { ComputerControl } from "./computer-control.ts";
 import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts";
 import { registerEnginesBinDir } from "./engine-install.ts";
 import { registerNativeBinDir } from "./laterdog/native-install.ts";
+import { cacheLine } from "./laterdog/cache-line.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
 import { latestPlanRow, latestPlanRowAt, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
@@ -474,7 +476,7 @@ import {
 import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, syncMemoryIndex, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 import { MOUNTED_FOLDER_ANSWER_MS, MountedFolderStalled, mountedFolderGate, mountedFoldersActive } from "./laterdog/mounted-folder-gate.ts";
 import { MountDown } from "./laterdog/mount-guard.ts";
-import { dogFoldersMounted, guardMountedFolders } from "./laterdog/dog-mounts.ts";
+import { dogFiles, dogFoldersMounted, guardMountedFolders, mountGuard } from "./laterdog/dog-mounts.ts";
 import { armSyncTripwire, onMountedSyncCall } from "./laterdog/sync-tripwire.ts";
 import { skillsCall, skillsPromptReady } from "./skills-thread.ts";
 import type { SkillPackageStamp } from "./skills.ts";
@@ -796,8 +798,9 @@ import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalCandidate } from "./laterdog/account-removal.ts";
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
+import { createGeminiKeyAccountSchema, newAntigravityAccount, newGeminiKeyAccount } from "./laterdog/google-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, percentLeft, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, googleKeyUse, limitRowToReplace, planResetAt, recharges, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -832,6 +835,7 @@ import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
 import { CompactionCarry } from "./laterdog/after-compaction.ts";
+import { HandoffCompactions } from "./laterdog/handoff-compaction.ts";
 import { onlyTapbackText, replyTapback, replyTapbackStreamChunk, tapbackTarget, tapbackStreamChunk, tapbackTurnKey, withTapback } from "./laterdog/tapback.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { pushWorthy } from "./laterdog/push-gate.ts";
@@ -945,7 +949,7 @@ import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
-import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
+import { poolChosen, poolEngineOpener, poolService, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
@@ -962,7 +966,7 @@ setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
       process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, scope, input.botId, input.computerId,
     ) })));
   },
-} : {}), DATA_DIR));
+} : {}), DATA_DIR, poolService, (path) => dogFiles.mkdir(path)));
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);
@@ -1206,7 +1210,9 @@ function batteryAccounts(): BatteryAccount[] {
       instanceId: instance.instanceId, driverKind: instance.driverKind, displayName: instance.displayName || instance.driverKind,
       enabled: instance.enabled,
       eligible: instance.instanceId !== CLAUDE_API_INSTANCE && !managedDesktop.owns(instance.instanceId) && !policyModelRefusal(instance) &&
-        (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key",
+        (instance.driverKind === "geminiAgent"
+          ? googleKeyUse(cfg.accountBattery, instance.instanceId) !== undefined
+          : (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key"),
       ...(snapshot ? signedInReading(snapshot) : {}),
       ...(claudeSignInRefresh.signedOut(instance.instanceId) ? { signedIn: false } : {}),
       ...(accountKeeper.signedOut(instance.instanceId) ? { signedIn: false } : {}),
@@ -2187,6 +2193,8 @@ function adminAuditPlan(method: string, path: string): AuditPlan | null {
   if (m && method === "POST") plan.engineAction = { id: m[1]!, action: m[2]!.replace("/", "-") };
   if (method === "POST" && path === "/api/instances/claude-accounts") plan.engineAction = { id: "claude", action: "account-add" };
   if (method === "POST" && path === "/api/instances/chatgpt-accounts") plan.engineAction = { id: "chatgpt", action: "account-add" };
+  if (method === "POST" && path === "/api/instances/antigravity-accounts") plan.engineAction = { id: "antigravity", action: "account-add" };
+  if (method === "POST" && path === "/api/instances/gemini-accounts") plan.engineAction = { id: "gemini", action: "account-add" };
   return plan.config || plan.botId || plan.createsBots || plan.deletesBot || plan.createsWebhook || plan.webhookId || plan.sessionId || plan.pairing || plan.engineAction || plan.roomId ? plan : null;
 }
 
@@ -2321,6 +2329,8 @@ const executionEvidence = new ExecutionEvidenceTracker();
 function bookTurnUsage(row: Omit<UsageRow, "at" | "costSource">, tokensReported = true, notificationThreadId = row.threadId): void {
   const cost = tokensReported || row.costUsd !== null ? ledgerCost(row, operatorPrices()) : { costUsd: null };
   const booked = { ...row, ...cost, at: new Date().toISOString() };
+  const cache = cacheLine(booked);
+  if (cache) console.log(cache);
   noteSpend(DATA_DIR, booked, appendUsage(DATA_DIR, booked));
   const state = spendState(cfg, DATA_DIR);
   const alert = takeSpendAlert(DATA_DIR, state);
@@ -2756,6 +2766,7 @@ function agentsIntegration(
       LATERDOG_MEMORY_ENABLED: store.bot(botId)?.memoryEnabled === false ? "0" : "1",
       LATERDOG_SHARED_COMPUTERS_ENABLED: lendingEnabled() ? "1" : "0",
       LATERDOG_CLOUD_HOME: CLOUD_HOME ? "1" : "0",
+      LATERDOG_POOL_FOLDER: CLOUD_HOME && poolChosen(DATA_DIR, botId) ? "1" : "0",
       LATERDOG_EMAIL_ME: CLOUD_HOME && deliverOwnerEmail ? "1" : "0",
       LATERDOG_PHONE: phoneToolsEnabled() ? "1" : "0",
       LATERDOG_IN_TASK: startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "1" : "0",
@@ -5990,7 +6001,7 @@ const groupSpeakers = new Map<string, { botId: string; name: string; color: stri
 type RoutedBy = NonNullable<Message["routedBy"]>;
 const routedRoomReplies = new Map<string, { botId: string; routedBy: RoutedBy }>();
 
-const turnUsage = new Map<string, { input: number; output: number; cachedInput?: number }>();
+const turnUsage = new Map<string, { input: number; output: number; cachedInput?: number; cachedWrite?: number }>();
 const turnContext = new Map<string, { tokens?: number; window?: number }>();
 const liveContext = new LiveContext();
 const helperTurns = new HelperTurnBudget();
@@ -6525,6 +6536,7 @@ function observedTurnResults(threadId: string) {
 const turnCheckpoints = new Map<string, { botId: string; cwd: string; hash: string; pin: string }>();
 const liveTurnByThread = new Map<string, string>();
 const compactionCarry = new CompactionCarry();
+const handoffCompactions = new HandoffCompactions();
 
 function forgetTurnCheckpoint(threadId: string): void {
   const checkpoint = turnCheckpoints.get(threadId);
@@ -8121,7 +8133,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       }
       break;
     case "thread.token-usage.updated":
-      turnUsage.set(event.threadId, { input: event.input, output: event.output, cachedInput: event.cachedInput });
+      turnUsage.set(event.threadId, { input: event.input, output: event.output, cachedInput: event.cachedInput, cachedWrite: event.cachedWrite });
       if (event.contextTokens !== undefined || event.contextWindow !== undefined) {
         turnContext.set(event.threadId, { tokens: event.contextTokens, window: event.contextWindow });
       }
@@ -8283,6 +8295,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           input: tokens?.input ?? 0,
           output: tokens?.output ?? 0,
           ...(typeof tokens?.cachedInput === "number" ? { cachedInput: tokens.cachedInput } : {}),
+          ...(typeof tokens?.cachedWrite === "number" ? { cachedWrite: tokens.cachedWrite } : {}),
           ...(promptBytes ? { promptBytes } : {}),
           costUsd: event.cost ?? null,
           trigger: routineRun
@@ -8349,6 +8362,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           input: tokens?.input ?? 0,
           output: tokens?.output ?? 0,
           ...(typeof tokens?.cachedInput === "number" ? { cachedInput: tokens.cachedInput } : {}),
+          ...(typeof tokens?.cachedWrite === "number" ? { cachedWrite: tokens.cachedWrite } : {}),
           ...(promptBytes ? { promptBytes } : {}),
           costUsd: event.cost ?? null,
           trigger: routineRun
@@ -10019,6 +10033,14 @@ async function startTurn(
       });
       handoffs.dispatching(threadId, dispatchClaimId, dispatchContext.handoff);
       turnPhases.mark(threadId, "recall");
+      const handoffWindow = instance.driverKind === "claudeAgent" && accountBattery.enabled ? handoffCompactions.window(threadId, {
+        driverKind: instance.driverKind, instanceId,
+        left: percentLeft(latestPlanRow(instanceId), Date.now()),
+        nextDriverKind: accountBattery.nextWhenOut(bot.modelSelection, batteryAccounts(), threadId,
+          [...((liveBot ?? bot).fallback ?? []), ...(cfg.automaticRecovery?.enabled && cfg.automaticRecovery.backup ? [cfg.automaticRecovery.backup] : [])])?.driverKind,
+        contextTokens: turnContext.get(threadId)?.tokens,
+      }) : undefined;
+      if (handoffWindow) console.log(`[handoff-compaction] chat=${threadId} account=${instanceId} window=${handoffWindow}`);
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: bot.id,
@@ -10051,6 +10073,7 @@ async function startTurn(
         integrations,
         mcpFromUserConfig: claudeUserMcpEnabled(cfg) && !managedPolicy.restrictsMcp(),
         mcpCallTimeoutMs: mcpCallTimeoutMinutes(cfg) * 60_000,
+        ...(handoffWindow ? { compactWindow: handoffWindow } : {}),
         cwd,
       }), () => !directTurnClaimExists(bot.id, dispatchClaimId, threadId), async () => {
         await instance.adapter.interruptTurn(threadId).catch(() => {});
@@ -14706,6 +14729,11 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   maxWaitMs: (threadId) => waitCapMs(runningTurnEngines.get(threadId)?.driverKind, mcpCallTimeoutMinutes(cfg)),
   personWrote: (_botId, threadId, since) => store.activePath(threadId).some((message) => message.role === "user" && message.at >= since),
+}));
+INTERNAL_ROUTES.push(createDogFolderRoute({
+  owns: (botId, threadId) => connectorThread(botId, threadId) !== null,
+  folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
+  run: (path, op) => mountGuard.run(path, op),
 }));
 INTERNAL_ROUTES.push(createReactRoute({
   activePath: (threadId) => store.activePath(threadId),
@@ -20960,6 +20988,37 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       try {
         const { instanceId, instances } = newChatGptAccount(persistableInstanceConfigs(cfg), parsed.data.displayName, { cloudHome: Boolean(CLOUD_HOME), dataDir: DATA_DIR });
         await persistProviderInstance(instanceId, instances);
+        return json(res, 201, { instanceId, instances: await describeInstances() });
+      } finally { providerConfigBusy = false; }
+    }
+
+    if (method === "POST" && path === "/api/instances/antigravity-accounts") {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(res, 415, { error: "content-type must be application/json" });
+      const parsed = createClaudeAccountSchema.pick({ displayName: true }).safeParse(await readBody(req, 8192));
+      if (!parsed.success) return json(res, 400, { error: "Enter an account name (up to 80 characters)." });
+      if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
+      providerConfigBusy = true;
+      try {
+        const { instanceId, instances } = newAntigravityAccount(persistableInstanceConfigs(cfg), parsed.data.displayName);
+        await persistProviderInstance(instanceId, instances);
+        return json(res, 201, { instanceId, instances: await describeInstances() });
+      } finally { providerConfigBusy = false; }
+    }
+
+    if (method === "POST" && path === "/api/instances/gemini-accounts") {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(res, 415, { error: "content-type must be application/json" });
+      const parsed = createGeminiKeyAccountSchema.safeParse(await readBody(req, 8192));
+      if (!parsed.success) return json(res, 400, { error: "Enter an account name, a Gemini API key, and whether it is free tier or allowed paid use." });
+      if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
+      providerConfigBusy = true;
+      try {
+        const { instanceId, instances } = newGeminiKeyAccount(persistableInstanceConfigs(cfg), parsed.data.displayName, parsed.data.apiKey);
+        await persistProviderInstance(instanceId, instances);
+        const battery = { ...(cfg.accountBattery ?? { enabled: false, order: {} }) };
+        battery.googleKeys = { ...battery.googleKeys, [instanceId]: parsed.data.use };
+        saveConfig({ accountBattery: battery });
+        cfg.accountBattery = battery;
+        broadcast({ kind: "config", ...configStatus() });
         return json(res, 201, { instanceId, instances: await describeInstances() });
       } finally { providerConfigBusy = false; }
     }

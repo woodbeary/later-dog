@@ -8,7 +8,7 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { poolChosen } from "../laterdog/pool-opener.ts";
+import { onPool, POOL_LOST_REASON, POOL_WARM_MS, poolChosen, takePoolLoss } from "../laterdog/pool-opener.ts";
 import { acceptedEnginePlacement, botFolderPresent, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { dogFiles } from "../laterdog/dog-mounts.ts";
 import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
@@ -277,6 +277,12 @@ export function autoCompactWindow(env: NodeJS.ProcessEnv, tuned = false): string
   return String(Math.min(1_000_000, Math.max(100_000, Math.floor(parsed))));
 }
 
+export function turnCompactWindow(standing: string | null, handoff: number | undefined): string | null {
+  if (standing === null || handoff === undefined || !Number.isFinite(handoff)) return standing;
+  const asked = Math.min(1_000_000, Math.max(100_000, Math.floor(handoff)));
+  return standing === "auto" || asked < Number(standing) ? String(asked) : standing;
+}
+
 export function nativeCompactWindow(env: NodeJS.ProcessEnv, tuned = false): number | undefined {
   const own = (env.CLAUDE_CODE_AUTO_COMPACT_WINDOW ?? "").trim();
   if (own) return /^\d+$/.test(own) && Number(own) > 0 ? Number(own) : undefined;
@@ -504,7 +510,7 @@ export interface NativeTurnResult {
   ok: boolean;
   stopReason: string | null;
   cost: number | null;
-  usage?: { input: number; output: number; cachedInput?: number };
+  usage?: { input: number; output: number; cachedInput?: number; cachedWrite?: number };
 }
 
 export function sumNativeTurnResults(earlier: NativeTurnResult | null, latest: NativeTurnResult): NativeTurnResult {
@@ -515,6 +521,9 @@ export function sumNativeTurnResults(earlier: NativeTurnResult | null, latest: N
         output: earlier.usage.output + latest.usage.output,
         ...(earlier.usage.cachedInput !== undefined || latest.usage.cachedInput !== undefined
           ? { cachedInput: (earlier.usage.cachedInput ?? 0) + (latest.usage.cachedInput ?? 0) }
+          : {}),
+        ...(earlier.usage.cachedWrite !== undefined || latest.usage.cachedWrite !== undefined
+          ? { cachedWrite: (earlier.usage.cachedWrite ?? 0) + (latest.usage.cachedWrite ?? 0) }
           : {}),
       }
     : latest.usage ?? earlier.usage;
@@ -1165,7 +1174,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (!s || s.helpers.running()) return;
       warmEngines.rest(s, {
         pid: s.child.pid,
-        idleMs: placedThreads.has(threadId) ? keepWarm.idleMs(threadId, sessionIdlePolicy("CLAUDE").idleMs) : SESSION_IDLE_MS,
+        idleMs: onPool(threadId) ? POOL_WARM_MS : placedThreads.has(threadId) ? keepWarm.idleMs(threadId, sessionIdlePolicy("CLAUDE").idleMs) : SESSION_IDLE_MS,
         close: (why) => { if (sessions.get(threadId) === s) closeSession(threadId, why); },
       });
     };
@@ -1292,7 +1301,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!turn.mcpFromUserConfig && claudeCliSupports(cliVersion, "--strict-mcp-config")) args.push("--strict-mcp-config");
         if (claudeCliSupports(cliVersion, "--setting-sources")) args.push("--setting-sources", "project");
       }
-      const compactWindow = autoCompactWindow(turnEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed));
+      const compactWindow = turnCompactWindow(autoCompactWindow(turnEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed)), turn.compactWindow);
       if (compactWindow && cliHasAutocompact === true) {
         args.push("--autocompact", compactWindow);
       }
@@ -1650,7 +1659,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         ok: boolean,
         stopReason: string | null,
         total: number | null = null,
-        usage?: { input: number; output: number; cachedInput?: number },
+        usage?: { input: number; output: number; cachedInput?: number; cachedWrite?: number },
       ) => {
         const t = session.turn;
         if (!t || t.settled) return;
@@ -1933,6 +1942,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 ...(typeof msg.usage.cache_read_input_tokens === "number"
                   ? { cachedInput: msg.usage.cache_read_input_tokens }
                   : {}),
+                ...(typeof msg.usage.cache_creation_input_tokens === "number"
+                  ? { cachedWrite: msg.usage.cache_creation_input_tokens }
+                  : {}),
                 contextTokens,
               });
             }
@@ -2004,6 +2016,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                       output: o.usage.output_tokens || 0,
                       ...(typeof o.usage.cache_read_input_tokens === "number"
                         ? { cachedInput: o.usage.cache_read_input_tokens }
+                        : {}),
+                      ...(typeof o.usage.cache_creation_input_tokens === "number"
+                        ? { cachedWrite: o.usage.cache_creation_input_tokens }
                         : {}),
                     },
                   }
@@ -2117,11 +2132,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const endedBeforeTurn = session.turn.awaitingInit === true;
           const refusedResume = Boolean(session.resumeRefused);
           const refusedHelperFlag = !session.sawInit && helperFlagRefused(config.cli, cliVersion?.join(".") ?? null, session.stderr, session.passedHelperFlag);
+          const lostPool = Boolean(turn.botId) && takePoolLoss(turn.botId!, threadId) && retry.attempt < RETRY_MAX_ATTEMPTS - 1;
           if (
             !refusedResume &&
-            (!required || refusedHelperFlag) &&
+            (!required || refusedHelperFlag || lostPool) &&
             !retry.cancelled &&
-            (endedBeforeTurn || refusedHelperFlag || (
+            (endedBeforeTurn || refusedHelperFlag || lostPool || (
               code !== 0 &&
               verdict.transient &&
               !session.turn.sawStreamDelta &&
@@ -2147,13 +2163,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             let delayMs = 0;
             if (!endedBeforeTurn && !refusedHelperFlag) {
               retry.attempt++;
-              delayMs = computeBackoff(retry.attempt - 1);
+              delayMs = lostPool ? 0 : computeBackoff(retry.attempt - 1);
               emit({
                 ...base(threadId, turnId),
                 type: "turn.retrying",
                 attempt: retry.attempt,
                 delayMs,
-                reason: verdict.reason,
+                reason: lostPool ? POOL_LOST_REASON : verdict.reason,
               });
             }
             void (async () => {
