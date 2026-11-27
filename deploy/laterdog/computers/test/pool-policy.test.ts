@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type HostLoad, MINUTE, type PoolHostRecord, hostHourlyUsd, observe, parseEngineSpec, place, planScale, poolSettings } from "../src/pool-policy";
+import { ENGINES_PER_HOST, HEADROOM_ENGINES, type HostLoad, MINUTE, type PoolHostRecord, hostHourlyUsd, nearlyFull, observe, parseEngineSpec, place, planScale, poolSettings } from "../src/pool-policy";
 
 const GIB = 1024 ** 3;
 const settings = poolSettings({ POOL_HOSTS_MAX: "4" });
@@ -92,4 +92,19 @@ describe("cost", () => {
     expect(hostHourlyUsd(0)).toBeCloseTo(0.07603, 4);
     expect(hostHourlyUsd(0.2)).toBeCloseTo(0.10483, 4);
   });
+
+  it("spreads a burst: a host at its engine cap takes no new chat while another host has room", () => {
+    const many = Array.from({ length: ENGINES_PER_HOST }, (_, i) => `c${i}`);
+    const hosts = [host("a", "ready", load(1, many, ENGINES_PER_HOST)), host("b", "ready", load(4))];
+    expect(place(hosts, "new", undefined)).toEqual({ host: "b", sticky: false, scaleOut: false });
+  });
+
+  it("adds a host as soon as every ready host is near its engine cap, without waiting two minutes", () => {
+    const busy = Array.from({ length: HEADROOM_ENGINES }, (_, i) => `c${i}`);
+    const hosts = [host("a", "ready", load(2, busy))];
+    expect(nearlyFull(hosts)).toBe(true);
+    expect(planScale(hosts, 0, settings).add).toBe(1);
+    expect(planScale([host("a", "ready", load(2, ["c0"]))], 0, settings).add).toBe(0);
+  });
 });
+
