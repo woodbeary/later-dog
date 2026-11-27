@@ -61,6 +61,7 @@ async function open(dog) {
   launch(desktop, ["laterdog-websockify", `0.0.0.0:${desktop.wsPort}`, `localhost:${desktop.vncPort}`]);
   launch(desktop, asDog(display, ["xfwm4"]));
   launch(desktop, asDog(display, ["chromium", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--password-store=basic", "--disable-dev-shm-usage", "--hide-crash-restore-bubble", "--start-maximized", `--remote-debugging-port=${desktop.debugPort}`, "--remote-debugging-address=127.0.0.1"]));
+  await waitFor(["curl", "-sf", "-o", "/dev/null", `http://127.0.0.1:${desktop.debugPort}/json/version`], 20_000);
   return view(dog, desktop);
 }
 
@@ -201,11 +202,23 @@ function runOnDesktop(desktop, command, timeoutMs) {
   return new Promise((resolve) => {
     const own = join(PROFILES, desktop.dog, "home");
     const env = { HOME: existsSync(own) ? own : "/home/dog", USER: "dog", LOGNAME: "dog", PATH: process.env.PATH, DISPLAY: `:${desktop.display}`, NO_AT_BRIDGE: "1", LATERDOG_PAGE_CDP_PORT: String(desktop.debugPort) };
-    execFile("runuser", ["-u", "dog", "--", "env", ...Object.entries(env).map(([key, value]) => `${key}=${value}`), "bash", "-c", command],
-      { timeout: timeoutMs, maxBuffer: RUN_OUTPUT_CAP, killSignal: "SIGKILL" }, (error, stdout, stderr) => {
-        const exitCode = error ? (typeof error.code === "number" ? error.code : null) : 0;
-        resolve({ ok: !error, exitCode, stdout: String(stdout), stderr: String(stderr).slice(-4000) });
-      });
+    const child = spawn("runuser", ["-u", "dog", "--", "env", ...Object.entries(env).map(([key, value]) => `${key}=${value}`), "bash", "-c", command], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let done = false;
+    child.stdout.on("data", (chunk) => { if (stdout.length < RUN_OUTPUT_CAP) stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-4000); });
+    const finish = (exitCode) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      child.stdout.destroy();
+      child.stderr.destroy();
+      resolve({ ok: exitCode === 0, exitCode, stdout, stderr });
+    };
+    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} finish(null); }, timeoutMs);
+    child.on("exit", (code) => setTimeout(() => finish(code), 50));
+    child.on("error", () => finish(null));
   });
 }
 
