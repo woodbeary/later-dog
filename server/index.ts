@@ -185,7 +185,7 @@ import { connectorCallFromFrame, connectorRefusalText, connectorUnrecognizedText
 import { connectorCardText } from "./connector-card-text.ts";
 import { withMainDogRouting } from "./laterdog/main-dog-prompt.ts";
 import { MAIN_DOG_DELETE_REFUSAL, MAIN_DOG_REQUIRED } from "../shared/main-dog.ts";
-import { buildRecall } from "./recall.ts";
+import { buildRecall, buildRecallInBackground } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
 import { appendAboutMe, commitLearned, holdLearned, listPendingLearned, planLearned } from "./profile-learned.ts";
 import { canAccessTeam, canReachPeer, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, PEERS_PROMPT, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomRosterLine } from "./peer-roster.ts";
@@ -438,6 +438,7 @@ import {
   appendMemoryLog,
   appendMemoryLogInBackground,
   memorySystemPrompt,
+  syncMemoryIndexFrom,
   readMemoryFromSnapshot,
   memoryTrimmed,
   memorySourceLabel,
@@ -466,6 +467,7 @@ import {
   beginMemoryTurn,
   beginMemoryTurnInBackground,
   endMemoryTurnInBackground,
+  memorySnapshotFiles,
   flushAllMemoryJournals,
   journalMemoryWrite,
   type MemoryJournalEntry,
@@ -1982,6 +1984,44 @@ function autoRecallPrompt(bot: BotRecord, threadId: string, message: string, opt
       botId: bot.id,
       message,
       threadIds,
+      label: (id) => {
+        const room = roomByThread.get(id);
+        if (room) return `room ${JSON.stringify(room.name)}`;
+        const task = store.taskByThread(bot.id, id);
+        if (task) return `chat ${JSON.stringify(task.title)}`;
+        return id === bot.threadId ? "your main chat" : "an earlier chat";
+      },
+      author: (hit) => (hit.role === "user" ? hit.peer ?? opts.userName : hit.from ?? bot.name),
+    });
+    if (recalled) console.log(`auto-recall: ${bot.name} (${bot.id}) got ${recalled.notes} note and ${recalled.conversations} conversation passage(s) in ${threadId}`);
+    return recalled?.text ?? "";
+  } catch (err) {
+    console.warn(`auto-recall failed for ${bot.id}: ${(err as Error).message}`);
+    return "";
+  }
+}
+
+async function autoRecallInBackground(bot: BotRecord, threadId: string, message: string, opts: { conversations: boolean; userName: string; docs: ReadonlyMap<string, string> | null }): Promise<string> {
+  if (bot.memoryEnabled === false || !autoRecallEnabled(cfg)) return "";
+  const roomByThread = new Map<string, GroupRecord>();
+  if (opts.conversations) {
+    for (const group of store.groups) {
+      if (!group.memberIds.includes(bot.id) || !roomFeedsBot(group, bot)) continue;
+      roomByThread.set(group.threadId, group);
+      for (const task of group.tasks ?? []) roomByThread.set(task.threadId, group);
+    }
+  }
+  const threadIds = opts.conversations
+    ? [...new Set([bot.threadId, ...(bot.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])].filter((id) => id !== threadId)
+    : [];
+  try {
+    if (opts.docs) syncMemoryIndexFrom(bot.id, memorySnapshotFiles(bot.id));
+    const recalled = await buildRecallInBackground({
+      botId: bot.id,
+      message,
+      threadIds,
+      docs: opts.docs ?? undefined,
+      mayShow: (id) => !CLOUD_HOME || cloudOwnerOnlyThread(id),
       label: (id) => {
         const room = roomByThread.get(id);
         if (room) return `room ${JSON.stringify(room.name)}`;
@@ -9891,13 +9931,14 @@ async function startTurn(
       runningTurnEngines.set(threadId, instance);
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
-      const recalled = recallsThisTurn(dispatchContext, instance.driverKind) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: fromPerson,
+      const recallReach = recallsThisTurn(dispatchContext, instance.driverKind) ? "conversations"
+        : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? "notes" : null;
+      const recalled = recallReach ? await autoRecallInBackground(bot, threadId, resolvedImages.text, {
+        conversations: recallReach === "conversations" && fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
-      }) : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: false,
-        userName: cfg.profile?.name?.trim() || "User",
+        docs: memoryDocs,
       }) : "";
+      if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while recalling notes");
       turnShape.begin(threadId, {
         questions: threadId === bot.threadId && Date.now() - (bot.createdAt ?? 0) < DOG_SETUP_QUESTIONS_MS,
         replyFirst: fromPerson && !fromLocalTool,
