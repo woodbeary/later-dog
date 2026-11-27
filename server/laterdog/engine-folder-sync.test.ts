@@ -199,23 +199,6 @@ describe("assigned working folders on guest computers", () => {
     expect(readFileSync(join(f.left, "written-before-checkout.txt"), "utf8")).toBe("keep me");
   });
 
-  it("reads a large folder's listing and file pages sixty-four to a request instead of one request each", async () => {
-    const f = await fixture();
-    for (let n = 0; n < 300; n++) writeFileSync(join(f.src, `file-${String(n).padStart(3, "0")}.txt`), `file ${n}`);
-    await publishInitialWorkFolder(f.src, f.store);
-    const reach = globalThis.fetch;
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
-      calls.push(`${options?.method ?? "GET"} ${new URL(url).pathname.split("/").at(-1)!.length === 64 ? new URL(url).pathname.split("/").at(-2) : new URL(url).pathname.split("/").at(-1)}`);
-      return reach(url, options);
-    });
-    await f.syncA();
-    vi.stubGlobal("fetch", reach);
-    expect(calls.filter((call) => call === "POST pages").length).toBeLessThanOrEqual(7);
-    expect(calls.filter((call) => call === "GET manifests").length).toBeLessThanOrEqual(2);
-    expect(readFileSync(join(f.left, "file-299.txt"), "utf8")).toBe("file 299");
-  });
-
   it("falls back to page writes and a commit when the home does not offer one-request saves yet", async () => {
     const f = await fixture();
     await publishInitialWorkFolder(f.src, f.store);

@@ -21,6 +21,19 @@ let handle: DatabaseSync | null = null;
 let handlePath: string | null = null;
 let searchWorker: MessageSearchWorker | null = null;
 let recallWorker: MessageSearchWorker | null = null;
+let indexWorker: MessageSearchWorker | null = null;
+
+export interface MessageWrites {
+  message(threadId: string, id: string): void;
+  chat(threadId: string): void;
+  memory(botId: string, path: string): void;
+}
+
+let writes: MessageWrites | null = null;
+
+export function watchMessageWrites(next: MessageWrites | null): void {
+  writes = next;
+}
 let closingSearch: Promise<void> = Promise.resolve();
 
 function open(): DatabaseSync {
@@ -59,6 +72,18 @@ function open(): DatabaseSync {
       payload TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS chat_followups_receipt ON chat_followups(kind, owner_id, thread_id, send_id);
+    CREATE TABLE IF NOT EXISTS search_index_outbox (
+      kind TEXT NOT NULL,
+      a TEXT NOT NULL,
+      b TEXT NOT NULL,
+      PRIMARY KEY (kind, a, b)
+    );
+    CREATE TABLE IF NOT EXISTS search_index_coverage (
+      home TEXT NOT NULL,
+      chat TEXT NOT NULL,
+      target TEXT NOT NULL,
+      PRIMARY KEY (home, chat, target)
+    );
     CREATE TABLE IF NOT EXISTS command_receipts (
       kind TEXT NOT NULL,
       key TEXT NOT NULL,
@@ -384,6 +409,7 @@ export function insertMessage(threadId: string, message: Message): void {
   db()
     .prepare(UPSERT_MESSAGE)
     .run(threadId, message.id, message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message));
+  writes?.message(threadId, message.id);
 }
 
 export function importThread(threadId: string, messages: Message[], activeLeafId: string | null): void {
@@ -414,6 +440,7 @@ export function updateMessage(threadId: string, message: Message): void {
   writeMessage(message, () => db()
     .prepare("UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
     .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id));
+  writes?.message(threadId, message.id);
 }
 
 export function openPermissionCards(): Array<{ threadId: string; message: Message }> {
@@ -480,6 +507,7 @@ export function deleteThread(threadId: string): void {
     connection.prepare("DELETE FROM messages WHERE thread_id = ?").run(threadId);
     connection.prepare("DELETE FROM thread_state WHERE thread_id = ?").run(threadId);
   });
+  writes?.chat(threadId);
 }
 
 export const nativeRunDatabase = {
@@ -766,11 +794,53 @@ export function indexMemoryFile(botId: string, path: string, text: string, stat:
         "ON CONFLICT(bot_id, path) DO UPDATE SET text = excluded.text, mtime_ms = excluded.mtime_ms, bytes = excluded.bytes",
     )
     .run(botId, path, text, Math.trunc(stat.mtimeMs), stat.bytes);
+  writes?.memory(botId, path);
 }
 
 export function removeMemoryFile(botId: string, path: string): void {
   db().prepare("DELETE FROM memory_files WHERE bot_id = ? AND path = ?").run(botId, path);
+  writes?.memory(botId, path);
 }
+
+export function readForIndex(reads: ReadQuery[]): Promise<unknown[][]> {
+  if (!reads.length) return Promise.resolve([]);
+  db();
+  indexWorker ??= new MessageSearchWorker(DB_FILE(), 10_000);
+  return indexWorker.read(reads);
+}
+
+export type IndexOutboxKey = { kind: "message"; chat: string; id: string } | { kind: "chat"; chat: string } | { kind: "memory"; dog: string; path: string };
+
+function outboxRow(key: IndexOutboxKey): [string, string, string] {
+  if (key.kind === "message") return ["m", key.chat, key.id];
+  if (key.kind === "chat") return ["c", key.chat, ""];
+  return ["f", key.dog, key.path];
+}
+
+export const indexOutbox = {
+  put: (key: IndexOutboxKey): void => void db().prepare("INSERT OR IGNORE INTO search_index_outbox (kind, a, b) VALUES (?, ?, ?)").run(...outboxRow(key)),
+  all: (): IndexOutboxKey[] => (db().prepare("SELECT kind, a, b FROM search_index_outbox").all() as Array<{ kind: string; a: string; b: string }>)
+    .map((row) => row.kind === "m" ? { kind: "message" as const, chat: row.a, id: row.b } : row.kind === "c" ? { kind: "chat" as const, chat: row.a } : { kind: "memory" as const, dog: row.a, path: row.b }),
+  remove: (keys: readonly IndexOutboxKey[]): void => {
+    if (!keys.length) return;
+    transaction((database) => {
+      const remove = database.prepare("DELETE FROM search_index_outbox WHERE kind = ? AND a = ? AND b = ?");
+      for (const key of keys) remove.run(...outboxRow(key));
+    });
+  },
+  clear: (): void => void db().prepare("DELETE FROM search_index_outbox").run(),
+};
+
+export const indexCoverageTable = {
+  read: (home: string): Array<{ chat: string; target: string }> =>
+    db().prepare("SELECT chat, target FROM search_index_coverage WHERE home = ?").all(home) as Array<{ chat: string; target: string }>,
+  add: (home: string, chat: string, targets: readonly string[]): void => transaction((database) => {
+    const insert = database.prepare("INSERT OR IGNORE INTO search_index_coverage (home, chat, target) VALUES (?, ?, ?)");
+    for (const target of targets) insert.run(home, chat, target);
+  }),
+  drop: (home: string, chat: string): void => void db().prepare("DELETE FROM search_index_coverage WHERE home = ? AND chat = ?").run(home, chat),
+  clear: (home: string): void => void db().prepare("DELETE FROM search_index_coverage WHERE home = ?").run(home),
+};
 
 export function indexedMemoryFiles(botId: string): MemoryFileStat[] {
   const rows = db()
@@ -817,9 +887,10 @@ export async function recallMemoryOffThread(query: string, botIds: readonly stri
 }
 
 export async function closeMessageSearch(): Promise<void> {
-  const workers = [searchWorker, recallWorker].filter((worker) => worker !== null);
+  const workers = [searchWorker, recallWorker, indexWorker].filter((worker) => worker !== null);
   searchWorker = null;
   recallWorker = null;
+  indexWorker = null;
   if (workers.length) closingSearch = Promise.all([closingSearch, ...workers.map((worker) => worker.close())]).then(() => {});
   await closingSearch;
 }

@@ -161,9 +161,20 @@ export function buildRecall(input: RecallInput): RecallResult | null {
   return renderRecall([...notes, ...conversationPassages(input, query)]);
 }
 
+export interface RecallLookups {
+  memory(query: string, botId: string, limit: number): Promise<MemoryHit[]>;
+  messages(query: string, threadIds: readonly string[], limit: number): Promise<RecallHit[]>;
+}
+
+const offThreadLookups: RecallLookups = {
+  memory: async (query, botId, limit) => (await recallMemoryOffThread(query, [botId], limit, "any"))[0] ?? [],
+  messages: (query, threadIds, limit) => recallMessagesOffThread(query, threadIds, limit, undefined, "any"),
+};
+
 export interface BackgroundRecallInput extends RecallInput {
   docs?: ReadonlyMap<string, string>;
   mayShow?: (threadId: string) => boolean;
+  lookups?: RecallLookups;
 }
 
 export function topicPassagesFrom(docs: ReadonlyMap<string, string>, query: string): RecallPassage[] {
@@ -188,11 +199,12 @@ export async function buildRecallInBackground(input: BackgroundRecallInput): Pro
   const query = recallQuery(input.message);
   if (!query) return null;
   const topics = input.docs ? topicPassagesFrom(input.docs, query) : [];
+  const lookups = input.lookups ?? offThreadLookups;
   const named = new Set(topics.map((passage) => passage.label));
   const [memoryHits, conversationHits] = await Promise.all([
-    recallMemoryOffThread(query, [input.botId], MEMORY_HITS * 3, "any").then((found) => found[0] ?? []).catch((): MemoryHit[] => []),
+    lookups.memory(query, input.botId, MEMORY_HITS * 3).catch((): MemoryHit[] => []),
     input.threadIds.length
-      ? recallMessagesOffThread(query, input.threadIds, CONVERSATION_HITS * 6, undefined, "any").catch((): RecallHit[] => [])
+      ? lookups.messages(query, input.threadIds, CONVERSATION_HITS * 6).catch((): RecallHit[] => [])
       : Promise.resolve<RecallHit[]>([]),
   ]);
   const memory = memoryHits
