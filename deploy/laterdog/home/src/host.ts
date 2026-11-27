@@ -14,6 +14,7 @@ import { handleOwnerEmail, type OwnerMail } from "./email.ts";
 import { GOOGLE_HOST, handleGoogle, type GoogleAccounts } from "./google.ts";
 import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
 import { homeNamespace, largeHomeAccounts, otherSize, type HomeSize } from "./size.ts";
+import { fetchThroughRestart } from "./connect-retry.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
@@ -561,7 +562,7 @@ export class CloudHomeHost extends Container<Env> {
       }
       const kind = deskKind(request);
       const again = await this.sentAgain(request);
-      const response = wakes ? await super.fetch(request) : await this.quietly(request);
+      const response = await fetchThroughRestart((attempt) => wakes ? super.fetch(attempt) : this.quietly(attempt), request);
       if (again && response.ok) await this.forgetDropped(again);
       if (credential && key) this.learn(record, credential, key, response);
       return kind ? this.keepAnswer(record, kind, key, request, response) : response;
