@@ -9,6 +9,7 @@ import { redactSecretsInText } from "./redact.ts";
 import {
   listMemoryLogs, listMemoryTopics, readMemoryFile, readMemoryLog, readMemoryTopic,
   writeMemoryFile, writeMemoryLog, writeMemoryTopic,
+  trackMemoryWrite,
 } from "./workspace.ts";
 
 function memoryFor(botId: string): TeamBackup["bots"][number]["memory"] {
@@ -25,10 +26,10 @@ function memoryFor(botId: string): TeamBackup["bots"][number]["memory"] {
   return { file, topics, logs };
 }
 
-function restoreMemory(botId: string, memory: NonNullable<TeamBackup["bots"][number]["memory"]>): void {
-  if (memory.file) writeMemoryFile(botId, memory.file);
-  for (const topic of memory.topics) writeMemoryTopic(botId, topic.name, topic.text);
-  for (const log of memory.logs) writeMemoryLog(botId, log.name, log.text);
+async function restoreMemory(botId: string, memory: NonNullable<TeamBackup["bots"][number]["memory"]>): Promise<void> {
+  if (memory.file) await writeMemoryFile(botId, memory.file);
+  for (const topic of memory.topics) await writeMemoryTopic(botId, topic.name, topic.text);
+  for (const log of memory.logs) await writeMemoryLog(botId, log.name, log.text);
 }
 
 function messageText(message: Message): string {
@@ -166,7 +167,7 @@ export function importTeamBackup(store: Store, routines: RoutineManager, input: 
       botIds.set(source.key, bot.id);
       store.patchBot(bot.id, { composio: false, computer: "off", browser: false, approvalMode: "ask", autoApprove: false,
         connectorTools: {}, toolScope: source.toolScope, hidden: source.hidden, playbooks: source.playbooks });
-      if (source.memory) restoreMemory(bot.id, source.memory);
+      if (source.memory) trackMemoryWrite(restoreMemory(bot.id, source.memory), `team backup: memory for ${bot.id} was not restored`);
     }
     for (const source of backup.bots) {
       const bot = store.bot(botIds.get(source.key)!)!;

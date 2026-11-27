@@ -11,12 +11,12 @@ import { applyTidy, contradictionBudget, contradictionCandidates, parseContradic
 import { createMemoryUpkeep, NO_TEXT_ENGINE, type UpkeepBot, type UpkeepEngine } from "./memory-upkeep.ts";
 import { closeMessageDb } from "./message-db.ts";
 import { aboutMeLine, appendAboutMe, commitLearned, listLearnedFacts, planLearned, removeLearned } from "./profile-learned.ts";
-import { ensureWorkspace, readMemoryTopic, workspaceDir, writeMemoryFile, writeMemoryTopic, WORKSPACES_DIR } from "./workspace.ts";
+import { ensureWorkspaceReady, readMemoryTopic, workspaceDir, writeMemoryFile, writeMemoryTopic, WORKSPACES_DIR } from "./workspace.ts";
 
 const TODAY = "2026-09-25";
 
 describe("capture parsing", () => {
-  it("keeps valid facts, drops junk, low confidence, past untils and instructions", () => {
+  it("keeps valid facts, drops junk, low confidence, past untils and instructions", async () => {
     const answer = "```json\n" + JSON.stringify([
       { text: "The person is vegetarian.", kind: "preference", aboutUser: true, confidence: 0.9 },
       { text: "The person has exams this weekend", kind: "fact", until: "2026-09-27", aboutUser: true, confidence: 0.9 },
@@ -36,7 +36,7 @@ describe("capture parsing", () => {
     expect(parseCandidates('{"facts": [{"text": "x", "kind": "fact"}]}', TODAY)).toHaveLength(1);
   });
 
-  it("drops what the notebook already holds, but never a fact that differs by a sign", () => {
+  it("drops what the notebook already holds, but never a fact that differs by a sign", async () => {
     const notebook = "- 2026-09-10 · from chat \"A\" · Balance is -10\n- 2026-09-10 · The person is vegetarian\n";
     const fresh = newCandidates([
       { text: "Balance is 10", kind: "fact", aboutUser: false },
@@ -48,14 +48,14 @@ describe("capture parsing", () => {
     expect(fresh.map((c) => c.text)).toEqual(["Balance is 10", "Uses C++"]);
   });
 
-  it("names both speakers and today in the prompt", () => {
+  it("names both speakers and today in the prompt", async () => {
     const prompt = capturePrompt({ botName: "Scout", turns: [{ person: "I'm vegetarian", bot: "Noted." }], notebook: "", today: TODAY });
     expect(prompt).toContain("Today is Friday, 2026-09-25");
     expect(prompt).toContain("Person: I'm vegetarian\nScout: Noted.");
     expect(prompt).toContain("(empty)");
   });
 
-  it("buffers turns per thread and flushes at the count", () => {
+  it("buffers turns per thread and flushes at the count", async () => {
     const flushed: number[] = [];
     const buffer = new CaptureBuffer({ quietMs: () => 60_000, maxTurns: 2, onFlush: (batch) => flushed.push(batch.turns.length) });
     buffer.add("b", "t1", { person: "a", bot: "b" });
@@ -80,7 +80,7 @@ describe("tidy plan", () => {
     "hand-written note, never touched",
   ].join("\n");
 
-  it("archives expired entries and merges exact duplicates, keeping signed values apart", () => {
+  it("archives expired entries and merges exact duplicates, keeping signed values apart", async () => {
     const plan = planTidy(notebook, TODAY);
     expect(plan.expired.map((e) => e.body)).toEqual(["Exams this weekend"]);
     expect(plan.duplicates.map((e) => e.date)).toEqual(["2026-09-04"]);
@@ -94,7 +94,7 @@ describe("tidy plan", () => {
     expect(archived).toEqual(["- 2026-09-01 · Exams this weekend · until 2026-09-07 · expired 2026-09-25"]);
   });
 
-  it("changes no contradiction at all below five entries, and at most a fifth above", () => {
+  it("changes no contradiction at all below five entries, and at most a fifth above", async () => {
     expect(contradictionBudget(1)).toBe(0);
     expect(contradictionBudget(4)).toBe(0);
     expect(contradictionBudget(5)).toBe(1);
@@ -105,7 +105,7 @@ describe("tidy plan", () => {
     expect(plan.deferred).toBe(1);
   });
 
-  it("strikes the loser of a contradiction with a date, never deletes it", () => {
+  it("strikes the loser of a contradiction with a date, never deletes it", async () => {
     const text = ["- 2026-09-01 · Office is in Pune", "- 2026-09-02 · Likes tea", "- 2026-09-03 · Has a dog", "- 2026-09-04 · Drives a Honda", "- 2026-09-10 · Office is in Mumbai"].join("\n");
     const candidates = contradictionCandidates(text, TODAY);
     expect(candidates).toHaveLength(5);
@@ -117,7 +117,7 @@ describe("tidy plan", () => {
     expect(next).toContain("Office is in Mumbai");
   });
 
-  it("keeps the still-true part of a line that held two facts", () => {
+  it("keeps the still-true part of a line that held two facts", async () => {
     const text = ["- 2026-09-01 · Lives in Pune and prefers short replies", "- 2026-09-02 · Likes tea", "- 2026-09-03 · Has a dog", "- 2026-09-04 · Drives a Honda", "- 2026-09-10 · Moved to Mumbai"].join("\n");
     const pairs = parseContradictions('{"pairs":[{"a":0,"b":4,"keep":"b","remainder":"Prefers short replies"}]}', 5);
     const next = applyTidy(text, planTidy(text, TODAY, pairs), TODAY).text.split("\n");
@@ -125,7 +125,7 @@ describe("tidy plan", () => {
     expect(next[1]).toBe("- 2026-09-25 · from tidy-up · Prefers short replies");
   });
 
-  it("ignores malformed or out-of-range contradiction answers", () => {
+  it("ignores malformed or out-of-range contradiction answers", async () => {
     expect(parseContradictions("nope", 3)).toEqual([]);
     expect(parseContradictions('{"pairs":[{"a":0,"b":0,"keep":"a"},{"a":0,"b":9,"keep":"a"},{"a":1,"b":2,"keep":"x"},{"a":2,"b":1,"keep":"b"},{"a":1,"b":2,"keep":"a"}]}', 3)).toEqual([
       { a: 2, b: 1, keep: "b" },
@@ -134,9 +134,9 @@ describe("tidy plan", () => {
 });
 
 describe("About me, learned on its own", () => {
-  beforeEach(() => rmSync(DATA_DIR, { recursive: true, force: true }));
+  beforeEach(async () => rmSync(DATA_DIR, { recursive: true, force: true }));
 
-  it("adds each new fact once, skips what About me says, and never re-adds a removed one", () => {
+  it("adds each new fact once, skips what About me says, and never re-adds a removed one", async () => {
     const from = { botId: "b1", botName: "Scout" };
     const planned = planLearned(from, ["Is vegetarian", "Lives in Pune", "Is vegetarian"], "- 2026-09-01 · learned by Scout · Lives in Pune", TODAY);
     expect(planned.map((f) => f.line)).toEqual(["- 2026-09-25 · learned by Scout · Is vegetarian"]);
@@ -150,7 +150,7 @@ describe("About me, learned on its own", () => {
     expect(planLearned(from, ["api_key: sk-abcdefghijklmnopqrstuvwxyz123456"], "", TODAY)[0]?.text).not.toContain("sk-abcdefghijklmnop");
   });
 
-  it("formats and bounds the About me line", () => {
+  it("formats and bounds the About me line", async () => {
     expect(aboutMeLine({ text: "Is vegetarian", botName: "Scout · Bot" }, TODAY)).toBe("- 2026-09-25 · learned by Scout - Bot · Is vegetarian");
     expect(appendAboutMe("I run a studio.\n\n", ["- x"])).toBe("I run a studio.\n- x");
     expect(appendAboutMe("", ["- x"])).toBe("- x");
@@ -159,7 +159,7 @@ describe("About me, learned on its own", () => {
 });
 
 describe("organizing MEMORY.md", () => {
-  it("parses moves defensively and never moves the same line twice", () => {
+  it("parses moves defensively and never moves the same line twice", async () => {
     const text = "- 2026-09-26 · A\n- 2026-09-26 · B\n- 2026-09-20 · Trip · until 2026-09-21\n";
     const candidates = organizeCandidates(text, TODAY, new Set(["A"]));
     expect(candidates.map((e) => e.body)).toEqual(["B"]);
@@ -176,7 +176,7 @@ describe("organizing MEMORY.md", () => {
 });
 
 describe("topic files the bot keeps", () => {
-  it("names a topic safely and never as the archive", () => {
+  it("names a topic safely and never as the archive", async () => {
     expect(topicFileName("Food & Drink")).toBe("food-drink.md");
     expect(topicFileName("asha.md")).toBe("asha.md");
     expect(topicFileName("archive")).toBeNull();
@@ -184,7 +184,7 @@ describe("topic files the bot keeps", () => {
     expect(topicFileName(42)).toBeNull();
   });
 
-  it("creates a topic with a header, and merges new aliases into an existing one", () => {
+  it("creates a topic with a header, and merges new aliases into an existing one", async () => {
     const created = mergeTopicText(null, { title: "food", aliases: ["restaurants", "dinner"], lines: ["- 2026-09-25 · Loves pasta"] });
     expect(created).toBe("---\ntitle: food\naliases: [restaurants, dinner]\n---\n\n- 2026-09-25 · Loves pasta\n");
     const merged = mergeTopicText(created, { title: "food", aliases: ["Dinner", "lunch"], lines: ["- 2026-09-26 · Hates olives"] });
@@ -221,7 +221,7 @@ describe("the upkeep loop", () => {
     now: () => clock,
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     closeMessageDb();
     rmSync(DATA_DIR, { recursive: true, force: true });
     rmSync(WORKSPACES_DIR, { recursive: true, force: true });
@@ -248,7 +248,7 @@ describe("the upkeep loop", () => {
   const memory = () => readFileSync(join(workspaceDir(BOT.id), "MEMORY.md"), "utf8");
 
   it("captures new facts as dated, sourced entries, journaled as upkeep, and adds About me lines", async () => {
-    ensureWorkspace(BOT.id);
+    await ensureWorkspaceReady(BOT.id);
     answers.push(JSON.stringify([
       { text: "The person is vegetarian", kind: "preference", aboutUser: true, confidence: 0.9 },
       { text: "The person has exams this weekend", kind: "fact", until: "2026-09-27", confidence: 0.9 },
@@ -264,7 +264,7 @@ describe("the upkeep loop", () => {
 
   it("captures onto a full MEMORY.md: every fact lands, the oldest entries move to the archive, both journaled", async () => {
     const old = Array.from({ length: 200 }, (_, i) => `- 2026-08-01 · old fact ${i}`);
-    writeMemoryFile(BOT.id, `${old.join("\n")}\n`);
+    await writeMemoryFile(BOT.id, `${old.join("\n")}\n`);
     answers.push(JSON.stringify([
       { text: "The staging host is kestrel", kind: "fact", confidence: 0.9 },
       { text: "Deploys go out on Tuesdays", kind: "fact", confidence: 0.9 },
@@ -281,8 +281,8 @@ describe("the upkeep loop", () => {
   });
 
   it("adds to About me a fact the notebook already holds, without appending it again", async () => {
-    ensureWorkspace(BOT.id);
-    writeMemoryFile(BOT.id, "- 2026-09-25 · The user's company is called Northwind Studio.\n");
+    await ensureWorkspaceReady(BOT.id);
+    await writeMemoryFile(BOT.id, "- 2026-09-25 · The user's company is called Northwind Studio.\n");
     answers.push(JSON.stringify([{ text: "The user's company is Northwind Studio", kind: "fact", aboutUser: true, noted: true }]));
     const report = await upkeep().capture({ botId: BOT.id, threadId: "t1", turns: [{ person: "My company is Northwind Studio", bot: "Noted." }] });
     expect(report).toMatchObject({ added: 0, aboutMe: 1 });
@@ -290,7 +290,7 @@ describe("the upkeep loop", () => {
   });
 
   it("files detail into a topic it creates, with other words for it", async () => {
-    ensureWorkspace(BOT.id);
+    await ensureWorkspaceReady(BOT.id);
     answers.push(JSON.stringify([
       { text: "The person loves pasta", kind: "preference", topic: "Food", topicAliases: ["restaurants", "dinner"] },
       { text: "Sister Asha lives in Delhi", kind: "fact", topic: "family", topicAliases: ["sister", "asha"] },
@@ -326,8 +326,8 @@ describe("the upkeep loop", () => {
   });
 
   it("tidies: archives the expired, merges duplicates, strikes a contradiction, all undoable rows", async () => {
-    ensureWorkspace(BOT.id);
-    writeMemoryFile(BOT.id, [
+    await ensureWorkspaceReady(BOT.id);
+    await writeMemoryFile(BOT.id, [
       "- 2026-09-01 · Exams this weekend · until 2026-09-07",
       "- 2026-09-02 · Office is in Pune",
       "- 2026-09-03 · Likes tea",
@@ -354,14 +354,14 @@ describe("the upkeep loop", () => {
   });
 
   it("moves detail the bot wrote itself out of MEMORY.md into topics, keeping core facts", async () => {
-    ensureWorkspace(BOT.id);
-    writeMemoryFile(BOT.id, [
+    await ensureWorkspaceReady(BOT.id);
+    await writeMemoryFile(BOT.id, [
       "- 2026-09-26 · from chat \"Food\" · The user is allergic to peanuts.",
       "- 2026-09-26 · from chat \"Food\" · The user's sister Asha is a doctor in Delhi.",
       "- 2026-09-26 · from chat \"Food\" · The user loves Irani cafes.",
       "",
     ].join("\n"));
-    writeMemoryTopic(BOT.id, "Dining.md", "# Dining\n\n- Loves pasta\n");
+    await writeMemoryTopic(BOT.id, "Dining.md", "# Dining\n\n- Loves pasta\n");
     organizeAnswer = '{"moves":[{"i":0,"topic":"Asha","aliases":["sister","family"]},{"i":1,"topic":"dining","aliases":["restaurants"]}]}';
     const report = await upkeep().tidy(BOT.id);
     expect(report.organized).toBe(2);
@@ -384,8 +384,8 @@ describe("the upkeep loop", () => {
   });
 
   it("organizes right after a capture, whoever wrote the line", async () => {
-    ensureWorkspace(BOT.id);
-    writeMemoryFile(BOT.id, "- 2026-09-26 · The client Acme wants logo revisions.\n");
+    await ensureWorkspaceReady(BOT.id);
+    await writeMemoryFile(BOT.id, "- 2026-09-26 · The client Acme wants logo revisions.\n");
     organizeAnswer = '{"moves":[{"i":0,"topic":"acme","aliases":["client"]}]}';
     const report = await upkeep().capture({ botId: BOT.id, threadId: "t1", turns: [{ person: "hi", bot: "hello" }] });
     expect(report.organized).toBe(1);
@@ -393,7 +393,7 @@ describe("the upkeep loop", () => {
   });
 
   it("retries organization after malformed output instead of remembering every entry as core", async () => {
-    writeMemoryFile(BOT.id, "- 2026-09-25 · Acme needs a logo revision.\n");
+    await writeMemoryFile(BOT.id, "- 2026-09-25 · Acme needs a logo revision.\n");
     organizeAnswer = "temporary provider error";
     const service = upkeep();
     await service.tidy(BOT.id);
@@ -403,14 +403,14 @@ describe("the upkeep loop", () => {
   });
 
   it("organizes Unicode topic names through the same read/write gate", async () => {
-    writeMemoryFile(BOT.id, "- 2026-09-25 · Enjoys quiet cafés.\n");
+    await writeMemoryFile(BOT.id, "- 2026-09-25 · Enjoys quiet cafés.\n");
     organizeAnswer = '{"moves":[{"i":0,"topic":"café"}]}';
     expect((await upkeep().tidy(BOT.id)).organized).toBe(1);
     expect(readMemoryTopic(BOT.id, "café.md")).toContain("Enjoys quiet cafés.");
   });
 
   it("keeps failed topic moves in the notebook and retries them without duplicating successful moves", async () => {
-    writeMemoryFile(BOT.id, "- 2026-09-25 · Acme needs a logo.\n- 2026-09-25 · Beta needs a website.\n");
+    await writeMemoryFile(BOT.id, "- 2026-09-25 · Acme needs a logo.\n- 2026-09-25 · Beta needs a website.\n");
     const blocked = join(workspaceDir(BOT.id), "memory", "beta.md");
     mkdirSync(blocked);
     organizeAnswer = '{"moves":[{"i":0,"topic":"acme"},{"i":1,"topic":"beta"}]}';
@@ -427,7 +427,7 @@ describe("the upkeep loop", () => {
 
   it("does not tidy after upkeep is disabled during a model call", async () => {
     const original = "- 2026-09-25 · Likes tea\n- 2026-09-25 · Likes tea\n";
-    writeMemoryFile(BOT.id, original);
+    await writeMemoryFile(BOT.id, original);
     engine = { generateText: async () => {
       BOT.memoryUpkeep = false;
       return '{"moves":[]}';
@@ -437,7 +437,7 @@ describe("the upkeep loop", () => {
   });
 
   it("reconsiders moves beyond the per-pass limit instead of marking them core", async () => {
-    writeMemoryFile(BOT.id, Array.from({ length: MAX_MOVES + 1 }, (_, i) => `- 2026-09-25 · Project detail ${i}`).join("\n"));
+    await writeMemoryFile(BOT.id, Array.from({ length: MAX_MOVES + 1 }, (_, i) => `- 2026-09-25 · Project detail ${i}`).join("\n"));
     organizeAnswer = JSON.stringify({ moves: Array.from({ length: MAX_MOVES + 1 }, (_, i) => ({ i, topic: "project" })) });
     const service = upkeep();
     expect((await service.tidy(BOT.id)).organized).toBe(MAX_MOVES);
@@ -447,8 +447,8 @@ describe("the upkeep loop", () => {
   });
 
   it("tidies topic files too: expired lines to the archive, duplicates merged", async () => {
-    ensureWorkspace(BOT.id);
-    writeMemoryTopic(BOT.id, "travel.md", "---\ntitle: travel\n---\n\n- 2026-09-01 · In Goa · until 2026-09-07\n- 2026-09-02 · Likes window seats\n- 2026-09-03 · Likes window seats\n");
+    await ensureWorkspaceReady(BOT.id);
+    await writeMemoryTopic(BOT.id, "travel.md", "---\ntitle: travel\n---\n\n- 2026-09-01 · In Goa · until 2026-09-07\n- 2026-09-02 · Likes window seats\n- 2026-09-03 · Likes window seats\n");
     const report = await upkeep().tidy(BOT.id);
     expect(report).toMatchObject({ expired: 1, duplicates: 1 });
     const travel = readMemoryTopic(BOT.id, "travel.md")!;
@@ -458,8 +458,8 @@ describe("the upkeep loop", () => {
   });
 
   it("skips the model step on small notebooks and on engines without a text call", async () => {
-    ensureWorkspace(BOT.id);
-    writeMemoryFile(BOT.id, "- 2026-09-02 · Balance is -10\n- 2026-09-03 · Balance is 10\n");
+    await ensureWorkspaceReady(BOT.id);
+    await writeMemoryFile(BOT.id, "- 2026-09-02 · Balance is -10\n- 2026-09-03 · Balance is 10\n");
     const report = await upkeep().tidy(BOT.id);
     expect(report.contradictionsChecked).toBe(false);
     expect(prompts).toEqual([]);
@@ -470,8 +470,8 @@ describe("the upkeep loop", () => {
   });
 
   it("runs the nightly tidy once a day after the hour, never while the bot is busy", async () => {
-    ensureWorkspace(BOT.id);
-    writeMemoryFile(BOT.id, "- 2026-09-01 · Trip · until 2026-09-02\n");
+    await ensureWorkspaceReady(BOT.id);
+    await writeMemoryFile(BOT.id, "- 2026-09-01 · Trip · until 2026-09-02\n");
     const loop = upkeep();
     clock = new Date(2026, 8, 25, 2, 0);
     await loop.tick();

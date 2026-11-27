@@ -247,14 +247,14 @@ describe("memory_update", () => {
     api: async () => ({}),
     apiResponse: async (_path, init) => {
       const body = JSON.parse(String(init?.body));
-      const result = updateMemory(botId, { action: body.action, text: body.text, oldText: body.oldText }, { source: 'chat "Turn"' });
+      const result = await updateMemory(botId, { action: body.action, text: body.text, oldText: body.oldText }, { source: 'chat "Turn"' });
       return { ok: result.ok, status: result.ok ? 200 : result.code === "conflict" ? 409 : 400, body: result };
     },
   });
 
   it("saves every note in a turn on a full file, saying what moved to the archive, and never closes the tool", async () => {
     const bot = "bot-memory-full";
-    writeMemoryFile(bot, Array.from({ length: MEMORY_MAX_LINES }, (_, i) => `- 2026-09-01 · old ${i}\n`).join(""));
+    await writeMemoryFile(bot, Array.from({ length: MEMORY_MAX_LINES }, (_, i) => `- 2026-09-01 · old ${i}\n`).join(""));
     const ctx = context({ botId: bot, client: harness(bot) });
     for (let i = 0; i < 4; i += 1) {
       const stale = await callTool("memory_update", { action: "remove", old_text: "no such passage" }, ctx);
@@ -275,7 +275,7 @@ describe("memory_update", () => {
     const bot = "bot-memory-grown";
     const grown = Array.from({ length: 600 }, (_, i) => `- 2026-09-01 · old ${i}`);
     grown[0] = "- 2026-08-01 · Deploy command:\n  ```sh\n  railway up\n  ```";
-    writeMemoryFile(bot, `${grown.join("\n")}\n`);
+    await writeMemoryFile(bot, `${grown.join("\n")}\n`);
     const result = await callTool("memory_update", { action: "append", text: "one more" }, context({ botId: bot, client: harness(bot) }));
     expect(result.isError).toBeFalsy();
     expect(result.text.split("\nTo stay")[1]).toBe(
@@ -287,7 +287,7 @@ describe("memory_update", () => {
 
   it("tells the bot plainly when hand-written lines fill what loads", async () => {
     const bot = "bot-memory-hand";
-    writeMemoryFile(bot, Array.from({ length: MEMORY_MAX_LINES }, (_, i) => `- note ${i}\n`).join(""));
+    await writeMemoryFile(bot, Array.from({ length: MEMORY_MAX_LINES }, (_, i) => `- note ${i}\n`).join(""));
     const result = await callTool("memory_update", { action: "append", text: "kept anyway" }, context({ botId: bot, client: harness(bot) }));
     expect(result.isError).toBeFalsy();
     expect(result.text).toMatch(/^Memory updated\. Entry: - \d{4}-\d{2}-\d{2} · from chat "Turn" · kept anyway\nSaved, but the lines that never move out of MEMORY\.md \(hand-written ones, health and safety facts\) fill what loads each session, so the newest entries do not load\. Ask the person to trim MEMORY\.md in Settings\.$/);

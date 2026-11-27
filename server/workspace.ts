@@ -1,8 +1,7 @@
-import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { lstat, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { writeFileAtomic } from "./atomic.ts";
 import { alwaysCore, isExpired, isMemoryDate, parseMemoryEntries, untilMark, withoutExpired, type MemoryEntryLine } from "./memory-entries.ts";
 import { parseTopicHeader, readTopicHead, renderTopicIndex, TOPIC_HEAD_BYTES } from "./memory-topics.ts";
 import { indexMemoryFile, indexedMemoryFiles, recallMemory, removeMemoryFile, type MemoryHit, type SearchMode } from "./message-db.ts";
@@ -10,6 +9,7 @@ import { redactSecretsInText } from "./redact.ts";
 import { isRecallMemoryFile } from "./laterdog/cross-dog-recall.ts";
 
 import { DATA_DIR } from "./config.ts";
+import { createMountGuard, mountFiles } from "./laterdog/mount-guard.ts";
 
 export const WORKSPACES_DIR = join(DATA_DIR, "workspaces");
 export const TASK_WORKSPACES_DIR = join(DATA_DIR, "task-workspaces");
@@ -25,9 +25,12 @@ export function taskWorkspacePath(botId: string, threadId: string): string {
   return join(TASK_WORKSPACES_DIR, botId, threadId);
 }
 
-export function ensureTaskWorkspace(botId: string, threadId: string): string {
+export const mountGuard = createMountGuard({ roots: () => [WORKSPACES_DIR, TASK_WORKSPACES_DIR] });
+export const dogFiles = mountFiles(mountGuard);
+
+export async function ensureTaskWorkspaceReady(botId: string, threadId: string): Promise<string> {
   const dir = taskWorkspacePath(botId, threadId);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  await dogFiles.mkdir(dir);
   return dir;
 }
 
@@ -59,12 +62,22 @@ export function workspacePathExists(path: string): boolean {
   return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
 }
 
-export function ensureWorkspace(botId: string): string {
+export async function ensureWorkspaceReady(botId: string): Promise<string> {
   const dir = join(WORKSPACES_DIR, botId);
-  mkdirSync(join(dir, "memory"), { recursive: true, mode: 0o700 });
+  await dogFiles.mkdir(join(dir, "memory"));
   const memoryFile = join(dir, "MEMORY.md");
-  if (!workspacePathExists(memoryFile)) writeFileAtomic(memoryFile, MEMORY_SEED, { mode: 0o600 });
+  if (!(await dogFiles.lstat(memoryFile))) await dogFiles.writeAtomic(memoryFile, MEMORY_SEED);
   return dir;
+}
+
+async function readDogText(path: string): Promise<string> {
+  if (regularMemoryFilesOnly) {
+    const found = await dogFiles.lstat(path);
+    if (found && !found.isFile()) throw Object.assign(new Error(`not a regular file: ${path}`), { code: "EINVAL" });
+  }
+  const text = await dogFiles.readText(path);
+  if (text === null) throw Object.assign(new Error(`no such file: ${path}`), { code: "ENOENT" });
+  return text;
 }
 
 export function workspaceDir(botId: string): string {
@@ -181,17 +194,17 @@ export function readMemoryFile(botId: string) {
   return { text: raw, truncated: memoryOverBudget(raw) };
 }
 
-export function writeMemoryFile(botId: string, text: string): void {
-  ensureWorkspace(botId);
-  writeFileAtomic(join(workspaceDir(botId), "MEMORY.md"), redactSecretsInText(text), { mode: 0o600 });
-  indexWrittenMemoryFile(botId, "MEMORY.md");
+export async function writeMemoryFile(botId: string, text: string): Promise<void> {
+  await ensureWorkspaceReady(botId);
+  const written = redactSecretsInText(text);
+  await dogFiles.writeAtomic(join(workspaceDir(botId), "MEMORY.md"), written);
+  await indexWrittenMemoryFile(botId, "MEMORY.md", written);
 }
 
-function indexWrittenMemoryFile(botId: string, relativePath: string): void {
+async function indexWrittenMemoryFile(botId: string, relativePath: string, text: string): Promise<void> {
   try {
-    const path = join(workspaceDir(botId), relativePath);
-    const stat = statSync(path);
-    indexMemoryFile(botId, relativePath, searchableMemoryText(relativePath, readMemoryText(path)), { mtimeMs: stat.mtimeMs, bytes: stat.size });
+    const found = await dogFiles.statOf(join(workspaceDir(botId), relativePath));
+    indexMemoryFile(botId, relativePath, searchableMemoryText(relativePath, text), { mtimeMs: found.mtimeMs, bytes: found.size });
   } catch {}
 }
 
@@ -318,7 +331,32 @@ function lineSpan(text: string, index: number, length: number): { start: number;
   return { start, end: newline === -1 ? text.length : newline };
 }
 
-export function updateMemory(botId: string, update: MemoryUpdate, opts: MemoryUpdateOptions = {}): MemoryUpdateResult {
+const memoryWrites = new Map<string, Promise<unknown>>();
+const pendingMemoryWrites = new Set<Promise<unknown>>();
+
+export function withMemoryLock<T>(botId: string, work: () => Promise<T>): Promise<T> {
+  const run = (memoryWrites.get(botId) ?? Promise.resolve()).then(work);
+  const settled = run.catch(() => {});
+  memoryWrites.set(botId, settled);
+  void settled.then(() => { if (memoryWrites.get(botId) === settled) memoryWrites.delete(botId); });
+  return run;
+}
+
+export function trackMemoryWrite(write: Promise<unknown>, label: string): void {
+  const settled = write.catch((error: unknown) => console.error(`${label}:`, error instanceof Error ? error.message : error));
+  pendingMemoryWrites.add(settled);
+  void settled.then(() => pendingMemoryWrites.delete(settled));
+}
+
+export async function memoryWritesSettled(): Promise<void> {
+  while (pendingMemoryWrites.size) await Promise.all(pendingMemoryWrites);
+}
+
+export function updateMemory(botId: string, update: MemoryUpdate, opts: MemoryUpdateOptions = {}): Promise<MemoryUpdateResult> {
+  return withMemoryLock(botId, () => updateMemoryNow(botId, update, opts));
+}
+
+async function updateMemoryNow(botId: string, update: MemoryUpdate, opts: MemoryUpdateOptions): Promise<MemoryUpdateResult> {
   const needsText = update.action !== "remove";
   const needsOld = update.action !== "append";
   if (!["append", "replace", "remove", "supersede"].includes(update.action)
@@ -336,8 +374,8 @@ export function updateMemory(botId: string, update: MemoryUpdate, opts: MemoryUp
   }
   const entryOpts: MemoryUpdateOptions = update.until ? { ...opts, until: update.until } : opts;
   const text = update.text === undefined ? undefined : redactSecretsInText(update.text);
-  const dir = ensureWorkspace(botId);
-  const raw = readMemoryText(join(dir, "MEMORY.md"));
+  const dir = await ensureWorkspaceReady(botId);
+  const raw = await readDogText(join(dir, "MEMORY.md"));
   const current = raw === MEMORY_SEED ? "" : raw;
   const today = memoryDate(opts.now);
   const appendEntry = (base: string, entry: string) => `${base}${base && !base.endsWith("\n") ? "\n" : ""}${entry}\n`;
@@ -382,8 +420,8 @@ export function updateMemory(botId: string, update: MemoryUpdate, opts: MemoryUp
     }
   }
   const room = makeRoom(next, today, entry);
-  if (room.moved.length) appendMemoryArchive(botId, room.moved.map((moved) => moved.replace(/^.*/, `$&${SEP}moved ${today}`)));
-  writeMemoryFile(botId, room.text);
+  if (room.moved.length) await appendMemoryArchive(botId, room.moved.map((moved) => moved.replace(/^.*/, `$&${SEP}moved ${today}`)));
+  await writeMemoryFile(botId, room.text);
   return { ok: true, truncated: memoryOverBudget(room.text), entry, moved: room.moved };
 }
 
@@ -412,14 +450,14 @@ function makeRoom(text: string, today: string, keep: string | undefined): { text
   return { text: all.filter((_, index) => !gone.has(index)).join("\n"), moved: out.sort((a, b) => a.line - b.line).map((e) => e.text) };
 }
 
-export function appendMemoryArchive(botId: string, lines: readonly string[]): void {
+export async function appendMemoryArchive(botId: string, lines: readonly string[]): Promise<void> {
   let head = "";
   try {
-    head = readMemoryText(join(workspaceDir(botId), "memory", ARCHIVE_TOPIC));
+    head = await readDogText(join(workspaceDir(botId), "memory", ARCHIVE_TOPIC));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  writeMemoryTopic(botId, ARCHIVE_TOPIC, `${head}${head && !head.endsWith("\n") ? "\n" : ""}${lines.join("\n")}\n`);
+  await writeMemoryTopic(botId, ARCHIVE_TOPIC, `${head}${head && !head.endsWith("\n") ? "\n" : ""}${lines.join("\n")}\n`);
 }
 
 export const MEMORY_LOG_DIR = "log";
@@ -440,20 +478,25 @@ function memoryLogEntry(text: string, opts: MemoryUpdateOptions) {
 
 const withLine = (current: string, line: string) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}${line}\n`;
 
-export function appendMemoryLog(botId: string, text: string, opts: MemoryUpdateOptions = {}): MemoryLogResult {
+export function appendMemoryLog(botId: string, text: string, opts: MemoryUpdateOptions = {}): Promise<MemoryLogResult> {
+  return withMemoryLock(botId, () => appendMemoryLogNow(botId, text, opts));
+}
+
+async function appendMemoryLogNow(botId: string, text: string, opts: MemoryUpdateOptions): Promise<MemoryLogResult> {
   if (typeof text !== "string" || !text.trim()) {
     return { ok: false, code: "invalid", error: "memory_log needs the text of what happened." };
   }
   const { line, file, relativePath } = memoryLogEntry(text, opts);
-  const dir = join(ensureWorkspace(botId), "memory", MEMORY_LOG_DIR);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const dir = join(await ensureWorkspaceReady(botId), "memory", MEMORY_LOG_DIR);
+  await dogFiles.mkdir(dir);
   const path = join(dir, file);
   let current = "";
   try {
-    current = readMemoryText(path);
+    current = await readDogText(path);
   } catch (error) { checkWorkspaceRead(error); }
-  writeFileAtomic(path, withLine(current, line), { mode: 0o600 });
-  indexWrittenMemoryFile(botId, relativePath);
+  const next = withLine(current, line);
+  await dogFiles.writeAtomic(path, next);
+  await indexWrittenMemoryFile(botId, relativePath, next);
   return { ok: true, file: relativePath, line };
 }
 
@@ -483,12 +526,13 @@ export function appendMemoryLogInBackground(botId: string, text: string, opts: M
   return run;
 }
 
-export function writeMemoryLog(botId: string, name: string, text: string): void {
+export async function writeMemoryLog(botId: string, name: string, text: string): Promise<void> {
   if (!LOG_FILE_NAME.test(name)) throw new Error("invalid log name");
-  const dir = join(ensureWorkspace(botId), "memory", MEMORY_LOG_DIR);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  writeFileAtomic(join(dir, name), redactSecretsInText(text), { mode: 0o600 });
-  indexWrittenMemoryFile(botId, `memory/${MEMORY_LOG_DIR}/${name}`);
+  const dir = join(await ensureWorkspaceReady(botId), "memory", MEMORY_LOG_DIR);
+  await dogFiles.mkdir(dir);
+  const written = redactSecretsInText(text);
+  await dogFiles.writeAtomic(join(dir, name), written);
+  await indexWrittenMemoryFile(botId, `memory/${MEMORY_LOG_DIR}/${name}`, written);
 }
 
 export function listMemoryLogs(botId: string): string[] {
@@ -544,11 +588,22 @@ export function listMemoryTopics(botId: string): Array<{ name: string; bytes: nu
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function writeMemoryTopic(botId: string, name: string, text: string): void {
+export async function listMemoryTopicsReady(botId: string): Promise<Array<{ name: string; bytes: number }>> {
+  const dir = join(workspaceDir(botId), "memory");
+  const topics: Array<{ name: string; bytes: number }> = [];
+  for (const name of (await dogFiles.list(dir)).filter(isMemoryTopicName)) {
+    const found = await dogFiles.lstat(join(dir, name));
+    if (found?.isFile()) topics.push({ name, bytes: found.size });
+  }
+  return topics.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function writeMemoryTopic(botId: string, name: string, text: string): Promise<void> {
   if (!isMemoryTopicName(name)) throw new Error("invalid topic name");
-  ensureWorkspace(botId);
-  writeFileAtomic(join(workspaceDir(botId), "memory", name), redactSecretsInText(text), { mode: 0o600 });
-  indexWrittenMemoryFile(botId, `memory/${name}`);
+  await ensureWorkspaceReady(botId);
+  const written = redactSecretsInText(text);
+  await dogFiles.writeAtomic(join(workspaceDir(botId), "memory", name), written);
+  await indexWrittenMemoryFile(botId, `memory/${name}`, written);
 }
 
 export function readRecallMemoryFile(botId: string, file: string): string | null {

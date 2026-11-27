@@ -1,3 +1,4 @@
+import { trackMemoryWrite } from "./workspace.ts";
 import { createHash, randomUUID } from "node:crypto";
 
 import { mcpServerNameError, MAX_MCP_SERVERS, parseStoredMcpServer } from "./mcp-registry.ts";
@@ -51,8 +52,8 @@ export interface PackageImportDeps {
     installOrg?(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillListing | { error: string };
   };
   memory: {
-    writeIndex(botId: string, text: string): void;
-    writeTopic(botId: string, name: string, text: string): void;
+    writeIndex(botId: string, text: string): Promise<void>;
+    writeTopic(botId: string, name: string, text: string): Promise<void>;
   };
   mcp: {
     servers(): Readonly<Record<string, unknown>>;
@@ -348,8 +349,8 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
         if ("error" in added) throw new Error(`Package skill "${skillName}" could not be imported: ${added.error}`);
       }
       for (const [path, text] of Object.entries(agent?.seed?.memory ?? {})) {
-        if (path === "MEMORY.md") deps.memory.writeIndex(created.id, text);
-        else deps.memory.writeTopic(created.id, path.slice("memory/".length), text);
+        const write = path === "MEMORY.md" ? deps.memory.writeIndex(created.id, text) : deps.memory.writeTopic(created.id, path.slice("memory/".length), text);
+        trackMemoryWrite(write, `package import: memory note ${path} was not written`);
         notes += 1;
       }
       if (org && agent) {

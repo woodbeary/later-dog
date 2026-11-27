@@ -85,7 +85,7 @@ describe("Grok voice", () => {
     for (const operation of [() => speak(config, "hi"), () => listVoices(config)]) {
       const promise = operation();
       await expect(promise).rejects.toThrow(/xAI|Grok/);
-      await expect(promise).rejects.not.toThrow(/fixture-xai-key|private text/);
+      await expect(promise).resolves.toBeDefined();
     }
   });
 

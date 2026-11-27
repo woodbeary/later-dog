@@ -430,8 +430,8 @@ import { createNativeRunRoutes } from "./routes/native-runs.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { TurnResources, type TurnOwner } from "./turn-resources.ts";
 import {
-  ensureWorkspace,
-  ensureTaskWorkspace,
+  ensureWorkspaceReady,
+  ensureTaskWorkspaceReady,
   taskWorkspacePath,
   MEMORY_SEED,
   workspaceLocationsPrompt,
@@ -9482,10 +9482,10 @@ async function startTurn(
         await prepareTurnFolders({ workspace: workspaceDir(bot.id), task: taskWorkspacePath(bot.id, threadId), seed: { name: "MEMORY.md", text: MEMORY_SEED }, budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
           gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
         if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while the computer woke");
-        if (!mountedFoldersActive()) ensureWorkspace(bot.id);
+        if (!mountedFoldersActive()) await ensureWorkspaceReady(bot.id);
         if (bot.memoryEnabled !== false) memoryHead = beginMemoryTurnInBackground(bot.id, threadId);
       }
-      const privateWorkspace = worksInWorkspace ? (poolTurn || mountedFoldersActive() ? taskWorkspacePath(bot.id, threadId) : ensureTaskWorkspace(bot.id, threadId)) : undefined;
+      const privateWorkspace = worksInWorkspace ? (poolTurn || mountedFoldersActive() ? taskWorkspacePath(bot.id, threadId) : await ensureTaskWorkspaceReady(bot.id, threadId)) : undefined;
       const skillInstructions = renderSkillInstructions(selectedSkills, {
         includeRoot: worksInWorkspace,
       });
@@ -11779,10 +11779,10 @@ async function runGroupMemberTurn(
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
   if (worksInWorkspace) await prepareTurnFolders({ workspace: workspaceDir(bot.id), budgetMs: boat.ENGINE_BOOT_BUDGET_MS,
     gate: mountedFolderGate, active: mountedFoldersActive(), onWait: (wait) => bus.publish({ ...archiveWaitEventBase(bot.id, threadId), ...engineWaitEvent(wait) }) });
-  const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
+  const workspace = worksInWorkspace ? await ensureWorkspaceReady(bot.id) : undefined;
   if (workspace && bot.memoryEnabled !== false) beginMemoryTurn(bot.id, threadId);
   const cwd = assignedCwd(mountedFolderLayout, DATA_DIR, bot.id, workspace && cloudGuestOpened(threadId)
-    ? ensureTaskWorkspace(bot.id, threadId)
+    ? await ensureTaskWorkspaceReady(bot.id, threadId)
     : groupTurnCwd(workspace, () => store.pinGroupCwd(readyGroup.id, threadId)));
   {
     const drift = checkSoulDrift(bot.id, bot.soul ?? "", bot.soulHash ?? "");
@@ -15455,12 +15455,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/memory") {
         const body = await readInternalBody();
-        const result = updateMemory(internalSender.id, { action: body.action, text: body.text, oldText: body.oldText, ...(body.until !== undefined ? { until: body.until } : {}) }, { source: memorySource() });
+        const result = await updateMemory(internalSender.id, { action: body.action, text: body.text, oldText: body.oldText, ...(body.until !== undefined ? { until: body.until } : {}) }, { source: memorySource() });
         return json(res, result.ok ? 200 : result.code === "conflict" ? 409 : 400, result);
       }
       if (method === "POST" && path === "/api/internal/memory/log") {
         const body = await readInternalBody();
-        const result = appendMemoryLog(internalSender.id, body.text, { source: memorySource() });
+        const result = await appendMemoryLog(internalSender.id, body.text, { source: memorySource() });
         return json(res, result.ok ? 200 : 400, result);
       }
       if (method === "POST" && path === "/api/internal/browser/mcp") {
@@ -15503,7 +15503,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           workingFolder: assignedJobFolders ? async boxId => {
             const task = store.taskByThread(internalSender.id, internalCapability.threadId);
             if (!task) throw new Error("The task's working folder is unavailable.");
-            const selected = task.cwd ?? ensureTaskWorkspace(internalSender.id, internalCapability.threadId);
+            const selected = task.cwd ?? await ensureTaskWorkspaceReady(internalSender.id, internalCapability.threadId);
             const cwd = assignedJobFolders.path(internalSender.id, selected);
             const scope = assignedJobFolders.resolve(internalSender.id, cwd);
             if (!scope) throw new Error("The task's working folder is outside this dog's assignment.");
@@ -18447,7 +18447,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const presetNotes = new Set(Object.keys(preset?.preset.seed?.memory ?? {}));
         for (const [file, text] of Object.entries(template.memory)) {
           if (presetNotes.has(file)) continue;
-          journalMemoryWrite(bot.id, file, text, { actor: "person", via: "api" });
+          await journalMemoryWrite(bot.id, file, text, { actor: "person", via: "api" });
         }
         if (preset) {
           applyPresetToBot(bot.id, preset, {

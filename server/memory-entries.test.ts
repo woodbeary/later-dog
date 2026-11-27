@@ -6,12 +6,12 @@ import { DATA_DIR } from "./config.ts";
 import { factIdentity, isExpired, isMemoryDate, lineFactIdentity, notebookIdentities, parseMemoryEntries, withoutExpired } from "./memory-entries.ts";
 import { parseTopicHeader, renderTopicIndex, TOPIC_INDEX_MAX_TOPICS } from "./memory-topics.ts";
 import { closeMessageDb } from "./message-db.ts";
-import { ensureWorkspace, loadMemory, memorySystemPrompt, searchMemoryFiles, updateMemory, writeMemoryFile, writeMemoryTopic, WORKSPACES_DIR } from "./workspace.ts";
+import { ensureWorkspaceReady, loadMemory, memorySystemPrompt, searchMemoryFiles, updateMemory, writeMemoryFile, writeMemoryTopic, WORKSPACES_DIR } from "./workspace.ts";
 
 const BOT = "bot-memory-entries";
 
 describe("memory entry grammar", () => {
-  it("parses dates, sources, until marks and strike-throughs", () => {
+  it("parses dates, sources, until marks and strike-throughs", async () => {
     const text = [
       "# Memory",
       "- 2026-09-10 · from chat \"Plans\" · Exams this weekend · until 2026-09-14",
@@ -26,7 +26,7 @@ describe("memory entry grammar", () => {
     expect(entries[2]).toMatchObject({ body: "Office is in Mumbai", struck: false });
   });
 
-  it("gives an entry the lines under it: indented ones and a code block it opens, never a fence that does not close", () => {
+  it("gives an entry the lines under it: indented ones and a code block it opens, never a fence that does not close", async () => {
     const lines = [
       "- 2026-09-01 · Deploy command:", "  ```sh", "  railway up", "", "  ```", "  run it from the repo root",
       "- 2026-09-02 · Older shape:", "```sh", "railway up", "```",
@@ -41,7 +41,7 @@ describe("memory entry grammar", () => {
     expect(parseMemoryEntries(loose.join("\n")).map((e) => [e.line, e.end])).toEqual([[0, 1], [1, 2], [2, 6]]);
   });
 
-  it("expires a live entry only after its until day, never a struck one", () => {
+  it("expires a live entry only after its until day, never a struck one", async () => {
     expect(isExpired({ until: "2026-09-14", struck: false }, "2026-09-14")).toBe(false);
     expect(isExpired({ until: "2026-09-14", struck: false }, "2026-09-15")).toBe(true);
     expect(isExpired({ until: "2026-09-14", struck: true }, "2026-09-20")).toBe(false);
@@ -50,7 +50,7 @@ describe("memory entry grammar", () => {
     expect(hidden).toEqual({ text: "- 2026-09-10 · Likes tea\n", hidden: 1 });
   });
 
-  it("accepts only real calendar dates", () => {
+  it("accepts only real calendar dates", async () => {
     expect(isMemoryDate("2026-09-30")).toBe(true);
     expect(isMemoryDate("2026-02-30")).toBe(false);
     expect(isMemoryDate("next week")).toBe(false);
@@ -71,11 +71,11 @@ describe("fact identity keeps meaning", () => {
     expect(factIdentity(a)).not.toBe(factIdentity(b));
   });
 
-  it("treats whitespace, a bullet and a final full stop as the same fact", () => {
+  it("treats whitespace, a bullet and a final full stop as the same fact", async () => {
     expect(factIdentity("-  Prefers   short replies.")).toBe(factIdentity("Prefers short replies"));
   });
 
-  it("reads a notebook's live facts, ignoring struck ones and entry prefixes", () => {
+  it("reads a notebook's live facts, ignoring struck ones and entry prefixes", async () => {
     const notebook = "- 2026-09-10 · from chat \"A\" · Likes tea · until 2026-10-01\n- 2026-09-10 · ~~Lives in Pune~~ · superseded 2026-09-11\n";
     const ids = notebookIdentities(notebook);
     expect(ids.has("Likes tea")).toBe(true);
@@ -85,7 +85,7 @@ describe("fact identity keeps meaning", () => {
 });
 
 describe("topic headers and the index", () => {
-  it("reads title, description and aliases in both list styles", () => {
+  it("reads title, description and aliases in both list styles", async () => {
     expect(parseTopicHeader("---\ntitle: Clients\ndescription: \"Who we bill\"\naliases: [customers, accounts]\n---\nbody")).toEqual({
       title: "Clients",
       description: "Who we bill",
@@ -97,7 +97,7 @@ describe("topic headers and the index", () => {
     expect(parseTopicHeader("# Dining\n\n- Loves pasta\n")).toEqual({ title: "Dining", aliases: [] });
   });
 
-  it("lists topics by name, the archive last, and caps the list", () => {
+  it("lists topics by name, the archive last, and caps the list", async () => {
     const text = renderTopicIndex([
       { name: "archive.md", header: { aliases: [] } },
       { name: "dining.md", header: { title: "Dining", aliases: ["food"] } },
@@ -114,19 +114,19 @@ describe("topic headers and the index", () => {
 });
 
 describe("memory with until dates and topics, on disk", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     closeMessageDb();
     rmSync(DATA_DIR, { recursive: true, force: true });
     rmSync(WORKSPACES_DIR, { recursive: true, force: true });
   });
 
-  it("appends an until mark, validates it, and hides the entry after that day", () => {
+  it("appends an until mark, validates it, and hides the entry after that day", async () => {
     const now = new Date(2026, 8, 10, 12);
-    const ok = updateMemory(BOT, { action: "append", text: "Exams this weekend", until: "2026-09-14" }, { now, source: 'chat "Plans"' });
+    const ok = await updateMemory(BOT, { action: "append", text: "Exams this weekend", until: "2026-09-14" }, { now, source: 'chat "Plans"' });
     expect(ok).toMatchObject({ ok: true, entry: '- 2026-09-10 · from chat "Plans" · Exams this weekend · until 2026-09-14' });
-    expect(updateMemory(BOT, { action: "append", text: "x", until: "soon" }).ok).toBe(false);
-    expect(updateMemory(BOT, { action: "remove", oldText: "Exams", until: "2026-09-14" }).ok).toBe(false);
-    updateMemory(BOT, { action: "append", text: "Likes tea" }, { now });
+    expect((await updateMemory(BOT, { action: "append", text: "x", until: "soon" })).ok).toBe(false);
+    expect((await updateMemory(BOT, { action: "remove", oldText: "Exams", until: "2026-09-14" })).ok).toBe(false);
+    await updateMemory(BOT, { action: "append", text: "Likes tea" }, { now });
     expect(loadMemory(BOT, { now: new Date(2026, 8, 14, 23) })?.text).toContain("Exams this weekend");
     const after = loadMemory(BOT, { now: new Date(2026, 8, 15, 1) });
     expect(after?.text).not.toContain("Exams this weekend");
@@ -134,10 +134,10 @@ describe("memory with until dates and topics, on disk", () => {
     expect(after?.expired).toBe(1);
   });
 
-  it("lists topic notes with their aliases in the prompt, and search finds a topic by alias", () => {
-    ensureWorkspace(BOT);
-    writeMemoryFile(BOT, "- 2026-09-10 · Likes tea\n");
-    writeMemoryTopic(BOT, "dining.md", "---\ntitle: Dining\naliases: [food, lunch, restaurants]\n---\n- Loves pasta\n");
+  it("lists topic notes with their aliases in the prompt, and search finds a topic by alias", async () => {
+    await ensureWorkspaceReady(BOT);
+    await writeMemoryFile(BOT, "- 2026-09-10 · Likes tea\n");
+    await writeMemoryTopic(BOT, "dining.md", "---\ntitle: Dining\naliases: [food, lunch, restaurants]\n---\n- Loves pasta\n");
     writeFileSync(join(WORKSPACES_DIR, BOT, "memory", "notes.md"), "plain topic\n");
     const prompt = memorySystemPrompt(BOT, { managedWrites: true, fileTools: true });
     expect(prompt).toContain("Your topic notes (not loaded; when a request touches one of these topics, read that file with your file tools before you answer):");
