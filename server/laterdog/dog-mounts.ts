@@ -10,11 +10,11 @@ export const TASK_WORKSPACES_DIR = join(DATA_DIR, "task-workspaces");
 let mountedFolders: readonly string[] = [];
 
 export function guardMountedFolders(paths: readonly string[]): void {
-  const dogRoots = new Set([WORKSPACES_DIR, TASK_WORKSPACES_DIR].map((path) => resolve(path)));
-  mountedFolders = paths.map((path) => resolve(path)).filter((path) => !dogRoots.has(path));
+  const roots = [WORKSPACES_DIR, TASK_WORKSPACES_DIR].map((path) => resolve(path));
+  mountedFolders = paths.map((path) => resolve(path)).filter((path) => !roots.some((root) => path === root || path.startsWith(`${root}/`)));
 }
 
-export const mountGuard = createMountGuard({ roots: () => [WORKSPACES_DIR, TASK_WORKSPACES_DIR], folders: () => mountedFolders });
+export const mountGuard = createMountGuard({ roots: () => [WORKSPACES_DIR], chatRoots: () => [TASK_WORKSPACES_DIR], folders: () => mountedFolders });
 export const dogFiles = mountFiles(mountGuard);
 
 export function dogFoldersMounted(): boolean {

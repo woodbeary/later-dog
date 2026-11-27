@@ -21,6 +21,7 @@ export interface MountGuardOptions {
   inAll?: number;
   slowMs?: number;
   folders?: () => readonly string[];
+  chatRoots?: () => readonly string[];
   now?: () => number;
   probe?: (folder: string) => Promise<unknown>;
 }
@@ -64,6 +65,12 @@ export function createMountGuard(options: MountGuardOptions): MountGuard {
   const folderOf = (path: string): string | null => {
     for (const folder of options.folders?.() ?? []) {
       if (path === folder || path.startsWith(folder.endsWith(sep) ? folder : `${folder}${sep}`)) return folder;
+    }
+    for (const root of options.chatRoots?.() ?? []) {
+      const rel = relative(root, path);
+      if (rel === "") return root;
+      if (rel.startsWith("..") || isAbsolute(rel)) continue;
+      return join(root, ...rel.split(sep).slice(0, 2));
     }
     for (const root of options.roots()) {
       const rel = relative(root, path);

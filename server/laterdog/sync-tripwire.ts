@@ -9,6 +9,8 @@ export interface TripwireHit {
   call: string;
   path: string;
   stack: string;
+  startedAt: number;
+  ms: number;
 }
 
 export const SYNC_CALLS_ALLOWED: ReadonlyArray<{ frame: string; reason: string }> = [
@@ -49,6 +51,7 @@ export function armSyncTripwire(): void {
     if (!name.endsWith("Sync") || NO_PATH.has(name) || typeof value !== "function") continue;
     const original = value as (...args: unknown[]) => unknown;
     const watched = function (this: unknown, ...args: unknown[]) {
+      let hit: Omit<TripwireHit, "ms"> | null = null;
       if (armed) {
         for (const candidate of TWO_PATHS.has(name) ? args.slice(0, 2) : args.slice(0, 1)) {
           const path = pathOf(candidate);
@@ -57,11 +60,17 @@ export function armSyncTripwire(): void {
           Error.stackTraceLimit = 60;
           const stack = new Error().stack ?? "";
           Error.stackTraceLimit = limit;
-          if (!SYNC_CALLS_ALLOWED.some((allowed) => stack.includes(`at ${allowed.frame} `))) report({ call: name, path, stack });
+          if (!SYNC_CALLS_ALLOWED.some((allowed) => stack.includes(`at ${allowed.frame} `))) hit = { call: name, path, stack, startedAt: Date.now() };
           break;
         }
       }
-      return original.apply(this, args);
+      if (!hit) return original.apply(this, args);
+      const began = performance.now();
+      try {
+        return original.apply(this, args);
+      } finally {
+        report({ ...hit, ms: performance.now() - began });
+      }
     };
     Object.defineProperties(watched, Object.getOwnPropertyDescriptors(original));
     table[name] = watched;
