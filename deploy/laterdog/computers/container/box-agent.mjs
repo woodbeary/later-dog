@@ -46,7 +46,7 @@ async function open(dog) {
   const slot = freeSlot();
   if (slot === null) return null;
   const display = 10 + slot;
-  const desktop = { dog, slot, display, vncPort: 5900 + display, wsPort: 6100 + slot, children: [], openedAt: Date.now(), usedAt: Date.now(), exited: 0 };
+  const desktop = { dog, slot, display, vncPort: 5900 + display, wsPort: 6100 + slot, debugPort: 9300 + slot, children: [], openedAt: Date.now(), usedAt: Date.now(), exited: 0 };
   desktops.set(dog, desktop);
   rmSync(`/tmp/.X${display}-lock`, { force: true });
   rmSync(`/tmp/.X11-unix/X${display}`, { force: true });
@@ -60,7 +60,7 @@ async function open(dog) {
   launch(desktop, ["x11vnc", "-display", `:${display}`, "-forever", "-shared", "-nopw", "-localhost", "-rfbport", String(desktop.vncPort), "-xkb", "-noxdamage", "-quiet"]);
   launch(desktop, ["laterdog-websockify", `0.0.0.0:${desktop.wsPort}`, `localhost:${desktop.vncPort}`]);
   launch(desktop, asDog(display, ["xfwm4"]));
-  launch(desktop, asDog(display, ["chromium", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--password-store=basic", "--disable-dev-shm-usage", "--hide-crash-restore-bubble", "--start-maximized"]));
+  launch(desktop, asDog(display, ["chromium", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--password-store=basic", "--disable-dev-shm-usage", "--hide-crash-restore-bubble", "--start-maximized", `--remote-debugging-port=${desktop.debugPort}`, "--remote-debugging-address=127.0.0.1"]));
   return view(dog, desktop);
 }
 
@@ -69,6 +69,18 @@ const exited = (child, ms) => new Promise((resolve) => {
   const timer = setTimeout(() => resolve(false), ms);
   child.once("exit", () => { clearTimeout(timer); resolve(true); });
 });
+
+async function quitBrowser(port) {
+  try {
+    const version = await (await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3000) })).json();
+    const socket = new WebSocket(version.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; setTimeout(reject, 3000); });
+    socket.send(JSON.stringify({ id: 1, method: "Browser.close" }));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function browserMains(profile) {
   const pids = [];
@@ -96,7 +108,8 @@ async function close(dog) {
   if (!desktop) return false;
   desktops.delete(dog);
   const profile = join(PROFILES, dog, "chromium");
-  for (const pid of browserMains(profile)) { try { process.kill(pid, "SIGTERM"); } catch {} }
+  const quit = await quitBrowser(desktop.debugPort);
+  if (!quit || !(await browserGone(profile, 20_000))) for (const pid of browserMains(profile)) { try { process.kill(pid, "SIGTERM"); } catch {} }
   if (!(await browserGone(profile, 20_000))) await run("pkill", ["-KILL", "-f", "--", `--user-data-dir=${profile}`]);
   for (const child of [...desktop.children].reverse()) {
     try { process.kill(-child.pid, "SIGTERM"); } catch {}
