@@ -5,7 +5,7 @@ import { isObjectRun, type ObjectOccurrence, type Routine, type RoutineRun } fro
 const CALL_MS = 8_000;
 const START_MS = 3_000;
 const TOKEN_MS = 10 * 60_000;
-const POLL_MS = 10_000;
+const POLL_MS = 2_000;
 const TERMINAL = new Set(["completed", "failed", "missed", "cancelled"]);
 
 export interface DogObjectCallsOptions {
@@ -75,6 +75,7 @@ export interface ObjectRoutinesOptions {
   owned: (botId: string) => boolean;
   dogs: () => string[];
   timeZone: () => string;
+  admitted?: () => void;
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -173,21 +174,25 @@ export class ObjectRoutines {
     }
     const answer = await this.options.calls.routines(dog, { op: "put", timeZone: this.options.timeZone(), routines: book.routinesForBot(dog).map(objectRoutine) });
     this.state.claims += 1;
-    this.admit(dog, book, answer.occurrences);
+    const due = this.admit(dog, book, answer.occurrences);
     book.mirrorObjectSchedules(answer.schedules);
+    if (due) this.options.admitted?.();
     const next = answer.schedules.filter((view) => view.enabled && view.nextRunAt !== null).map((view) => view.nextRunAt!);
     this.dueAt.set(dog, next.length ? Math.min(...next) : null);
   }
 
-  private admit(dog: string, book: RoutineBook, occurrences: Occurrence[]): void {
+  private admit(dog: string, book: RoutineBook, occurrences: Occurrence[]): number {
+    let due = 0;
     for (const occurrence of occurrences) {
       const state = book.admitObjectOccurrence(occurrence);
       this.state.admitted += 1;
+      if (state === "due") due += 1;
       if (state === "settled" && occurrence.state !== "settled") {
         this.settling.set(occurrence.id, { dog, runId: occurrence.id, state: "settled" });
         this.dirty.add(dog);
       }
     }
+    return due;
   }
 
   private fail(error: unknown): void {

@@ -1083,6 +1083,7 @@ const objectRoutines = dogObjectCalls ? new ObjectRoutines({
   owned: routinesInObject,
   dogs: () => store.bots.map((bot) => bot.id),
   timeZone: () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  admitted: () => void routines?.tick(),
 }) : null;
 const objectRowOf = (item: SteerQueueItem, status: "accepted" | "pending") =>
   ({ id: item.messageId, sendId: item.sendId ?? null, status, payload: item, at: item.queuedAt });
