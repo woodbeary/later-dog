@@ -11,6 +11,9 @@ export function validateCutoverBinding(config, authority) {
   }
   const matches = config.services?.filter(binding => binding.binding === "CUTOVER" && binding.service === authority.service && binding.entrypoint === "WorkFolderMigrationApi" && binding.remote === true);
   const sources = authority.direction === "reverse" ? [authority.previous, authority.sourceManifest] : [authority.image, authority.candidate];
+  if (authority.sourceLeaseSha256 !== undefined || authority.previousImage !== undefined) {
+    if (authority.direction !== "reverse" || ![authority.sourceLeaseSha256, authority.previousImage].every(id => typeof id === "string" && hash.test(id))) throw new Error("Invalid sealed source authority");
+  }
   if (authority.direction !== undefined && authority.direction !== "forward" && authority.direction !== "reverse") throw new Error("Unknown tenant cutover direction");
   if (matches?.length !== 1 || !authority.accountId || !/^h[a-f0-9]{24}$/.test(authority.machineId) || ![authority.nonce, authority.verification, authority.baselineManifest, ...sources].every(id => hash.test(id))) throw new Error("Invalid tenant cutover binding or authority");
 }

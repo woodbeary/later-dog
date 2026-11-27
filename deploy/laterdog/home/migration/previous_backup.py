@@ -27,7 +27,7 @@ def put_blob(transport, data):
     return h
 
 
-def stage_reference(transport, source):
+def stage_reference(transport, source, retain=False):
     rows = {
         e["path"]: e
         for e in json.loads(source)["entries"]
@@ -40,7 +40,7 @@ def stage_reference(transport, source):
         original["type"] == "file" and rows[DESCRIPTION]["type"] == "file",
         "Conflicting previous backup metadata",
     )
-    put_blob(
+    marker = put_blob(
         transport,
         encode(
             {
@@ -51,6 +51,10 @@ def stage_reference(transport, source):
             }
         ),
     )
+    if retain:
+        page = digest(encode(["leaf", [marker]]))
+        st, _, response = transport.admin("work-folders/retention/leaf/" + page, "POST", {"hashes": [marker]})
+        require(st == 200 and json.loads(response).get("revision") == page, "Previous backup reference was not retained")
 
 
 def restore_reference(rows, baseline, original, transport):

@@ -227,7 +227,7 @@ def main():
                 status == 200 and digest(legacy) == plan["next"]["baselineManifest"],
                 "The saved legacy source changed before preparing ordinary candidate recovery references",
             )
-            stage_reference(transport, legacy)
+            stage_reference(transport, legacy, retain=True)
             return {
                 "verification": plan["next"]["verification"],
                 "baseline": plan["next"]["baselineManifest"],
