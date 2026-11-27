@@ -75,11 +75,11 @@ async function main() {
     upgraded = upgradeFrom(manifest, APP);
     const restoredLine = booted ? `restored ${booted.files} files needed to start in ${Math.round(booted.ms / 1000)} s after ${booted.attempts} attempt(s); ${restoring.pending().size} more come back while the home serves` : "a new home: nothing to restore";
     log(restoredLine);
-    for (const note of [...read.notes, ...(booted?.notes ?? []), ...signalled.map(({ signal, at }) => `${signal} arrived ${Math.round((at - Date.now() + read.ms + (booted?.ms ?? 0)) / 1000)} s into the restore and was held until it finished`), restoredLine]) noteHomeHealth(HEALTH_DIR, note, { owner });
+    for (const note of [...read.notes, ...(booted?.notes ?? []), ...signalled.map(({ signal, at }) => `${signal} arrived ${Math.round((at - Date.now() + read.ms + (booted?.ms ?? 0)) / 1000)} s into the restore and was held until it finished`), restoredLine]) noteHomeHealth(HEALTH_DIR, note, { owner, home: DATA });
     restoring?.done.then((all) => {
       const line = `restored all ${all.files} files (${Math.round(all.bytes / 1e6)} MB) in ${Math.round(all.ms / 1000)} s, peak engine memory ${Math.round(all.peakMemoryBytes / 1e6)} MB${all.kept.length ? `; kept the newer copy the home wrote of ${all.kept.length} file(s), first ${all.kept[0]}` : ""}`;
       log(line);
-      noteHomeHealth(HEALTH_DIR, line, { owner });
+      noteHomeHealth(HEALTH_DIR, line, { owner, home: DATA });
     }, () => {});
     if (upgraded) log(`${APP} replaces ${upgraded.app ?? "an earlier version"}; keeping a restore point before the first save`);
   } else {
@@ -201,7 +201,7 @@ async function main() {
     if (launcher !== LAUNCHER && shouldFallBackFromPushed({ stopping, code, signal, elapsedMs: Date.now() - startedAt, graceMs: PUSHED_CODE_GRACE_MS })) {
       const said = pushedCodeFellBack({ code, signal, tail: stderrTail.text() });
       log(said);
-      noteHomeHealth(HEALTH_DIR, said, { owner: dogOwner() });
+      noteHomeHealth(HEALTH_DIR, said, { owner: dogOwner(), home: DATA });
       launcher = LAUNCHER;
       start();
       return;

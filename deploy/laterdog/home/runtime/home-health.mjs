@@ -2,6 +2,7 @@ import { appendFileSync, chownSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 export const HOME_HEALTH_FILE = "home-health.log";
+export const CLOUD_HOME_MARKER = ".laterdog-cloud-home.json";
 const TAIL_BYTES = 4096;
 const SAID_ERROR_CHARS = 600;
 
@@ -32,7 +33,8 @@ export function pushedCodeFellBack({ code, signal, tail }) {
   return `the pushed server code stopped right away (exit code ${code ?? "none"}, signal ${signal ?? "none"}); this home now runs the image's own server, so the pushed changes are not live${error ? `. Last output: ${error}` : ""}`;
 }
 
-export function noteHomeHealth(dir, message, { owner, now = new Date() } = {}) {
+export function noteHomeHealth(dir, message, { owner, now = new Date(), home } = {}) {
+  if (home && !existsSync(join(home, CLOUD_HOME_MARKER))) return false;
   try {
     mkdirSync(dir, { recursive: true });
     const file = join(dir, HOME_HEALTH_FILE);
