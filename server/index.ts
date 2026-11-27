@@ -22612,19 +22612,22 @@ const gracefulShutdown = createGracefulShutdown({
       memoryUpkeep.stop();
       webhookIngress?.server.close();
     },
-    async () => { await managedDesktop.close(); await registry.disposeAll(); },
-    async () => {
+    { name: "profile history", run: () => flushAllProfileHistory() },
+    { name: "memory journals", run: () => flushAllMemoryJournals() },
+    { name: "usage ledger", run: () => flushUsageLedger(DATA_DIR) },
+    { name: "decision log", run: () => flushDecisionLog(DATA_DIR) },
+    { name: "admin activity", run: () => flushAdminActivity(DATA_DIR) },
+    { name: "message search", run: () => closeMessageSearch() },
+  ],
+  courtesy: [
+    { name: "engines and managed desktop", run: async () => { await managedDesktop.close(); await registry.disposeAll(); } },
+    { name: "browsers", run: async () => {
       await Promise.all([...temporaryBrowserSessions.keys()].map((botId) => forgetTemporaryBrowser(botId)));
       await browserRuntime.closeAll();
-    },
-    () => liveCalls.shutdown(),
-    () => flushAllProfileHistory(),
-    () => flushAllMemoryJournals(),
-    () => flushUsageLedger(DATA_DIR),
-    () => flushDecisionLog(DATA_DIR),
-    () => flushAdminActivity(DATA_DIR),
-    () => closeMessageSearch(),
+    } },
+    { name: "live calls", run: () => liveCalls.shutdown() },
   ],
+  log: (line) => console.log(line),
   exit: (code) => {
     bus.flush();
     try { sessions.close(); }
