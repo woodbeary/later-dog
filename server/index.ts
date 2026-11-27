@@ -943,7 +943,8 @@ import { ProjectAccessController, type ProjectSelection } from "./laterdog/proje
 import { retireMemberProjects } from "./laterdog/project-member-retirement.ts";
 import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
-import { computerEngineOpener } from "./laterdog/engine-opener.ts";
+import { computerEngineOpener, openEngineOnMachine, type EngineWorkFolders } from "./laterdog/engine-opener.ts";
+import { taskMachineOpener } from "./laterdog/task-machines.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
 import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
@@ -954,7 +955,7 @@ const projectAccess = mountedFolderLayout ? new ProjectAccessController(mountedF
 const changingProjectMembers = new Set<string>();
 const projectSelectionLocks = new Set<string>();
 if (projectAccess?.layout.projects.length) await projectAccess.refresh();
-setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
+const engineFolderOptions: { workFolders?: EngineWorkFolders } = mountedFolderLayout ? {
   workFolders: async input => {
     if (changingProjectMembers.has(input.botId)) throw new Error("This dog's shared project access is being updated.");
     const folders = engineFolderScopes(mountedFolderLayout, DATA_DIR, input);
@@ -962,7 +963,13 @@ setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
       process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, scope, input.botId, input.computerId,
     ) })));
   },
-} : {}), DATA_DIR));
+} : {};
+setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFolderOptions), DATA_DIR), {
+  dataDir: DATA_DIR,
+  ticketClass: (botId, threadId) => startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "task" : null,
+  size: (botId, threadId) => machineSizes.choose(botId, threadId, undefined).size,
+  openOn: async (machineId, botId, plan, signal) => openEngineOnMachine(await boat.taskMachineComputer(machineId, signal), botId, plan, engineFolderOptions),
+}));
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);

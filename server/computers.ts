@@ -602,3 +602,20 @@ export async function engineComputer(botId: string, signal?: AbortSignal): Promi
     stream: () => { signal?.throwIfAborted(); return client.process(ready.id); },
   };
 }
+
+export async function taskMachineComputer(id: string, signal?: AbortSignal): Promise<{ box: RunBox; stream: () => ReturnType<ComputersClient["process"]> }> {
+  if (!computersSelected()) throw new Error("Cloud computers are not configured.");
+  const client = ownClient();
+  const ready = await waitRunning(client, id, ENGINE_BOOT_BUDGET_MS, undefined, { wanted: () => !signal?.aborted }, signal);
+  signal?.throwIfAborted();
+  if (!ready) throw new Error("The task machine could not start.");
+  return {
+    box: {
+      computerId: ready.id,
+      exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs, signal }),
+      write: (path, bytes) => client.writeFile(ready.id, path, bytes, { signal }),
+      read: (path) => client.readFile(ready.id, path, { signal }),
+    },
+    stream: () => { signal?.throwIfAborted(); return client.process(ready.id); },
+  };
+}
