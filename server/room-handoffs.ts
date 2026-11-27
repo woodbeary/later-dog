@@ -133,6 +133,7 @@ export class RoomHandoffs {
     this.hooks.changed(new Set(nodes.flatMap(node => node.groupId ? [node.groupId] : [])),
       new Set(nodes.filter(node => !node.groupId).map(node => node.threadId)));
   }
+  status(id: string): RoomHandoff["status"] | null { return this.nodes.get(id)?.status ?? null; }
   children(id: string) { return [...this.nodes.values()].filter(n => n.parentId === id); }
   awaited(id: string) { return this.children(id).filter(awaitsReply); }
   root(n: RoomHandoff) { return this.nodes.get(n.rootId)!; }
