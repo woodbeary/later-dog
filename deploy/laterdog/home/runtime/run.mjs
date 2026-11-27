@@ -16,6 +16,7 @@ import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restor
 import { FINAL_SAVE_MS, collectGarbageWithin, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
 import { restoreUntilDone } from "./restore-until-done.mjs";
 import { holdStopsWhileRestoring } from "./restore-signals.mjs";
+import { switchLauncher } from "./launcher-switch.mjs";
 
 const DATA = process.env.HOME || "/data";
 const SCRATCH = "/tmp/laterdog-sync";
@@ -25,7 +26,6 @@ const LAUNCHER = join(SERVER_DIR, "cloud-home-start.js");
 const DEV_CODE_DIR = "/tmp/laterdog-dev-server";
 const HEALTH_DIR = process.env.LATERDOG_HOME || join(process.env.HOME || "/data", ".laterdog");
 const SERVER_PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
-const STOP_CHILD_MS = 20_000;
 const PUSHED_CODE_GRACE_MS = 30_000;
 const INTERVAL_MS = Number(process.env.LATERDOG_SYNC_INTERVAL_MS || 60_000);
 const SAVE_BUDGET_MS = Math.max(5_000, INTERVAL_MS - 15_000);
@@ -211,26 +211,18 @@ async function main() {
     }
     if (stopping || !alive()) return;
     reloading = true;
-    const previous = child;
-    const exited = new Promise((resolve) => previous.once("exit", resolve));
-    if (alive()) previous.kill("SIGTERM");
-    const late = setTimeout(() => { if (previous.exitCode === null) previous.kill("SIGKILL"); }, STOP_CHILD_MS);
-    await exited;
-    clearTimeout(late);
-    if (stopping) {
-      await shutdown(0, null);
-      return;
-    }
-    if (!reloading) return;
-    await (running ?? Promise.resolve()).then(() => save());
-    if (stopping) {
-      await shutdown(0, null);
-      return;
-    }
-    launcher = next.launcher;
-    reloading = false;
-    log(`running pushed server code ${next.hash.slice(0, 12)}${next.label ? ` (${next.label})` : ""}`);
-    start();
+    const switched = await switchLauncher({
+      previous: child,
+      carryOn: () => !stopping && reloading,
+      start: () => {
+        launcher = next.launcher;
+        reloading = false;
+        log(`running pushed server code ${next.hash.slice(0, 12)}${next.label ? ` (${next.label})` : ""}`);
+        start();
+      },
+      save: () => (running ?? Promise.resolve()).then(() => save()),
+    });
+    if (!switched && stopping) await shutdown(0, null);
   };
   start();
   devCode?.start();
