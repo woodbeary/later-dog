@@ -6,10 +6,10 @@ import { launcherOwnsNoFile } from "./archive-launcher.mjs";
 import { archiveCompatible } from "./archive-capability.mjs";
 import { fileIsUnopened } from "./archive-ownership.mjs";
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { devCodeWatcher, homeIdle } from "./dev-code.mjs";
-import { noteHomeHealth, outputTail, pushedCodeFellBack, shouldFallBackFromPushed } from "./home-health.mjs";
+import { CLOUD_HOME_MARKER, noteHomeHealth, outputTail, pushedCodeFellBack, shouldFallBackFromPushed } from "./home-health.mjs";
 import { seedIncluded } from "./included.mjs";
 import { SAVE_STATUS_PATH, saveRecorder, slowCopies, writeSaveStatus } from "./save-status.mjs";
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
@@ -130,7 +130,7 @@ async function main() {
   const saveStatus = saveRecorder({ write: (status) => writeSaveStatus(SAVE_STATUS_PATH, status) });
   let restoredAll = !restoring;
   const save = ({ final = false } = {}) => {
-    if (!store || (!final && !restoredAll)) return Promise.resolve();
+    if (!store || (!final && !restoredAll) || !existsSync(join(DATA, CLOUD_HOME_MARKER))) return Promise.resolve();
     if (running) return running;
     running = restorePoints.keep()
       .then(() => {
