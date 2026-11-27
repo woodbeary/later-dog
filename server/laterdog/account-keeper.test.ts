@@ -209,6 +209,13 @@ it("switches renewals with the owner's route and stays read-only for others", as
   expect((await call("PUT", true, { renew: "yes" })).status).toBe(400);
   expect(await call("PUT", true, { renew: true })).toEqual({ status: 200, body: { renewing: true, accounts: [] } });
   expect(keeperRenewing(file)).toBe(true);
+  const renew = async (id: string) => {
+    const out: { status?: number } = {};
+    await route({ req: { headers: {} } as never, res: { setHeader() {} } as never, url: new URL(`http://x/api/laterdog/sign-ins/${id}/renew`), path: `/api/laterdog/sign-ins/${id}/renew`, method: "POST",
+      auth: { owner: true } as never, json: ((_: unknown, status: number) => { out.status = status; }) as never, readBody: (async () => null) as never });
+    return out.status;
+  };
+  expect(await renew("nobody")).toBe(404);
 });
 
 it("renews Grok with the account's own command, without its profile flags", () => {

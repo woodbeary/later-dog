@@ -264,9 +264,16 @@ export function keeperRenewing(file: string): boolean {
 export function createSignInRoutes(deps: { keeper: AccountKeeper; file: string; allowed(auth: RequestAuth): boolean }): RouteHandler {
   const view = () => ({ renewing: keeperRenewing(deps.file), accounts: deps.keeper.status() });
   return async ({ req, res, path, method, auth, json, readBody }) => {
-    if (path !== "/api/laterdog/sign-ins") return PASS;
+    const one = /^\/api\/laterdog\/sign-ins\/([\w.-]+)\/renew$/.exec(path);
+    if (path !== "/api/laterdog/sign-ins" && !one) return PASS;
     if (!deps.allowed(auth)) return json(res, 403, { error: "Only the owner can see sign-ins." });
     res.setHeader("cache-control", "no-store");
+    if (one) {
+      if (method !== "POST") return json(res, 405, { error: "method not allowed" });
+      if (!keeperRenewing(deps.file)) return json(res, 409, { error: "Renewals are switched off." });
+      const status = await deps.keeper.renew(one[1]!);
+      return status ? json(res, 200, status) : json(res, 404, { error: "No such account." });
+    }
     if (method === "GET") return json(res, 200, view());
     if (method === "POST") {
       await deps.keeper.check();
