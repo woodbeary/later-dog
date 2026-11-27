@@ -8,6 +8,8 @@ export interface PaneError {
   id: number;
   line: string;
   retryable: boolean;
+  count?: number;
+  signIn?: true;
 }
 
 export type PaneErrors = Partial<Record<PaneKey, PaneError>>;
@@ -29,7 +31,14 @@ export function dogPanelPane(botId: string): DogPanelPane {
 }
 
 export function withPaneError(errors: PaneErrors, pane: PaneKey, error: PaneError): PaneErrors {
-  return { ...errors, [pane]: error };
+  const shown = errors[pane];
+  const count = shown && shown.line === error.line ? (shown.count ?? 1) + 1 : undefined;
+  return { ...errors, [pane]: count ? { ...error, count } : error };
+}
+
+export function needsSignIn(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return status === 401 || status === 403;
 }
 
 function keepOnly(errors: PaneErrors, stays: (pane: PaneKey) => boolean): PaneErrors {
@@ -94,7 +103,12 @@ export function createPaneErrorReporter(deps: {
       deps.dispatch({
         type: "paneError",
         pane,
-        error: { id, line: details.line ?? plainClientError(error), retryable: Boolean(details.retry) },
+        error: {
+          id,
+          line: details.line ?? plainClientError(error),
+          retryable: Boolean(details.retry),
+          ...(needsSignIn(error) ? { signIn: true as const } : {}),
+        },
       });
     },
     retry(pane) {

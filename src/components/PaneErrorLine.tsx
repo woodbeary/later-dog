@@ -1,4 +1,4 @@
-import { RefreshCw, TriangleAlert } from "lucide-react";
+import { LogIn, RefreshCw, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
@@ -18,6 +18,8 @@ export function PaneErrorLine({ panes, look = "row", quietLine = false, classNam
   if (!shown) return null;
   const { pane, error } = shown;
   const retry = () => dispatch({ type: "retryPane", pane });
+  const signIn = () => dispatch({ type: "toggleAppSettings", open: true, section: "general" });
+  const repeated = error.count && error.count > 1 ? `×${error.count}` : null;
   return (
     <div
       role="status"
@@ -30,7 +32,27 @@ export function PaneErrorLine({ panes, look = "row", quietLine = false, classNam
       )}
     >
       <span className={quietLine ? "sr-only" : "min-w-0 flex-1 break-words"}>{error.line}</span>
-      {quietLine && !error.retryable && <TriangleAlert size={14} aria-hidden="true" className="shrink-0" />}
+      {repeated && !quietLine && <span data-pane-error-count className="shrink-0 text-[12px] tabular-nums text-ink-tertiary">{repeated}</span>}
+      {error.signIn && (look === "icon" ? (
+        <button
+          type="button"
+          onClick={signIn}
+          aria-label={t("accounts.signIn")}
+          title={t("accounts.signIn")}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+        >
+          <LogIn size={14} aria-hidden="true" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={signIn}
+          className="shrink-0 rounded-full bg-control px-3 py-1 text-[12.5px] font-medium text-ink hover:bg-control-hover"
+        >
+          {t("accounts.signIn")}
+        </button>
+      ))}
+      {quietLine && !error.retryable && !error.signIn && <TriangleAlert size={14} aria-hidden="true" className="shrink-0" />}
       {error.retryable && (look === "icon" ? (
         <button
           type="button"

@@ -106,6 +106,28 @@ describe("the pane error reporter", () => {
     timers[1]!.run();
     expect(errors().routines).toBeUndefined();
   });
+
+  it("counts the same line in the same pane instead of stacking it, and starts over for a new line", () => {
+    const { reporter, errors } = harness();
+    const again = { retry: () => {} };
+    reporter.report(new Error("Couldn't load routines"), "routines", again);
+    expect(errors().routines?.count).toBeUndefined();
+    reporter.report(new Error("Couldn't load routines"), "routines", again);
+    reporter.report(new Error("Couldn't load routines"), "routines", again);
+    expect(errors().routines).toMatchObject({ line: "Couldn't load routines", count: 3, retryable: true });
+    reporter.report(new Error("Something else"), "routines", again);
+    expect(errors().routines?.count).toBeUndefined();
+    reporter.report(new Error("Couldn't load routines"), chatPane("t"), again);
+    expect(errors()["chat:t"]?.count).toBeUndefined();
+  });
+
+  it("offers Sign in when later.dog refused the session", () => {
+    const { reporter, errors } = harness();
+    reporter.report(Object.assign(new Error("unauthorized"), { status: 401 }), "sidebar");
+    expect(errors().sidebar).toMatchObject({ signIn: true });
+    reporter.report(Object.assign(new Error("Server busy"), { status: 503 }), chatPane("t"));
+    expect(errors()["chat:t"]?.signIn).toBeUndefined();
+  });
 });
 
 describe("the store keeps pane errors", () => {
