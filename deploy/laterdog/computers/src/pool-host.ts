@@ -65,6 +65,19 @@ export function agentEnv(env: Env): Record<string, string> {
 }
 
 export class PoolHost extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    const container = ctx.container;
+    if (!container?.running) return;
+    void ctx.blockConcurrencyWhile(async () => {
+      try {
+        await container.setInactivityTimeout(ALWAYS_ON_MS);
+      } catch (error) {
+        console.error(`laterdog computers: [pool] could not re-arm the inactivity timeout: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+  }
+
   private load(): HostRecord | undefined {
     return this.ctx.storage.kv.get<HostRecord>(RECORD);
   }
@@ -96,7 +109,7 @@ export class PoolHost extends DurableObject<Env> {
     });
     await container.setInactivityTimeout(ALWAYS_ON_MS);
     const started = Date.now();
-    container.monitor().then(
+    void Promise.resolve().then(() => container.monitor()).then(
       () => console.error(`laterdog computers: [pool] ${next.id} generation ${next.generation} stopped after ${Date.now() - started} ms`),
       (error: unknown) => console.error(`laterdog computers: [pool] ${next.id} generation ${next.generation} failed after ${Date.now() - started} ms: ${error instanceof Error ? error.message : String(error)}`),
     );
