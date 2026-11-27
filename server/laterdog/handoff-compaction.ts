@@ -22,7 +22,11 @@ export function handoffCompactWindow(facts: HandoffCompactionFacts): number | un
 export class HandoffCompactions {
   private readonly asked = new Map<string, number>();
 
-  constructor(private readonly now: () => number = Date.now) {}
+  private readonly now: () => number;
+
+  constructor(now: () => number = Date.now) {
+    this.now = now;
+  }
 
   window(threadId: string, facts: HandoffCompactionFacts): number | undefined {
     const window = handoffCompactWindow(facts);
