@@ -165,6 +165,16 @@ export function turnEnded(frame: string, tail: { text: string }): boolean {
   return TURN_ENDS.some((end) => text.includes(end));
 }
 
+const TURN_STARTS = ['"type":"user"', '"method":"turn/start"', '"op":"send"', '"op":"generate"'];
+const STDIN_DATA = /^\{"type":"stdin","data":"([A-Za-z0-9+/=]*)"/;
+
+export function turnStarts(frame: string): boolean {
+  const data = STDIN_DATA.exec(frame)?.[1];
+  if (!data) return false;
+  const text = Buffer.from(data, "base64").toString("utf8");
+  return TURN_STARTS.some((start) => text.includes(start));
+}
+
 export interface LeaseTurn { thread: string; dog: string; size: MachineSize; class: TicketClass; machineId: string }
 
 function holdLease(line: TaskLineService, first: string, link: EngineLink, turn: LeaseTurn, renewMs: number, note: (text: string) => void, lost: (why: string) => void, gone?: (machineId: string) => Promise<boolean>): void {
@@ -223,7 +233,7 @@ function holdLease(line: TaskLineService, first: string, link: EngineLink, turn:
   link.close = () => { closedHere = true; close(); };
   const send = link.send.bind(link);
   link.send = (frame: string) => {
-    if (!ticketId && frame.startsWith('{"type":"stdin"')) retake();
+    if (!ticketId && turnStarts(frame)) retake();
     send(frame);
   };
   link.on("line", (frame: string) => { if (ticketId && turnEnded(frame, tail)) release(frame.includes("native_exit") ? "engine exited" : "reply finished"); });

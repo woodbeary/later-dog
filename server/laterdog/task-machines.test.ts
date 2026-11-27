@@ -167,7 +167,10 @@ describe("task machine opener", () => {
     engine.emit("line", JSON.stringify({ type: "native_exit", code: 0, signal: null }));
     await settled();
     expect(line.running()).toBe(0);
-    engine.send(JSON.stringify({ type: "stdin", data: "next" }));
+    engine.send(JSON.stringify({ type: "stdin", data: Buffer.from('{"type":"control_request","request":{"subtype":"interrupt"}}\n').toString("base64") }));
+    await settled();
+    expect(line.running()).toBe(0);
+    engine.send(JSON.stringify({ type: "stdin", data: Buffer.from('{"type":"user","message":{"role":"user","content":"next"}}\n').toString("base64") }));
     await settled();
     expect(line.running()).toBe(1);
     expect(placements(dir)).toContain("next turn holds cmp_t1 again");
