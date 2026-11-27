@@ -76,6 +76,7 @@ struct Store {
     agent: ureq::Agent,
     pieces: String,
     authorization: Option<String>,
+    host: Option<String>,
 }
 
 impl Store {
@@ -83,6 +84,9 @@ impl Store {
         let mut request = self.agent.get(&format!("{}{}", self.pieces, hash));
         if let Some(authorization) = &self.authorization {
             request = request.header("authorization", authorization);
+        }
+        if let Some(host) = &self.host {
+            request = request.header("host", host);
         }
         let response = request.call().map_err(|error| Failure::Retry(error.to_string()))?;
         let mut reader = response.into_body().into_reader();
@@ -477,7 +481,8 @@ fn store_from_environment(parallel: usize) -> Result<Store, String> {
         .max_idle_connections_per_host(parallel * 2)
         .build()
         .into();
-    Ok(Store { agent, pieces, authorization })
+    let host = std::env::var("LATERDOG_RESTORE_HOST").ok().filter(|host| !host.is_empty());
+    Ok(Store { agent, pieces, authorization, host })
 }
 
 fn main() {

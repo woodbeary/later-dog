@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -61,8 +63,19 @@ export function restorePlan(manifest, { exclude, exactScope, later = () => false
   return { dirs: kept.filter((entry) => entry.type === "dir"), boot, later: background };
 }
 
-function engineEnvironment(pieces, parallel, retryMs) {
-  const environment = { PATH: process.env.PATH ?? "/usr/bin:/bin", LATERDOG_RESTORE_PIECES: pieces.url };
+export async function addressed(url, resolve = lookup) {
+  const target = new URL(url);
+  if (isIP(target.hostname) || target.hostname === "localhost") return { url };
+  const host = target.host;
+  const { address, family } = await resolve(target.hostname);
+  target.hostname = family === 6 ? `[${address}]` : address;
+  return { url: target.href, host };
+}
+
+async function engineEnvironment(pieces, parallel, retryMs) {
+  const { url, host } = await addressed(pieces.url);
+  const environment = { PATH: process.env.PATH ?? "/usr/bin:/bin", LATERDOG_RESTORE_PIECES: url };
+  if (host) environment.LATERDOG_RESTORE_HOST = host;
   if (pieces.token) environment.LATERDOG_RESTORE_TOKEN = pieces.token;
   if (parallel) environment.LATERDOG_RESTORE_PARALLEL = String(parallel);
   if (retryMs !== undefined) environment.LATERDOG_RESTORE_RETRY_MS = String(retryMs);
@@ -127,8 +140,9 @@ export function startRestore({ root, manifest, pieces, owner = null, exclude, ex
       await writeFile(file, JSON.stringify({ root, owner, dirs: plan.dirs, phases: [{ name: "boot", ...phase(plan.boot, true) }, { name: "later", ...phase(plan.later, false) }] }), { mode: 0o600 });
       let finished = null;
       let failure = null;
-      const exited = await new Promise((resolve) => {
-        child = spawn(engine, [file], { stdio: ["pipe", "pipe", "inherit"], env: engineEnvironment(pieces, parallel, retryMs) });
+      const environment = await engineEnvironment(pieces, parallel, retryMs).catch((error) => { failure = `could not find the store: ${error.message}`; return null; });
+      const exited = !environment ? null : await new Promise((resolve) => {
+        child = spawn(engine, [file], { stdio: ["pipe", "pipe", "inherit"], env: environment });
         child.stdin.on("error", () => {});
         child.once("error", (error) => { failure = error.message; resolve(null); });
         child.once("exit", (code, signal) => resolve({ code, signal }));

@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { restore, restoredFirst, restorePlan, restoresLater, startRestore } from "../runtime/restore-engine.mjs";
+import { addressed, restore, restoredFirst, restorePlan, restoresLater, startRestore } from "../runtime/restore-engine.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { parseManifest, snapshot } from "../runtime/sync.mjs";
 
@@ -230,5 +230,15 @@ describe("a home that serves while the rest comes back", () => {
     expect((await restore(again, store, null, { scratch: folder() })).files).toBe(50);
     expect(readFileSync(join(again, ".laterdog", "bots.json"), "utf8")).toBe("[\"dog\",\"puppy\"]");
     expect(readFileSync(join(again, LATER_LOG), "utf8")).toBe(readFileSync(join(source, LATER_LOG), "utf8"));
+  });
+});
+
+describe("reaching the store from the engine", () => {
+  it("looks the store's name up once in the home and hands the engine the address and the name to send", async () => {
+    const looked: string[] = [];
+    const resolve = async (name: string) => { looked.push(name); return { address: "172.16.0.9", family: 4 }; };
+    expect(await addressed("http://state.r2/blobs/", resolve)).toEqual({ url: "http://172.16.0.9/blobs/", host: "state.r2" });
+    expect(await addressed("http://127.0.0.1:4100/", resolve)).toEqual({ url: "http://127.0.0.1:4100/" });
+    expect(looked).toEqual(["state.r2"]);
   });
 });
