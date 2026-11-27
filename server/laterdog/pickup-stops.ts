@@ -28,3 +28,10 @@ export function keepsNewerTurn({ seen, running, resumed }: SeenTurn): boolean {
   if (typeof seen !== "number" || !Number.isFinite(seen) || running === undefined || resumed) return false;
   return running > seen;
 }
+
+export interface PersonMessage { id: string; role: string; kind: string; requestCancelled?: boolean }
+
+export function persistPickupStop(path: readonly PersonMessage[], cancel: (messageId: string) => void): void {
+  const source = path.findLast((message) => message.role === "user");
+  if (source && !source.requestCancelled) cancel(source.id);
+}

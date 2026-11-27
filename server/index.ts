@@ -849,7 +849,7 @@ import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createStallWatch, handoffWorking, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
-import { createPickupStops, keepsNewerTurn } from "./laterdog/pickup-stops.ts";
+import { createPickupStops, keepsNewerTurn, persistPickupStop } from "./laterdog/pickup-stops.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
 import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
@@ -3058,6 +3058,9 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
     store.setTaskActivity(botId, threadId, "idle");
   }
   if (options?.by === "person") pickupStops.stop(threadId);
+  if (options?.by === "person" || options?.by === "api") {
+    persistPickupStop(store.activePath(threadId), (messageId) => store.patchMessage(threadId, messageId, { requestCancelled: true }));
+  }
   const requestOwner = directRequestOwners.get(threadId);
   if (requestOwner) {
     requestOwner.stopped = true;
