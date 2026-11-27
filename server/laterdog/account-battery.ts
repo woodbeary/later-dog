@@ -687,6 +687,23 @@ export class AccountBattery {
     return decideAccount(this.choiceInput(selection, accounts, threadId, dog)).run;
   }
 
+  nextWhenOut(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string, backups: readonly ModelSelection[] = this.preferredFor(threadId) ?? []): BatteryAccount | undefined {
+    if (!this.enabled) return undefined;
+    const input = this.choiceInput(selection, accounts, threadId);
+    const now = this.now();
+    const resting = { ...input.resting, [selection.instanceId]: { until: new Date(now + DEFAULT_REST_MS).toISOString(), since: new Date(now).toISOString(), estimated: true } };
+    const choice = decideAccount({
+      chosen: selection, accounts, keepGoing: true, resting, now,
+      order: batterySequence({ config: this.options.config(), accounts, resting, now }),
+      ...(input.usage ? { usage: input.usage } : {}), ...(input.preferred ? { preferred: input.preferred } : {}),
+    });
+    if (choice.kind !== "waiting" && choice.run.instanceId !== selection.instanceId) return accounts.find((account) => account.instanceId === choice.run.instanceId);
+    const own = accounts.find((account) => account.instanceId === selection.instanceId);
+    return backups.map((backup) => accounts.find((account) => account.instanceId === backup.instanceId))
+      .find((account) => account && account.driverKind !== own?.driverKind && account.enabled && account.signedIn !== false &&
+        !activeRest(account, undefined, accounts, resting, now));
+  }
+
   decide(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): AccountChoice {
     return decideAccount(this.choiceInput(selection, accounts, threadId));
   }
