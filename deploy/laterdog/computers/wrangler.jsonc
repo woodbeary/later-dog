@@ -25,6 +25,14 @@
         "pool": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-computers-pool@sha256:65d6513b9a24cf7ec4f36bdc8fd5f213e472bc1805e430b0e236c7b544d185cb" }
       },
       "observability": { "enabled": true }
+    },
+    {
+      "class_name": "PersonalBox",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "box": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-computers-box@sha256:67c917a8f836dda4da7105a94e406d9492f4c510f38c4e286b4d7223709ae8e7" }
+      },
+      "observability": { "enabled": true }
     }
   ],
   "durable_objects": {
@@ -34,7 +42,8 @@
       { "name": "TRIALS", "class_name": "TrialRegistry" },
       { "name": "TASK_LINE", "class_name": "TaskLine" },
       { "name": "POOL_LINE", "class_name": "PoolLine" },
-      { "name": "POOL_HOST", "class_name": "PoolHost" }
+      { "name": "POOL_HOST", "class_name": "PoolHost" },
+      { "name": "BOX", "class_name": "PersonalBox" }
     ]
   },
   "ratelimits": [
@@ -43,13 +52,15 @@
     { "name": "INCLUDED_LIMIT", "namespace_id": "4103", "simple": { "limit": 60, "period": 60 } }
   ],
   "ai": { "binding": "AI", "remote": true },
+  "r2_buckets": [{ "binding": "BOX_STATE", "bucket_name": "laterdog-box-state" }],
   "exports": {
     "DogComputer": { "type": "durable-object", "storage": "sqlite" },
     "ComputerRegistry": { "type": "durable-object", "storage": "sqlite" },
     "TrialRegistry": { "type": "durable-object", "storage": "sqlite" },
     "TaskLine": { "type": "durable-object", "storage": "sqlite" },
     "PoolLine": { "type": "durable-object", "storage": "sqlite" },
-    "PoolHost": { "type": "durable-object", "storage": "sqlite" }
+    "PoolHost": { "type": "durable-object", "storage": "sqlite" },
+    "PersonalBox": { "type": "durable-object", "storage": "sqlite" }
   },
   "vars": {
     "IDLE_SLEEP_MINUTES": "10",

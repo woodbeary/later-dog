@@ -15,6 +15,7 @@ import type { ComputerRegistry } from "./registry";
 import { type ComputerOp, type PoolOp, type TaskLineOp, type TrialOp, route } from "./routes";
 import type { PoolLine } from "./pool-line";
 import { parseEngineSpec } from "./pool-policy";
+import { boxRequest, boxRoute } from "./box-routes";
 import type { TaskLine } from "./task-line";
 import { machinesMax, parseSettings, parseTicketRequest, parseWaitSeconds } from "./task-line-policy";
 import {
@@ -52,6 +53,7 @@ export { TrialRegistry } from "./trial-registry";
 export { TaskLine } from "./task-line";
 export { PoolHost } from "./pool-host";
 export { PoolLine } from "./pool-line";
+export { PersonalBox } from "./box";
 
 declare global {
   interface Env {
@@ -1140,6 +1142,16 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
   const target = route(request.method, url.pathname);
   try {
     if (via === "binding" && target.kind !== "health" && !url.pathname.startsWith("/v1/")) return apiError(NO_ENDPOINT);
+    const box = boxRoute(request.method, url.pathname);
+    if (box) {
+      const identified = await identify(request, env, via);
+      if (!identified.ok) return identified.response;
+      const owner = identified.caller;
+      return await boxRequest(box, request, { boxes: env.BOX, state: env.BOX_STATE }, {
+        person: registryName(owner), trial: trialLimited(owner),
+        computers: async () => await owner.registry.list(), computer: (id) => computer(env, id),
+      });
+    }
     switch (target.kind) {
       case "health":
         return new Response("ok\n", { headers: { "cache-control": "no-store" } });
