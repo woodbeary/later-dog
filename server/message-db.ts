@@ -10,6 +10,7 @@ import type { UsageTrigger } from "./usage-ledger.ts";
 import { ReplyDiskReserve } from "./laterdog/reply-disk-reserve.ts";
 import { rollbackQuietly } from "./laterdog/safe-rollback.ts";
 import { ensureNativeRuns, deleteNativeRuns } from "./laterdog/native-run-store.ts";
+import { ensureHistoryOutbox, noteHistoryChat, noteHistoryMessage } from "./laterdog/history-outbox-db.ts";
 import { MessageSearchWorker, WITHIN_BUDGET, type ReadQuery } from "./message-search-worker.ts";
 import { searchMessagesInDatabase, type SearchHit } from "./message-search-query.ts";
 import { ftsQuery, rangeClause, type RecallRange, type SearchMode } from "../shared/search-index-query.ts";
@@ -32,6 +33,11 @@ export interface MessageWrites {
 }
 
 let writes: MessageWrites | null = null;
+let historyOutbox = false;
+
+export function keepHistoryOutbox(on: boolean): void {
+  historyOutbox = on;
+}
 
 export function watchMessageWrites(next: MessageWrites | null): void {
   writes = next;
@@ -98,6 +104,7 @@ function open(): DatabaseSync {
   ensureRecallIndex(db);
   ensureMemoryIndex(db);
   ensureNativeRuns(db);
+  ensureHistoryOutbox(db);
   return db;
 }
 
@@ -409,9 +416,11 @@ function importLegacy(threadId: string, legacyFile: string): ThreadRows {
 }
 
 export function insertMessage(threadId: string, message: Message): void {
-  db()
+  const database = db();
+  database
     .prepare(UPSERT_MESSAGE)
     .run(threadId, message.id, message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message));
+  if (historyOutbox) noteHistoryMessage(database, threadId, message.id);
   writes?.message(threadId, message.id);
 }
 
@@ -440,20 +449,14 @@ export function appendMessage(threadId: string, message: Message): void {
 }
 
 export function updateMessage(threadId: string, message: Message): void {
-  writeMessage(message, () => db()
-    .prepare("UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
-    .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id));
+  writeMessage(message, () => {
+    const database = db();
+    database
+      .prepare("UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
+      .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id);
+    if (historyOutbox) noteHistoryMessage(database, threadId, message.id);
+  });
   writes?.message(threadId, message.id);
-}
-
-export function readMessagesJson(threadId: string, ids: readonly string[]): Array<{ id: string; at: number; json: string }> {
-  const statement = db().prepare("SELECT id, at, json FROM messages WHERE thread_id = ? AND id = ?");
-  const rows: Array<{ id: string; at: number; json: string }> = [];
-  for (const id of ids) {
-    const row = statement.get(threadId, id) as { id: string; at: number; json: string } | undefined;
-    if (row) rows.push(row);
-  }
-  return rows;
 }
 
 export function openPermissionCards(): Array<{ threadId: string; message: Message }> {
@@ -494,7 +497,9 @@ export function questionCardsCountingDown(): Array<{ threadId: string; message: 
 }
 
 export function setActiveLeaf(threadId: string, leafId: string | null): void {
-  db()
+  const database = db();
+  if (historyOutbox) noteHistoryChat(database, threadId, false);
+  database
     .prepare(
       "INSERT INTO thread_state (thread_id, active_leaf_id) VALUES (?, ?) " +
         "ON CONFLICT(thread_id) DO UPDATE SET active_leaf_id = excluded.active_leaf_id",
@@ -533,9 +538,15 @@ export function deleteThread(threadId: string): void {
     connection.prepare("DELETE FROM chat_followups WHERE thread_id = ?").run(threadId);
     connection.prepare("DELETE FROM messages WHERE thread_id = ?").run(threadId);
     connection.prepare("DELETE FROM thread_state WHERE thread_id = ?").run(threadId);
+    if (historyOutbox) noteHistoryChat(connection, threadId, true);
   });
   writes?.chat(threadId);
 }
+
+export const historyDatabase = {
+  read: <T>(read: (database: DatabaseSync) => T): T => read(db()),
+  write: <T>(write: (database: DatabaseSync) => T): T => transaction(write),
+};
 
 export const nativeRunDatabase = {
   read: <T>(read: (database: DatabaseSync) => T): T => read(db()),
