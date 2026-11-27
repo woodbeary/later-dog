@@ -678,8 +678,8 @@ export function recallMessages(query: string, threadIds: readonly string[], limi
   return recallHits(readHere<RecallRow>(recallRead(query, threadIds, limit, range, mode)));
 }
 
-export async function recallMessagesOffThread(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange): Promise<RecallHit[]> {
-  return recallHits(await readOffThread<RecallRow>(recallRead(query, threadIds, limit, range, "all", WITHIN_BUDGET)));
+export async function recallMessagesOffThread(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): Promise<RecallHit[]> {
+  return recallHits(await readOffThread<RecallRow>(recallRead(query, threadIds, limit, range, mode, WITHIN_BUDGET)));
 }
 
 const RECENT_HEAD_CHARS = 240;
@@ -810,8 +810,8 @@ export function recallMemory(query: string, botId: string, limit = 12, mode: Sea
   return memoryHits(readHere<MemoryRow>(memoryRead(query, botId, limit, mode)));
 }
 
-export async function recallMemoryOffThread(query: string, botIds: readonly string[], limit = 12): Promise<MemoryHit[][]> {
-  const reads = botIds.map((botId) => memoryRead(query, botId, limit, "all", WITHIN_BUDGET));
+export async function recallMemoryOffThread(query: string, botIds: readonly string[], limit = 12, mode: SearchMode = "all"): Promise<MemoryHit[][]> {
+  const reads = botIds.map((botId) => memoryRead(query, botId, limit, mode, WITHIN_BUDGET));
   if (reads.some((read) => !read)) return botIds.map(() => []);
   return (await readAllOffThread(reads as ReadQuery[])).map((rows) => memoryHits(rows as MemoryRow[]));
 }

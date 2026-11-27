@@ -2883,3 +2883,29 @@ describe("moving the home to the owner's time zone", () => {
     expect(new RoutineManager(h.options).listRoutines().find((routine) => routine.id === daily.id)?.nextRunAt).toBe(Date.parse("2026-08-17T15:30:00Z"));
   });
 });
+
+describe("routines that fall due together", () => {
+  it("spread over a minute and a half and start at most two per pass, while a lone routine starts on time", async () => {
+    const start = Date.parse("2026-09-13T08:00:00Z");
+    const h = harness(start);
+    for (let n = 0; n < 6; n++) {
+      h.manager.create({ name: `Check ${n}`, prompt: "Check the fixture", botId: `dog-${n}`, schedule: { type: "interval" as const, everyMinutes: 60, anchorAt: start } });
+    }
+    const due = h.manager.listRoutines()[0].nextRunAt!;
+    const perPass: number[] = [];
+    for (let at = due; at <= due + 120_000; at += 10_000) {
+      h.setNow(at);
+      const before = h.started.length;
+      await h.manager.tick();
+      perPass.push(h.started.length - before);
+    }
+    expect(h.started).toHaveLength(6);
+    expect(Math.max(...perPass)).toBeLessThanOrEqual(2);
+    expect(perPass.findLastIndex((count) => count > 0)).toBeGreaterThan(0);
+    const lone = harness(start);
+    lone.manager.create({ name: "Alone", prompt: "Check the fixture", botId: "dog-1", schedule: { type: "interval" as const, everyMinutes: 60, anchorAt: start } });
+    lone.setNow(lone.manager.listRoutines()[0].nextRunAt!);
+    await lone.manager.tick();
+    expect(lone.started).toHaveLength(1);
+  });
+});

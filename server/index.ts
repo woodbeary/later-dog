@@ -185,7 +185,7 @@ import { connectorCallFromFrame, connectorRefusalText, connectorUnrecognizedText
 import { connectorCardText } from "./connector-card-text.ts";
 import { withMainDogRouting } from "./laterdog/main-dog-prompt.ts";
 import { MAIN_DOG_DELETE_REFUSAL, MAIN_DOG_REQUIRED } from "../shared/main-dog.ts";
-import { buildRecall } from "./recall.ts";
+import { buildRecall, buildRecallInBackground } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
 import { appendAboutMe, commitLearned, holdLearned, listPendingLearned, planLearned } from "./profile-learned.ts";
 import { canAccessTeam, canReachPeer, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, PEERS_PROMPT, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomRosterLine } from "./peer-roster.ts";
@@ -438,6 +438,7 @@ import {
   appendMemoryLog,
   appendMemoryLogInBackground,
   memorySystemPrompt,
+  syncMemoryIndexFrom,
   readMemoryFromSnapshot,
   memoryTrimmed,
   memorySourceLabel,
@@ -466,6 +467,7 @@ import {
   beginMemoryTurn,
   beginMemoryTurnInBackground,
   endMemoryTurnInBackground,
+  memorySnapshotFiles,
   flushAllMemoryJournals,
   journalMemoryWrite,
   type MemoryJournalEntry,
@@ -1044,6 +1046,8 @@ const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivit
 })) : null;
 const turnTiming = createTurnTiming({ log: (line) => console.log(line) });
 const turnPhases = createTurnPhases({ log: (line) => console.log(line) });
+const startPhases = createTurnPhases({ log: (line) => console.log(line), name: "server start" });
+startPhases.begin("boot");
 if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () => turnPhases.current() });
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
@@ -1999,6 +2003,44 @@ function autoRecallPrompt(bot: BotRecord, threadId: string, message: string, opt
   }
 }
 
+async function autoRecallInBackground(bot: BotRecord, threadId: string, message: string, opts: { conversations: boolean; userName: string; docs: ReadonlyMap<string, string> | null }): Promise<string> {
+  if (bot.memoryEnabled === false || !autoRecallEnabled(cfg)) return "";
+  const roomByThread = new Map<string, GroupRecord>();
+  if (opts.conversations) {
+    for (const group of store.groups) {
+      if (!group.memberIds.includes(bot.id) || !roomFeedsBot(group, bot)) continue;
+      roomByThread.set(group.threadId, group);
+      for (const task of group.tasks ?? []) roomByThread.set(task.threadId, group);
+    }
+  }
+  const threadIds = opts.conversations
+    ? [...new Set([bot.threadId, ...(bot.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])].filter((id) => id !== threadId)
+    : [];
+  try {
+    if (opts.docs) syncMemoryIndexFrom(bot.id, memorySnapshotFiles(bot.id));
+    const recalled = await buildRecallInBackground({
+      botId: bot.id,
+      message,
+      threadIds,
+      docs: opts.docs ?? undefined,
+      mayShow: (id) => !CLOUD_HOME || cloudOwnerOnlyThread(id),
+      label: (id) => {
+        const room = roomByThread.get(id);
+        if (room) return `room ${JSON.stringify(room.name)}`;
+        const task = store.taskByThread(bot.id, id);
+        if (task) return `chat ${JSON.stringify(task.title)}`;
+        return id === bot.threadId ? "your main chat" : "an earlier chat";
+      },
+      author: (hit) => (hit.role === "user" ? hit.peer ?? opts.userName : hit.from ?? bot.name),
+    });
+    if (recalled) console.log(`auto-recall: ${bot.name} (${bot.id}) got ${recalled.notes} note and ${recalled.conversations} conversation passage(s) in ${threadId}`);
+    return recalled?.text ?? "";
+  } catch (err) {
+    console.warn(`auto-recall failed for ${bot.id}: ${(err as Error).message}`);
+    return "";
+  }
+}
+
 function withRecalled(recalled: string, text: string): string {
   return recalled ? `${recalled}\n\n${text}` : text;
 }
@@ -2271,7 +2313,9 @@ function resyncOpenCodeProviderKeys(): void {
       .then(() => broadcast({ kind: "config", ...configStatus() }), () => {});
   }
 }
+startPhases.mark("boot", "settings and secrets");
 await registry.load(providerConfigs(), decorateHostedProvider);
+startPhases.mark("boot", "engines");
 const availableSkills = () => loadUserSkills(join(DATA_DIR, "skills"));
 
 const listBotSkills = (bot: BotRecord) =>
@@ -3816,12 +3860,14 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 let bootSelection = { instanceId: "", model: "" };
 let enginesRead: Promise<void> | null = null;
 const presetStore = createPresetStore();
+startPhases.mark("boot", "services");
 const store = new Store(
   () => bootSelection,
   (selection) => withNewBotEffort(selection, cfg.newBots?.effort, offeredEffortLevels(registry.get(selection.instanceId), selection.model)),
   (instanceId) => registry.cliTarget(instanceId)?.driverKind,
   () => newDogComputer(Boolean(CLOUD_HOME)),
 );
+startPhases.mark("boot", "chats loaded");
 const teamComputers = new TeamComputers(join(DATA_DIR, "team-computers.json"), ENVIRONMENT_ID);
 let followupsReady = false;
 const sendSequencer = new SendSequencer();
@@ -9891,13 +9937,14 @@ async function startTurn(
       runningTurnEngines.set(threadId, instance);
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
-      const recalled = recallsThisTurn(dispatchContext, instance.driverKind) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: fromPerson,
+      const recallReach = recallsThisTurn(dispatchContext, instance.driverKind) ? "conversations"
+        : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? "notes" : null;
+      const recalled = recallReach ? await autoRecallInBackground(bot, threadId, resolvedImages.text, {
+        conversations: recallReach === "conversations" && fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
-      }) : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: false,
-        userName: cfg.profile?.name?.trim() || "User",
+        docs: memoryDocs,
       }) : "";
+      if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while recalling notes");
       turnShape.begin(threadId, {
         questions: threadId === bot.threadId && Date.now() - (bot.createdAt ?? 0) < DOG_SETUP_QUESTIONS_MS,
         replyFirst: fromPerson && !fromLocalTool,
@@ -22357,6 +22404,7 @@ for (const row of chatFollowups()) {
   }
   settleChatFollowups([row.id], null);
 }
+startPhases.mark("boot", "routes and watchers");
 restoreSteeredMessages();
 restoreChannelMessages();
 
@@ -22386,7 +22434,9 @@ try {
   if (movedAutoPins) console.log(`Works on: moved ${movedAutoPins} auto-pinned thread(s) to their bot's current Works on`);
 }
 
+startPhases.mark("boot", "interrupted work restored");
 server.listen(PORT, "127.0.0.1", async () => {
+  startPhases.end("boot", "listening");
   companyRuntimeReady();
   void connectedRepositories.refresh();
   console.log(`later.dog server on http://127.0.0.1:${PORT}`);
