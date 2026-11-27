@@ -65,6 +65,7 @@ import { planCodexRemote } from "../laterdog/codex-placement.ts";
 import { recoverCodexRollout } from "../laterdog/codex-recover.ts";
 import { DEFAULT_ENGINE_OPEN_BUDGET_MS, acceptedEnginePlacement, engineOpener, notePlacement, recordEngineTurn, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { codexExternalAuthChannel, redactCodexExternalAuthFrame } from "../laterdog/codex-external-auth.ts";
+import { renewCodex } from "../laterdog/account-keeper.ts";
 import { chatEngineEnvironment } from "../laterdog/chat-environment.ts";
 import { codexToolTouch } from "../laterdog/tool-touches.ts";
 import { codexCompactionEvent } from "../laterdog/native-compaction.ts";
@@ -791,7 +792,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           ? await planCodexRemote({ dataDir: DATA_DIR, botId: turn.botId!, threadId, instanceId, cli: config.cli, cwd: turn.cwd, env,
             cursor: typeof turn.resumeCursor === "string" ? turn.resumeCursor : undefined, opener, required, images: turn.images,
             guardShell: turn.integrations?.hooks?.guardShell === true,
-            refresh: async () => { if (!await codexAccountEmail(config.cli, env, 30_000, true)) throw new Error("The home could not refresh the selected account."); },
+            refresh: async () => { if (!await renewCodex(config.cli, env)) throw new Error("The home could not refresh the selected account."); },
             recover: (cursor) => recoverCodexRollout(turn.botId!, join(DATA_DIR, "engine-launch"), cursor) }) : undefined;
         if (remoteChoice?.binding) binding = remoteChoice.binding;
         const remote = remoteChoice?.plan ? remoteChoice : undefined;
