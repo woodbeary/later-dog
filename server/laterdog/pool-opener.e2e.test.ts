@@ -8,7 +8,7 @@ import WebSocket, { WebSocketServer } from "ws";
 import { engineScripts } from "./engine-computer.ts";
 import { claudeProjectSlug, planClaudeRemote, REMOTE_ENGINE_BASE, REMOTE_ENGINES_FILE, spawnPlacedEngine, type ClaudeRemotePlan, type EngineOpener } from "./engine-placement.ts";
 import type { EngineLink } from "./engine-remote.ts";
-import { attachPool, openOnPool, poolChosen, poolEngineOpener, poolLink, relayFiles, type PoolService } from "./pool-opener.ts";
+import { attachPool, openOnPool, poolChosen, poolEngineOpener, poolLink, poolSetting, relayFiles, savePoolSetting, type PoolService } from "./pool-opener.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const BOOT = here("../../deploy/laterdog/computers/pool-agent/pool-relay");
@@ -176,6 +176,10 @@ it("chooses the pool only for the dogs the setting names and falls back to the d
   expect(poolChosen(data, "bot-1")).toBe(false);
   writeFileSync(join(data, REMOTE_ENGINES_FILE), JSON.stringify({ pool: { enabled: true } }));
   expect(poolChosen(data, "bot-1")).toBe(true);
+  writeFileSync(join(data, REMOTE_ENGINES_FILE), JSON.stringify({ placement: "computer", bots: ["bot-9"] }));
+  expect(savePoolSetting(data, { enabled: true, bots: ["bot-1", "bot-1"] })).toEqual({ enabled: true, bots: ["bot-1"] });
+  expect(JSON.parse(readFileSync(join(data, REMOTE_ENGINES_FILE), "utf8"))).toEqual({ placement: "computer", bots: ["bot-9"], pool: { enabled: true, bots: ["bot-1"] } });
+  expect(poolSetting(data)).toEqual({ enabled: true, bots: ["bot-1"] });
 
   const computerLinks: string[] = [];
   const computer: EngineOpener = { proxyPath: "/p", openBudgetMs: 1, async open(botId) { computerLinks.push(botId); return {} as EngineLink; } };

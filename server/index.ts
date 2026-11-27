@@ -937,7 +937,8 @@ import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
-import { poolChosen, poolEngineOpener } from "./laterdog/pool-opener.ts";
+import { poolChosen, poolEngineOpener, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
+import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
 const folderBootstrap = BOOT_CLOUD_SECRETS.LATERDOG_CLOUD_BOOTSTRAP_SECRET ?? process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
@@ -14072,6 +14073,7 @@ ROUTES.push(createEnginePlacementRoutes({
   read: (id) => remoteEngineChoice(DATA_DIR, id),
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
 }));
+ROUTES.push(createEnginePoolRoutes({ read: () => poolSetting(DATA_DIR), save: (setting) => savePoolSetting(DATA_DIR, setting) }));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
 ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
 ROUTES.push(createHomeLogRoutes({ dir: () => (CLOUD_HOME ? join(DATA_DIR, HOME_SERVER_LOG_DIR) : null) }));
