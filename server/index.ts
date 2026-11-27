@@ -933,6 +933,7 @@ import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
+import { poolChosen, poolEngineOpener } from "./laterdog/pool-opener.ts";
 
 const mountedFolderLayout = mountedWorkFolders();
 const folderBootstrap = BOOT_CLOUD_SECRETS.LATERDOG_CLOUD_BOOTSTRAP_SECRET ?? process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
@@ -940,7 +941,7 @@ const projectAccess = mountedFolderLayout ? new ProjectAccessController(mountedF
 const changingProjectMembers = new Set<string>();
 const projectSelectionLocks = new Set<string>();
 if (projectAccess?.layout.projects.length) await projectAccess.refresh();
-setEngineOpener(computerEngineOpener(mountedFolderLayout ? {
+setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
   workFolders: async input => {
     if (changingProjectMembers.has(input.botId)) throw new Error("This dog's shared project access is being updated.");
     const folders = engineFolderScopes(mountedFolderLayout, DATA_DIR, input);
@@ -948,7 +949,7 @@ setEngineOpener(computerEngineOpener(mountedFolderLayout ? {
       process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, scope, input.botId, input.computerId,
     ) })));
   },
-} : {}));
+} : {}), DATA_DIR));
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);
@@ -9259,7 +9260,7 @@ async function startTurn(
     let snapshotHead: EarlySnapshot<string> | null = null;
     let memoryHead: Promise<ReadonlyMap<string, string> | null> | null = null;
     let memoryDocs: ReadonlyMap<string, string> | null = null;
-    if (mountedFolderLayout && remoteEngineChoice(DATA_DIR, bot.id).computer) void boat.engineComputer(bot.id).catch(() => {});
+    if (mountedFolderLayout && remoteEngineChoice(DATA_DIR, bot.id).computer && !poolChosen(DATA_DIR, bot.id)) void boat.engineComputer(bot.id).catch(() => {});
     try {
       if (logArchive && !await logArchive.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
         throw new DirectTurnSetupCancelled("turn stopped while saved logs were restored");

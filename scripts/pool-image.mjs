@@ -9,6 +9,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const CRATE = path.join(ROOT, "deploy/laterdog/computers/pool-agent");
 export const TARGET = "x86_64-unknown-linux-musl";
 export const AGENT_PATH = "usr/local/bin/laterdog-pool-agent";
+export const RELAY_PATH = "home/dog/.laterdog-engine/cli/pool-relay";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...options });
@@ -57,8 +58,11 @@ export async function main(argv) {
     fs.mkdirSync(path.join(stage, path.dirname(AGENT_PATH)), { recursive: true });
     fs.copyFileSync(binary, path.join(stage, AGENT_PATH));
     fs.chmodSync(path.join(stage, AGENT_PATH), 0o755);
+    fs.mkdirSync(path.join(stage, path.dirname(RELAY_PATH)), { recursive: true });
+    fs.copyFileSync(path.join(CRATE, "pool-relay"), path.join(stage, RELAY_PATH));
+    fs.chmodSync(path.join(stage, RELAY_PATH), 0o755);
     const layer = path.join(work, "agent.tar.gz");
-    run("tar", ["--no-mac-metadata", "--no-xattrs", "--no-acls", "--uid", "0", "--gid", "0", "--uname", "root", "--gname", "root", "-C", stage, "-czf", layer, AGENT_PATH], { env: { ...process.env, COPYFILE_DISABLE: "1" } });
+    run("tar", ["--no-mac-metadata", "--no-xattrs", "--no-acls", "--uid", "0", "--gid", "0", "--uname", "root", "--gname", "root", "-C", stage, "-czf", layer, AGENT_PATH, RELAY_PATH], { env: { ...process.env, COPYFILE_DISABLE: "1" } });
     run(process.env.CRANE ?? "crane", ["append", "--base", options.base, "--new_layer", layer, "--new_tag", options.to]);
     const digest = run(process.env.CRANE ?? "crane", ["digest", options.to]).trim();
     return print({ ...report, base: options.base, layerBytes: fs.statSync(layer).size, image: `${repositoryOf(options.to)}@${digest}` });
