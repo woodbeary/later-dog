@@ -7,6 +7,7 @@ import type {
   ProviderSnapshot,
 } from "../contracts.ts";
 import { createAcpDriver, type AcpConfig, type AcpSupport } from "./acp/core.ts";
+import { googleUsageLimit } from "./acp/google-limits.ts";
 import {
   AntigravityAuthController,
   antigravityProfileAuthenticated,
@@ -63,6 +64,7 @@ const support: AcpSupport = {
   redactStderr: true,
   sanitizeToolPayload: true,
   resolveModelsOnCreate: false,
+  usageLimit: (error) => googleUsageLimit(error, "antigravity"),
 
   resolveCommand: async (env, config, instanceId) => {
     const runtime = await resolveAntigravityRuntime(config.cli, env);
