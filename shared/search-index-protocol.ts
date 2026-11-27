@@ -2,6 +2,8 @@ import type { RecallRange, SearchMode } from "./search-index-query.ts";
 
 export const INDEX_ROUTE = "/api/internal/index/";
 export const INDEX_FEED_MAX_ITEMS = 250;
+export const INDEX_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+export const INDEX_KIND = /^[a-z][a-z_.-]{0,31}$/;
 export const INDEX_TEXT_MAX_CHARS = 400_000;
 export const INDEX_SCOPE_MAX = 5_000;
 export const INDEX_BUDGET_MS = { recall: 500, recent: 500, memory: 500, search: 1_000, has: 1_000, files: 500, feed: 10_000, stats: 1_000 } as const;

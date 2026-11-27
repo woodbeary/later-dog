@@ -1,6 +1,8 @@
 import { ftsQuery, rangeClause, substringSnippet, textSum } from "../../../../shared/search-index-query.ts";
 import {
   INDEX_FEED_MAX_ITEMS,
+  INDEX_ID as IDENTIFIER,
+  INDEX_KIND as KIND,
   INDEX_SCOPE_MAX,
   INDEX_TEXT_MAX_CHARS,
   type IndexFeedBatch,
@@ -34,8 +36,6 @@ const SUBSTRING_CANDIDATES = 2_000;
 const SHORT_NEEDLE_WINDOW = 50_000;
 const MAX_LIMIT = 1_000;
 export const BROAD_MATCHES = 20_000;
-const IDENTIFIER = /^[A-Za-z0-9_.:-]{1,128}$/;
-const KIND = /^[a-z_-]{1,32}$/;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS messages (

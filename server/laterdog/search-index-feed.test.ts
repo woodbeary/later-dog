@@ -83,6 +83,17 @@ describe("index feed", () => {
     }
   });
 
+  it("sets aside a batch the index refuses instead of retrying it forever", async () => {
+    const refused: FeedKey[][] = [];
+    let calls = 0;
+    const feed = new SearchIndexFeed(async () => { calls += 1; throw Object.assign(new Error("index feed answered 400"), { status: 400 }); }, resolver(new Map([["a", "x"]])), { delayMs: 1, onRefused: (keys) => refused.push(keys) });
+    feed.message("chat", "a");
+    await feed.drained();
+    expect(calls).toBe(1);
+    expect(refused).toEqual([[{ kind: "message", chat: "chat", id: "a" }]]);
+    expect(feed.state).toMatchObject({ pending: 0, dropped: 1, failures: 0 });
+  });
+
   it("drops everything it holds past its cap and says so, so every chat is fed again", () => {
     let dropped = 0;
     const feed = new SearchIndexFeed(async () => { throw new Error("down"); }, resolver(new Map()), { maxPending: 3, delayMs: 60_000, onDrop: () => { dropped += 1; } });

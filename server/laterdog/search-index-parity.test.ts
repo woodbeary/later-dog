@@ -93,7 +93,9 @@ beforeAll(async () => {
     const length = 4 + Math.floor(next() * 30);
     const text = Array.from({ length }, () => (next() < 0.4 ? pick(FILLER) : pick(WORDS))).join(" ");
     const roll = next();
-    const message = (roll < 0.05
+    const message = (roll < 0.02
+      ? { id: `m${i}`, at: T0 + i * 1_000, role: "bot", kind: "routine.run", text: `routine finished ${text}` }
+      : roll < 0.05
       ? { id: `m${i}`, at: T0 + i * 1_000, role: "bot", kind: "activity", tool: { name: pick(["web_search", "read_file", "send_text"]), ok: true } }
       : roll < 0.1
         ? { id: `m${i}`, at: T0 + i * 1_000, role: "bot", kind: "digest", text }

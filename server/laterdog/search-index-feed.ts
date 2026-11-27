@@ -79,12 +79,14 @@ export class SearchIndexFeed {
   private readonly resolve: (entries: FeedEntry[]) => Promise<IndexFeedBatch>;
   private readonly onDrop: () => void;
   private readonly onSent: (keys: FeedKey[]) => void;
+  private readonly onRefused: (keys: FeedKey[], reason: string) => void;
 
-  constructor(send: (batch: IndexFeedBatch) => Promise<void>, resolve: (entries: FeedEntry[]) => Promise<IndexFeedBatch>, options: FeedOptions & { onDrop?: () => void; onSent?: (keys: FeedKey[]) => void } = {}) {
+  constructor(send: (batch: IndexFeedBatch) => Promise<void>, resolve: (entries: FeedEntry[]) => Promise<IndexFeedBatch>, options: FeedOptions & { onDrop?: () => void; onSent?: (keys: FeedKey[]) => void; onRefused?: (keys: FeedKey[], reason: string) => void } = {}) {
     this.send = send;
     this.resolve = resolve;
     this.onDrop = options.onDrop ?? (() => {});
     this.onSent = options.onSent ?? (() => {});
+    this.onRefused = options.onRefused ?? (() => {});
     this.maxBatch = Math.min(options.maxBatch ?? INDEX_FEED_MAX_ITEMS, INDEX_FEED_MAX_ITEMS);
     this.delayMs = options.delayMs ?? 250;
     this.maxPending = options.maxPending ?? 200_000;
@@ -182,6 +184,12 @@ export class SearchIndexFeed {
         this.attempt = 0;
         this.state.lastError = null;
       } catch (error) {
+        if ((error as { status?: unknown }).status === 400) {
+          this.state.dropped += taken.length;
+          this.state.lastError = error instanceof Error ? error.message : String(error);
+          this.onRefused(taken.map(([, entry]) => entry.key), this.state.lastError);
+          continue;
+        }
         for (const [name, entry] of taken) if (!this.pending.has(name)) this.pending.set(name, entry);
         this.state.failures += 1;
         this.state.lastError = error instanceof Error ? error.message : String(error);
@@ -241,7 +249,7 @@ export function searchIndexClient(options: IndexClientOptions): SearchIndexClien
       body: JSON.stringify(body ?? {}),
       signal: AbortSignal.timeout(budget),
     });
-    if (!response.ok) throw new Error(`index ${operation} answered ${response.status}`);
+    if (!response.ok) throw Object.assign(new Error(`index ${operation} answered ${response.status}`), { status: response.status });
     const answer = (await response.json()) as { ok?: boolean; result?: T };
     if (!answer.ok) throw new Error(`index ${operation} refused`);
     return answer.result as T;

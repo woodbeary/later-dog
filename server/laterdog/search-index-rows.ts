@@ -1,5 +1,5 @@
 import type { SQLInputValue } from "node:sqlite";
-import { INDEX_TEXT_MAX_CHARS, type IndexMemoryFile, type IndexMessage } from "../../shared/search-index-protocol.ts";
+import { INDEX_ID, INDEX_KIND, INDEX_TEXT_MAX_CHARS, type IndexMemoryFile, type IndexMessage } from "../../shared/search-index-protocol.ts";
 import { textSum } from "../../shared/search-index-query.ts";
 import { peerProvenanceAuthor } from "../peer-provenance.ts";
 
@@ -8,7 +8,7 @@ export interface IndexRead {
   params: SQLInputValue[];
 }
 
-export const INDEX_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+export { INDEX_ID, INDEX_KIND };
 const PEER_HEAD_CHARS = 160;
 
 export interface MessageRow {

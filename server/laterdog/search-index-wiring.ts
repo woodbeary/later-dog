@@ -1,9 +1,10 @@
 import type { IndexFeedBatch, IndexRecallHit } from "../../shared/search-index-protocol.ts";
 import type { RecallRange, SearchMode } from "../../shared/search-index-query.ts";
-import { SearchIndexFeed, type FeedEntry, type FeedKey, type SearchIndexClient } from "./search-index-feed.ts";
+import { SearchIndexFeed, chatOf, type FeedEntry, type FeedKey, type SearchIndexClient } from "./search-index-feed.ts";
 import {
   ALL_CHATS,
   INDEX_ID,
+  INDEX_KIND,
   MEMORY_DOGS,
   chatPage,
   indexedMemory,
@@ -117,6 +118,7 @@ export class SearchIndexWiring {
   private readonly timings = new Map<string, number[]>();
   private readonly lastWrite = new Map<string, number>();
   private seq = 0;
+  private unindexable = 0;
   private readonly checks = new Set<Promise<void>>();
   private readonly deps: SearchIndexWiringDeps;
 
@@ -156,6 +158,17 @@ export class SearchIndexWiring {
         this.deps.outbox.clear();
         this.lastScanAt = null;
         this.wake();
+      },
+      onRefused: (keys, reason) => {
+        const chats = new Set(keys.map((key) => chatOf(key)));
+        this.deps.log(`search-index: the index refused a batch (${reason}); ${chats.size} chat(s) answer from the home until fed again`);
+        for (const chat of chats) {
+          this.covered.delete(chat);
+          this.deps.coverage.drop(chat);
+        }
+        try {
+          this.deps.outbox.remove(keys);
+        } catch {}
       },
       onSent: (keys) => {
         try {
@@ -324,7 +337,8 @@ export class SearchIndexWiring {
       if (entry.auto) this.queue(key.chat, this.missing(key.chat, this.wanted(key.chat)));
       if (!dogs.length && !person) continue;
       const row = messages.get(`${key.chat}\n${key.id}`);
-      if (row) batch.messages.push({ ...indexedMessage(row, dogs[0] ?? "home"), dogs, person });
+      if (row && INDEX_KIND.test(row.kind)) batch.messages.push({ ...indexedMessage(row, dogs[0] ?? "home"), dogs, person });
+      else if (row) this.unindexable += 1;
       else batch.removeMessages.push({ chat: key.chat, id: key.id, dogs, person });
     }
     return Object.fromEntries(Object.entries(batch).filter(([, list]) => list.length)) as IndexFeedBatch;
