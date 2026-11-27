@@ -58,6 +58,7 @@ function open(): DatabaseSync {
       PRIMARY KEY (thread_id, id)
     );
     CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id);
+    CREATE INDEX IF NOT EXISTS messages_cards ON messages(thread_id) WHERE kind = 'options';
     CREATE TABLE IF NOT EXISTS thread_state (
       thread_id TEXT PRIMARY KEY,
       active_leaf_id TEXT
@@ -453,6 +454,20 @@ export function openPermissionCards(): Array<{ threadId: string; message: Messag
       "AND COALESCE(json_extract(json, '$.card.expired'), 0) = 0",
     )
     .all() as Array<{ thread_id: string; json: string }>;
+  return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
+}
+
+export function openRequestCards(tools: readonly string[]): Array<{ threadId: string; message: Message }> {
+  if (!tools.length) return [];
+  const rows = db()
+    .prepare(
+      "SELECT thread_id, json FROM messages " +
+      `WHERE kind = 'options' AND json_extract(json, '$.card.tool') IN (${tools.map(() => "?").join(", ")}) ` +
+      "AND COALESCE(json_extract(json, '$.card.requestId'), '') <> '' " +
+      "AND json_extract(json, '$.card.answered') IS NULL " +
+      "AND COALESCE(json_extract(json, '$.card.dismissed'), 0) = 0",
+    )
+    .all(...tools) as Array<{ thread_id: string; json: string }>;
   return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
 }
 

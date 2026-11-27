@@ -1316,6 +1316,10 @@ export class Store {
       : mdb.hasPendingRequest(threadId, messagesFile(threadId));
   }
 
+  openRequestCards(tools: readonly string[]): Array<{ threadId: string; message: Message }> {
+    return mdb.openRequestCards(tools);
+  }
+
   messagesFor(threadId: string): Message[] {
     return this.thread(threadId).messages;
   }
