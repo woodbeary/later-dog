@@ -2519,7 +2519,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
           const inherited = inheritsUserConfig(env) ? read(join(resolveClaudeConfigDir(undefined, env), "settings.json")) : undefined;
           const folder = taskFolder ?? (threadId ? workFolders.get(threadId) : undefined);
-          const project = folder ? read(join(folder, ".claude", "settings.json")) : undefined;
+          const projectText = folder ? await dogFiles.readText(join(folder, ".claude", "settings.json")).catch(() => null) : null;
+          const project = projectText === null ? undefined : (() => { try { return JSON.parse(projectText) as unknown; } catch { return undefined; } })();
           return {
             switchedOff: claudeCompactionSwitchedOff(env, inherited) || claudeCompactionSwitchedOff({}, project),
             customEndpoint: !config.managed && localModelEndpoint(env.ANTHROPIC_BASE_URL),

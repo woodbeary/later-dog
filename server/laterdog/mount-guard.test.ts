@@ -99,6 +99,13 @@ describe("the dog-folder mount guard", () => {
     void stuck;
   });
 
+  it("keys a dog's chat folders one by one under the chat root", () => {
+    const guard = createMountGuard({ roots: () => [ROOT], chatRoots: () => ["/mnt/chats"] });
+    expect(guard.folderOf("/mnt/chats/dog/chat-a/.claude/settings.json")).toBe("/mnt/chats/dog/chat-a");
+    expect(guard.folderOf("/mnt/chats/dog")).toBe("/mnt/chats/dog");
+    expect(guard.folderOf("/mnt/chats")).toBe("/mnt/chats");
+  });
+
   it("treats a mounted project folder as one folder", async () => {
     const guard = createMountGuard({ roots: () => [ROOT], folders: () => ["/home/dog/site"], timeoutMs: 30, coolMs: 10_000 });
     expect(guard.folderOf("/home/dog/site/src/index.ts")).toBe("/home/dog/site");

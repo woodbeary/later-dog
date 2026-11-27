@@ -22360,12 +22360,9 @@ function janitorThread(botId: string, threadId: string): ReaperThreadState {
 const mountedHomePaths = homeMountPaths(DATA_DIR, homedir());
 guardMountedFolders(mountedHomePaths);
 if (process.env.LATERDOG_SYNC_TRIPWIRE === "log") {
-  const told = new Set<string>();
   onMountedSyncCall((hit) => {
-    const at = hit.stack.split("\n").slice(2, 5).map((line) => line.trim()).join(" < ");
-    if (told.has(at) || told.size > 200) return;
-    told.add(at);
-    console.error(`[mount guard] synchronous ${hit.call} on ${hit.path} from ${at}`);
+    const at = hit.stack.split("\n").slice(2, 8).map((line) => line.trim()).join(" < ");
+    console.error(`[mount guard] ${new Date(hit.startedAt).toISOString()} synchronous ${hit.call} on ${hit.path} held the server ${hit.ms.toFixed(1)} ms from ${at}`);
   });
   armSyncTripwire();
 }
