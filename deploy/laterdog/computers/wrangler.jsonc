@@ -16,13 +16,24 @@
         "desktop": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-computers-dogcomputer-desktop@sha256:6c9a67f6e9c0f00b3237cba334c6aea633715b414787dce5bbc616514b6dc7a3" }
       },
       "observability": { "enabled": true }
+    },
+    {
+      "class_name": "PoolHost",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "pool": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-claude-pool-proof@sha256:f116747575b672e4d9210b0d75e5d9d5036b8a18554aac34375d41e6c81bcd63" }
+      },
+      "observability": { "enabled": true }
     }
   ],
   "durable_objects": {
     "bindings": [
       { "name": "COMPUTER", "class_name": "DogComputer" },
       { "name": "REGISTRY", "class_name": "ComputerRegistry" },
-      { "name": "TRIALS", "class_name": "TrialRegistry" }
+      { "name": "TRIALS", "class_name": "TrialRegistry" },
+      { "name": "TASK_LINE", "class_name": "TaskLine" },
+      { "name": "POOL_LINE", "class_name": "PoolLine" },
+      { "name": "POOL_HOST", "class_name": "PoolHost" }
     ]
   },
   "ratelimits": [
@@ -34,11 +45,16 @@
   "exports": {
     "DogComputer": { "type": "durable-object", "storage": "sqlite" },
     "ComputerRegistry": { "type": "durable-object", "storage": "sqlite" },
-    "TrialRegistry": { "type": "durable-object", "storage": "sqlite" }
+    "TrialRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "TaskLine": { "type": "durable-object", "storage": "sqlite" },
+    "PoolLine": { "type": "durable-object", "storage": "sqlite" },
+    "PoolHost": { "type": "durable-object", "storage": "sqlite" }
   },
   "vars": {
     "IDLE_SLEEP_MINUTES": "10",
     "MAX_AWAKE_HOURS": "8",
+    "TASK_MACHINES_MAX": "100",
+    "POOL_HOSTS_MAX": "4",
     "TRIALS_ENABLED": "true",
     "TRIAL_MINUTES": "30",
     "TRIAL_DAYS": "7",
