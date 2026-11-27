@@ -288,7 +288,7 @@ describe("home data sync", () => {
     } };
     const target = folder();
     writeFileSync(join(target, "big.bin"), "the copy from last time");
-    await expect(restore(target, tampered, null)).rejects.toThrow("corrupt chunk for big.bin");
+    await expect(restore(target, tampered, null, { chunkRetryMs: 1 })).rejects.toThrow("a piece arrived damaged");
     expect(readdirSync(target)).toEqual(["big.bin"]);
     expect(readFileSync(join(target, "big.bin"), "utf8")).toBe("the copy from last time");
   });

@@ -9,8 +9,11 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { acceptedEnginePlacement, engineOpener, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { acceptedEnginePlacement, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
+import { createTurnPhases } from "../laterdog/turn-head-start.ts";
+import { keepWarm } from "../laterdog/keep-warm.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
@@ -29,7 +32,6 @@ import type {
   TextGenerationOptions,
 } from "../contracts.ts";
 import { gateServer, resultBudget } from "../mcp-gate-config.ts";
-import { GUARDED_TOOLS } from "../../shared/always-asks.ts";
 import { canUseMcpServer } from "../../shared/tool-scope.ts";
 import { assertToolScopeSupported } from "../../shared/tool-scope-support.ts";
 import { newEventId, newId } from "../contracts.ts";
@@ -575,7 +577,7 @@ export function claudeHookSettings(helperPath: string, options: { guardShell?: b
   const entry = [{ matcher: "", hooks: [{ type: "command", command, timeout: 5 }] }];
   const settings: Record<string, unknown> = { PostToolUse: entry, PreCompact: entry, SessionStart: entry, Stop: entry };
   if (options.postCompact) settings.PostCompact = entry;
-  if (options.guardShell) settings.PreToolUse = GUARDED_TOOLS.map((matcher) => ({ matcher, hooks: [{ type: "command", command, timeout: 5 }] }));
+  if (options.guardShell) settings.PreToolUse = entry;
   return settings;
 }
 
@@ -1131,6 +1133,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       deliveredVolatile.set(threadId, { sessionId: s.sessionId, volatile: s.volatile });
     };
     const SESSION_IDLE_MS = engineIdleLimit("CLAUDE");
+    const startPhases = createTurnPhases({ log: (line) => console.log(line), name: "claude turn start" });
     const DISPOSE_STOP_MS = 2_000;
 
     const stopSession = (session: Session) => {
@@ -1161,7 +1164,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (!s || s.helpers.running()) return;
       warmEngines.rest(s, {
         pid: s.child.pid,
-        idleMs: placedThreads.has(threadId) ? sessionIdlePolicy("CLAUDE").idleMs : SESSION_IDLE_MS,
+        idleMs: placedThreads.has(threadId) ? keepWarm.idleMs(threadId, sessionIdlePolicy("CLAUDE").idleMs) : SESSION_IDLE_MS,
         close: (why) => { if (sessions.get(threadId) === s) closeSession(threadId, why); },
       });
     };
@@ -1219,6 +1222,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
     };
     const sendOwnedTurn = async (turn: SendTurnInput, logicalTurnId: string | undefined, checkStart: () => void) => {
+      startPhases.begin(turn.threadId);
       turn = { ...turn, toolScope: assertToolScopeSupported(DRIVER_KIND, turn.toolScope) };
       if (config.managedModels && (!turn.model || !config.managedModels.includes(turn.model))) throw new Error("This model is not assigned to this workspace.");
       if (config.requireApiKey && !input.environment.ANTHROPIC_API_KEY) throw new Error(NO_ANTHROPIC_KEY);
@@ -1270,7 +1274,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (turn.guestConfined) args.push("--restricted", "--tools", GUEST_CLAUDE_TOOLS.join(","));
       else if (config.tools !== undefined) args.push("--tools", config.tools.join(","));
       const turnEnvironment = environment();
+      startPhases.mark(turn.threadId, "setup");
       await learnCliFlags(turnEnvironment);
+      startPhases.mark(turn.threadId, "cli flags");
       if (turn.guestConfined && !claudeCliSupports(cliVersion, "--restricted")) {
         throw new Error(withWhy("This Claude Code is too old to run this turn without a shell. Update Claude Code.", turn.confinedWhy));
       }
@@ -1293,6 +1299,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         args.push("--system-prompt-snapshot", "off");
       }
       const turnModel = config.managed ? turn.model : await resolveClaudeTurnModel(turn.model, turnEnvironment);
+      startPhases.mark(turn.threadId, "model");
       const injected = config.managed ? { model: turnModel ?? null, injected: false } : applyClaudeInject({ ...turnEnvironment }, turnModel);
       if (injected.model) args.push("--model", injected.model);
       if (turn.effort) args.push("--effort", claudeEffortArg(turn.effort));
@@ -1438,7 +1445,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       };
 
       try {
+        startPhases.mark(threadId, "launch files");
         await claudeRefreshGate.enter(env);
+        startPhases.mark(threadId, "sign-in gate");
         checkStart();
         const live = sessions.get(threadId);
         if (!turn.sessionReset && live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
@@ -1461,6 +1470,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           rememberVolatile(threadId, live);
           const running = live.turn;
           if (!(await writeUser(live, threadId, message)) && !running?.stopRequested) closeSession(threadId, "stdin write failed");
+          startPhases.end(threadId, "prompt sent to warm engine");
           if (mcpConfigPath) {
             try {
               rmSync(dirname(mcpConfigPath), { recursive: true, force: true });
@@ -1579,8 +1589,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (required && !opener) throw new Error("Claude could not start on this dog's computer. The computers service is unavailable. No prompt was sent.");
         if (chosenRemote && !opener) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: no cloud computer opener in this server`);
         if (opener && chosenRemote) {
+          const cliCommand = resolveCli(config.cli, args, env).command;
+          if (!config.managed) {
+            try { await lendableClaudeSignIn(instanceId, cliCommand, env, input.displayName); }
+            catch (error) { if (required) throw error; }
+            checkStart();
+          }
           try {
-            remote = planClaudeRemote({ botId: botId!, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand: resolveCli(config.cli, args, env).command,
+            remote = planClaudeRemote({ botId: botId!, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand,
               args, cwd, env, managed: Boolean(config.managed), required, dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase });
           } catch (error) { remote = { stay: `launch could not be mirrored: ${(error as Error).message}` }; }
           if (required && "stay" in remote) throw new Error(`Claude could not start on this dog's computer. ${remote.stay}. No prompt was sent.`);
@@ -2303,8 +2319,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     };
 
     const quickModel = config.managedModels?.[0] ?? APPROVAL_REVIEW_MODEL;
+    const lentReviewSignIn = async (model: string, botId?: string) => {
+      if (config.managed || config.requireApiKey || remoteEngineChoice(DATA_DIR, botId ?? "").required !== true) return;
+      const env = environment(model);
+      await lendableClaudeSignIn(instanceId, resolveCli(config.cli, [], env).command, env, input.displayName);
+    };
     const generateReview = (prompt: string, model: string, signal?: AbortSignal, onUsage?: TextGenerationOptions["onUsage"], botId?: string): Promise<string> =>
-      new Promise((resolve, reject) => {
+      lentReviewSignIn(model, botId).then(() => new Promise((resolve, reject) => {
         if (config.requireApiKey && !input.environment.ANTHROPIC_API_KEY) {
           reject(new Error(NO_ANTHROPIC_KEY));
           return;
@@ -2416,7 +2437,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           signal?.addEventListener("abort", onAbort, { once: true });
           child.stdin.end(prompt);
         }
-      });
+      }));
+    const keepSignedIn = config.managed || config.requireApiKey ? () => {} : claudeSignInRefresh.watch(instanceId, () => {
+      const env = environment();
+      return { command: resolveCli(config.cli, [], env).command, env: plainEnvironment(env) };
+    });
 
     return {
       instanceId,
@@ -2514,6 +2539,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         return generateReview(prompt, quickModel, signal);
       },
       dispose: async () => {
+        keepSignedIn();
         for (const controller of starting.values()) controller.abort();
         try {
           await login.dispose();

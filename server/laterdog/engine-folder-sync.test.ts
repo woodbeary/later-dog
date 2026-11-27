@@ -137,6 +137,113 @@ describe("assigned working folders on guest computers", () => {
     expect(readFileSync(join(f.right, "dist", "report"), "utf8")).toBe("updated");
     expect(readlinkSync(join(f.right, "alias"))).toBe("dist/report");
   });
+  it("publishes a save cut off part way by the next checkout, so a restart during the save loses nothing", async () => {
+    const f = await fixture();
+    await publishInitialWorkFolder(f.src, f.store);
+    await f.syncA();
+    writeFileSync(join(f.left, "reply-turn.txt"), "made during the turn");
+    const reach = globalThis.fetch;
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      if ((options?.method ?? "GET") !== "GET") throw new Error("the home restarted");
+      return reach(url, options);
+    });
+    await expect(f.syncA()).rejects.toThrow();
+    vi.stubGlobal("fetch", reach);
+    await f.syncB();
+    expect(existsSync(join(f.right, "reply-turn.txt"))).toBe(false);
+    await f.syncA();
+    await f.syncB();
+    expect(readFileSync(join(f.right, "reply-turn.txt"), "utf8")).toBe("made during the turn");
+  });
+  it("saves a changed file with one publish request carrying its pages and the commit", async () => {
+    const f = await fixture();
+    await publishInitialWorkFolder(f.src, f.store);
+    await f.syncA();
+    writeFileSync(join(f.left, "reply-turn.txt"), "made during the turn");
+    const reach = globalThis.fetch;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      calls.push(`${options?.method ?? "GET"} ${new URL(url).pathname.split("/").slice(-2).join("/")}`);
+      return reach(url, options);
+    });
+    await f.syncA();
+    vi.stubGlobal("fetch", reach);
+    expect(calls.filter((call) => call.startsWith("POST") && call.endsWith("/publish"))).toHaveLength(1);
+    expect(calls.some((call) => call.includes("/commit"))).toBe(false);
+    expect(calls.filter((call) => call.startsWith("PUT manifests")).length).toBeLessThanOrEqual(1);
+    await f.syncB();
+    expect(readFileSync(join(f.right, "reply-turn.txt"), "utf8")).toBe("made during the turn");
+  });
+
+  it("falls back to page writes and a commit when the home does not offer one-request saves yet", async () => {
+    const f = await fixture();
+    await publishInitialWorkFolder(f.src, f.store);
+    await f.syncA();
+    writeFileSync(join(f.left, "older-home.txt"), "saved the old way");
+    const reach = globalThis.fetch;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      calls.push(`${options?.method ?? "GET"} ${new URL(url).pathname.split("/").at(-1)}`);
+      return url.endsWith("/publish") ? new Response(JSON.stringify({ error: "not_found" }), { status: 404 }) : reach(url, options);
+    });
+    await f.syncA();
+    vi.stubGlobal("fetch", reach);
+    expect(calls.filter((call) => call.endsWith(" publish"))).toHaveLength(1);
+    expect(calls).toContain("POST commit");
+    await f.syncB();
+    expect(readFileSync(join(f.right, "older-home.txt"), "utf8")).toBe("saved the old way");
+  });
+
+  it("retains older read-only memory mirrors in durable storage and opens the current memory on first checkout", async () => {
+    const f = await fixture();
+    const data = join(f.dir, "data");
+    const workspace = join(data, ".laterdog", "workspaces", "dog");
+    const grant = await f.grant("cmp_alpha", "dog");
+    const store = new FolderStore(grant, () => {});
+    mkdirSync(join(f.src, "memory"));
+    mkdirSync(join(workspace, "memory"), { recursive: true });
+    writeFileSync(join(f.src, "MEMORY.md"), "current memory", { mode: 0o600 });
+    writeFileSync(join(f.src, "memory", "topic.md"), "current topic", { mode: 0o640 });
+    writeFileSync(join(workspace, "MEMORY.md"), "older memory", { mode: 0o400 });
+    writeFileSync(join(workspace, "memory", "topic.md"), "older topic", { mode: 0o440 });
+    await publishInitialWorkFolder(f.src, store);
+    const checkout = () => syncFolder({ path: workspace, grant }, f.state, undefined, undefined, data);
+
+    const first = await checkout();
+    expect(readFileSync(join(workspace, "MEMORY.md"), "utf8")).toBe("current memory");
+    expect(readFileSync(join(workspace, "memory", "topic.md"), "utf8")).toBe("current topic");
+    const files = [...(await store.tree(first.manifest)).entries.values()].filter(entry =>
+      entry.kind === "file" && entry.path.startsWith(".laterdog-preserved-memory/"),
+    );
+    expect(files).toHaveLength(2);
+    for (const entry of files) {
+      expect(readFileSync(join(workspace, entry.path), "utf8")).toBe(
+        entry.path.endsWith("/MEMORY.md") ? "older memory" : "older topic",
+      );
+    }
+    expect((await checkout()).revision).toBe(first.revision);
+    rmSync(workspace, { recursive: true });
+    expect((await checkout()).revision).toBe(first.revision);
+    for (const entry of files) expect(existsSync(join(workspace, entry.path))).toBe(true);
+  });
+
+  it("preserves an untracked writable memory conflict without choosing either copy", async () => {
+    const f = await fixture();
+    const data = join(f.dir, "data");
+    const workspace = join(data, ".laterdog", "workspaces", "dog");
+    const grant = await f.grant("cmp_alpha", "dog");
+    const store = new FolderStore(grant, () => {});
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(f.src, "MEMORY.md"), "published", { mode: 0o600 });
+    writeFileSync(join(workspace, "MEMORY.md"), "local edit", { mode: 0o600 });
+    await publishInitialWorkFolder(f.src, store);
+    const before = await store.head();
+
+    await expect(syncFolder({ path: workspace, grant }, f.state, undefined, undefined, data)).rejects.toThrow("changed on both");
+    expect(await store.head()).toEqual(before);
+    expect(readFileSync(join(workspace, "MEMORY.md"), "utf8")).toBe("local edit");
+  });
+
   it("merges disjoint writers and preserves conflicting working files and durable history across retries", async () => {
     const f = await fixture();
     writeFileSync(join(f.src, "same"), "base");

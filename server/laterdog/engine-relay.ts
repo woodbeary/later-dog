@@ -1,11 +1,11 @@
 import { WorkspaceReceipts } from "./engine-workspace-receipts.ts";
 import { runFolderCommand } from "./engine-folder-process.ts";
-import type { EngineWorkFolder } from "./engine-folder-sync.ts";
+import { ENGINE_FOLDER_STATE, guestFolderDir, type EngineWorkFolder } from "./engine-folder-sync.ts";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { createHash } from "node:crypto";
 import { writeFileAtomic } from "../atomic.ts";
 import { once } from "node:events";
-import { closeSync, constants, existsSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -19,8 +19,16 @@ let roots: EngineFileRoot[] = [];
 let outputs: EngineFileRoot[] = [];
 let workFolders: EngineWorkFolder[] = [];
 const fileAbort = new AbortController();
+const folderState = TEST_ROOT ? join(TEST_ROOT, ".folder-state") : ENGINE_FOLDER_STATE;
+const CHECKED_OUT_FRESH_MS = 30_000;
 async function syncWorkFolders(action: "hydrate" | "checkpoint") {
-  for (const target of workFolders) await runFolderCommand(action, target, {signal:fileAbort.signal, onProgress:()=>{void send({type:"file_progress"}).catch(fail);}, ...(TEST_ROOT ? {entry:process.env.LATERDOG_ENGINE_FOLDER_TEST_CLI,state:join(TEST_ROOT,".folder-state")} : {})});
+  for (const target of workFolders) await runFolderCommand(action, target, {signal:fileAbort.signal, onProgress:()=>{void send({type:"file_progress"}).catch(fail);}, ...(TEST_ROOT ? {entry:process.env.LATERDOG_ENGINE_FOLDER_TEST_CLI,state:folderState} : {})});
+}
+function checkedOutJustNow(): boolean {
+  return workFolders.every(target => {
+    try { return Date.now() - statSync(join(guestFolderDir(target.path, folderState), "checked.json")).mtimeMs < CHECKED_OUT_FRESH_MS; }
+    catch { return false; }
+  });
 }
 let receiver: EngineFileReceiver;
 let baseline = new Map<string, EngineFile>();
@@ -132,6 +140,11 @@ async function sendFile(file: EngineFile, before = baseline.get(engineFileKey(fi
   }
 }
 
+function afterCheckpoint(work: () => Promise<void>): Promise<void> {
+  const run = checkpointWork.then(work);
+  checkpointWork = run.catch(() => {});
+  return run;
+}
 function checkpoint(): Promise<void> {
   const run = checkpointWork.then(async () => {
     await syncWorkFolders("checkpoint");
@@ -293,8 +306,11 @@ async function launch(frame: any): Promise<void> {
     stdoutWork = stdoutWork.then(async () => {
       let event: any;
       try { event = JSON.parse(line); } catch {}
-      if (event?.type === "result" || event?.method === "turn/completed" || (workFolders.length && event?.event?.type === "turn.completed")) await checkpoint();
+      const turnEnded = event?.type === "result" || event?.method === "turn/completed" || (workFolders.length && event?.event?.type === "turn.completed");
+      const savesAfterReply = workFolders.length > 0;
+      if (turnEnded && !savesAfterReply) await checkpoint();
       await send({ type: "stdout", data: Buffer.from(`${line}\n`).toString("base64") });
+      if (turnEnded && savesAfterReply) await checkpoint();
     }).catch(fail);
   });
   child.stderr.on("data", bytes => { void send({ type: "stderr", data: Buffer.from(bytes).toString("base64") }).catch(fail); });
@@ -319,7 +335,7 @@ async function handle(frame: any): Promise<void> {
   switch (frame.type) {
     case "refresh_folders":
       if(!child)throw new Error("Cannot refresh a working folder without an active engine");
-      try {await syncWorkFolders("hydrate");await reply(frame.id,{ready:true});}
+      try {await afterCheckpoint(() => checkedOutJustNow() ? Promise.resolve() : syncWorkFolders("hydrate"));await reply(frame.id,{ready:true});}
       catch(error){await reply(frame.id,{error:(error as Error).message});}
       return;
     case "guest_folder_once": {

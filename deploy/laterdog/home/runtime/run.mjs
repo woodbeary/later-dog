@@ -16,6 +16,8 @@ import { seedIncluded } from "./included.mjs";
 import { SAVE_STATUS_PATH, saveRecorder, slowCopies, writeSaveStatus } from "./save-status.mjs";
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
 import { FINAL_SAVE_MS, collectGarbageWithin, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
+import { restoreUntilDone } from "./restore-until-done.mjs";
+import { holdStopsWhileRestoring } from "./restore-signals.mjs";
 
 const DATA = process.env.HOME || "/data";
 const SCRATCH = "/tmp/laterdog-sync";
@@ -30,7 +32,6 @@ const PUSHED_CODE_GRACE_MS = 30_000;
 const INTERVAL_MS = Number(process.env.LATERDOG_SYNC_INTERVAL_MS || 60_000);
 const SAVE_BUDGET_MS = Math.max(5_000, INTERVAL_MS - 15_000);
 const FINAL_SAVE_BUDGET_MS = FINAL_SAVE_MS - 30_000;
-const RESTORE_ATTEMPTS = 5;
 const GC_EVERY_SAVES = Number(process.env.LATERDOG_GC_EVERY_SAVES || 30);
 const CLEANUP_BUDGET_MS = 15_000;
 const KEPT_RESTORE_POINTS = Number(process.env.LATERDOG_RESTORE_POINTS || RESTORE_POINTS);
@@ -46,19 +47,6 @@ function dogOwner() {
     if (user === "dog") return { uid: Number(uid), gid: Number(gid) };
   }
   throw new Error("the dog user is missing from this image");
-}
-
-async function restoreWithRetries(store, owner, exclude, exactScope) {
-  const finished = new Set();
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await restore(DATA, store, owner, { finished, exclude, exactScope });
-    } catch (error) {
-      if (attempt >= RESTORE_ATTEMPTS) throw error;
-      log(`restore attempt ${attempt} failed: ${error.message}${error.cause?.message ? ` (${error.cause.message})` : ""}; ${finished.size} file(s) already back, trying again`);
-      await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
-    }
-  }
 }
 
 async function main() {
@@ -80,13 +68,18 @@ async function main() {
       const current = await store.manifest();
       return current && projectPreviousCloudBackup(current, placement);
     } } : store;
-    const restored = await restoreWithRetries(restoreStore, dogOwner(), exclude, exactScope);
+    const owner = dogOwner();
+    const held = holdStopsWhileRestoring({ log });
+    const restored = await restoreUntilDone((finished) => restore(DATA, restoreStore, owner, { finished, exclude, exactScope }), { log });
+    const signalled = held.release();
     manifest = restored.manifest;
     if (history.mode === "remote") {
       verifyHistoryControl(HEALTH_DIR,history.generation,manifest ?? {entries:[]});
     }
     upgraded = upgradeFrom(manifest, APP);
-    log(restored.manifest ? `restored ${restored.files} files` : "a new home: nothing to restore");
+    const restoredLine = restored.manifest ? `restored ${restored.files} files in ${Math.round(restored.ms / 1000)} s after ${restored.attempts} attempt(s)` : "a new home: nothing to restore";
+    log(restoredLine);
+    for (const note of [...restored.notes, ...signalled.map(({ signal, at }) => `${signal} arrived ${Math.round((at - Date.now() + restored.ms) / 1000)} s into the restore and was held until it finished`), restoredLine]) noteHomeHealth(HEALTH_DIR, note, { owner });
     if (upgraded) log(`${APP} replaces ${upgraded.app ?? "an earlier version"}; keeping a restore point before the first save`);
   } else {
     log("no state store: this home keeps nothing across restarts");

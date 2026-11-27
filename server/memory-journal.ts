@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { closeSync, fstatSync, mkdirSync, openSync, readSync } from "node:fs";
-import { appendFile } from "node:fs/promises";
+import { appendFile, lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { DATA_DIR } from "./config.ts";
@@ -15,6 +15,7 @@ import {
   writeMemoryDoc,
 } from "./memory-store.ts";
 import { redactSecretsInText } from "./redact.ts";
+import { checkWorkspaceRead, isMemoryTopicName, workspaceDir } from "./workspace.ts";
 
 export type MemoryActor = "bot" | "person" | "import" | "upkeep";
 export type MemoryChangeKind = "created" | "edited" | "deleted";
@@ -353,9 +354,44 @@ function currentDocs(botId: string): Map<string, string> {
   return docs;
 }
 
-function reconcile(botId: string, actor: MemoryActor, via: string, threadId: string | undefined, unknownIsNew: boolean): MemoryJournalEntry[] {
+const seenDocs = new Map<string, Map<string, { stamp: string; text: string }>>();
+
+async function currentDocsInBackground(botId: string): Promise<Map<string, string>> {
+  const root = workspaceDir(botId);
+  const seen = seenDocs.get(botId) ?? new Map<string, { stamp: string; text: string }>();
+  seenDocs.set(botId, seen);
+  const listed = async (dir: string, prefix: string) => {
+    try {
+      if (!(await lstat(join(root, dir))).isDirectory()) return [];
+      return (await readdir(join(root, dir))).filter(isMemoryTopicName).map((name) => `${prefix}/${name}`);
+    } catch (error) {
+      checkWorkspaceRead(error);
+      return [];
+    }
+  };
+  const paths = [MEMORY_INDEX, ...(await Promise.all([listed("memory", "memory"), listed(join("memory", "log"), "memory/log")])).flat()];
+  const docs = new Map<string, string>();
+  const kept = new Set<string>();
+  await Promise.all(paths.map(async (path) => {
+    try {
+      const info = await lstat(join(root, path));
+      if (!info.isFile()) return;
+      const stamp = `${info.size}:${info.mtimeMs}:${info.ino}`;
+      const known = seen.get(path);
+      const text = known?.stamp === stamp ? known.text : await readFile(join(root, path), "utf8");
+      seen.set(path, { stamp, text });
+      kept.add(path);
+      docs.set(path, text);
+    } catch (error) {
+      checkWorkspaceRead(error);
+    }
+  }));
+  for (const path of seen.keys()) if (!kept.has(path)) seen.delete(path);
+  return new Map(paths.filter((path) => docs.has(path)).map((path) => [path, docs.get(path)!]));
+}
+
+function reconcile(botId: string, actor: MemoryActor, via: string, threadId: string | undefined, unknownIsNew: boolean, docs = currentDocs(botId)): MemoryJournalEntry[] {
   const baseline = baselineFor(botId);
-  const docs = currentDocs(botId);
   const rows: MemoryJournalEntry[] = [];
   for (const [path, text] of docs) {
     const known = baseline.get(path);
@@ -404,7 +440,35 @@ export function endMemoryTurn(threadId: string): MemoryJournalEntry[] {
   return rows;
 }
 
+export function beginMemoryTurnInBackground(botId: string, threadId: string): Promise<ReadonlyMap<string, string> | null> {
+  let bots = turnBots.get(threadId);
+  if (!bots) {
+    bots = new Set();
+    turnBots.set(threadId, bots);
+  }
+  bots.add(botId);
+  return currentDocsInBackground(botId)
+    .then((docs) => { reconcile(botId, "person", "disk", undefined, false, docs); return docs; })
+    .catch((error) => { console.error(`memory-journal: could not snapshot ${botId}:`, error instanceof Error ? error.message : error); return null; });
+}
+
+export async function endMemoryTurnInBackground(threadId: string): Promise<MemoryJournalEntry[]> {
+  const bots = turnBots.get(threadId);
+  if (!bots) return [];
+  turnBots.delete(threadId);
+  const rows: MemoryJournalEntry[] = [];
+  for (const botId of bots) {
+    try {
+      rows.push(...reconcile(botId, "bot", "turn", threadId, true, await currentDocsInBackground(botId)));
+    } catch (error) {
+      console.error(`memory-journal: could not diff ${botId}:`, error instanceof Error ? error.message : error);
+    }
+  }
+  return rows;
+}
+
 export function resetMemoryJournalState(): void {
+  seenDocs.clear();
   baselines.clear();
   turnBots.clear();
 }

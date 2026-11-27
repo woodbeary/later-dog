@@ -1,6 +1,7 @@
 import { closeSync, openSync, readSync } from "node:fs";
 
-const HEAD_BYTES = 2_048;
+export const TOPIC_HEAD_BYTES = 2_048;
+const HEAD_BYTES = TOPIC_HEAD_BYTES;
 export const TOPIC_INDEX_MAX_TOPICS = 40;
 export const TOPIC_INDEX_MAX_CHARS = 2_000;
 

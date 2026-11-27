@@ -302,6 +302,7 @@ export async function uploadChanged(
   visit: FolderVisit,
   tree: FolderTree,
   remote: FolderTree,
+  originalPaths?: ReadonlyMap<string, string>,
 ): Promise<void> {
   const changed = [...tree.entries.values()].filter((e) => e.kind === "file" && !e.contents);
   await parallel(changed, async (entry) => {
@@ -311,9 +312,10 @@ export async function uploadChanged(
       entry.contents = previous.contents;
       return;
     }
-    const path = await diskPath(folder, entry.path),
+    const source = originalPaths?.get(entry.path) ?? entry.path;
+    const path = await diskPath(folder, source),
       s = await statPhysical(path);
-    if (visit.stamps.get(entry.path) !== stamp(s))
+    if (visit.stamps.get(source) !== stamp(s))
       throw new Error("Working file changed before its checkpoint: " + entry.path);
     const scanned = await scanFile(path, s, store);
     if (scanned.sha256 !== entry.sha256) throw new Error("Working file changed during its checkpoint: " + entry.path);
