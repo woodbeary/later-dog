@@ -269,6 +269,7 @@ it("adopts a fresh volume that holds only the included services the home seeded 
   mkdirSync(join(home, ".laterdog"));
   writeFileSync(join(home, ".laterdog", "computers-trial-key"), "ldt_key\n");
   writeFileSync(join(home, ".laterdog", "computers-trial.json"), "{}\n");
+  writeFileSync(join(home, ".laterdog", "home-health.log"), "2026-11-27T09:26:00.000Z cloud home: restored\n");
   expect(prepareCloudHomeVolume(home, "home-7f3k2")).toBe("new");
   const used = directory();
   mkdirSync(join(used, ".laterdog"));
