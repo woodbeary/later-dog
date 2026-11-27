@@ -142,7 +142,7 @@ export function startRestore({ root, manifest, pieces, owner = null, exclude, ex
       let failure = null;
       const environment = await engineEnvironment(pieces, parallel, retryMs).catch((error) => { failure = `could not find the store: ${error.message}`; return null; });
       const exited = !environment ? null : await new Promise((resolve) => {
-        child = spawn(engine, [file], { stdio: ["pipe", "pipe", "inherit"], env: environment });
+        child = spawn(engine, [file], { stdio: ["pipe", "pipe", "inherit"], env: environment, detached: true });
         child.stdin.on("error", () => {});
         child.once("error", (error) => { failure = error.message; resolve(null); });
         child.once("exit", (code, signal) => resolve({ code, signal }));
