@@ -179,6 +179,7 @@ export interface ClaudePlacement {
   proxyPath: string;
   now?: number;
   remoteBase?: string;
+  freshWhenMissing?: boolean;
 }
 
 export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; guestRuntime?: { kind: "node" } | { kind: "acp"; cli: GuestDriverRuntime }; renewal?: ClaudeRenewal | null }
@@ -207,7 +208,10 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   const configDir = resolve(input.env.CLAUDE_CONFIG_DIR || join(home, ".claude"));
   const logical = resolve(input.cwd);
   const workspace = claudeSessionWorkspace(logical, configDir, input.sessionId);
-  if (input.required && args.includes("--resume") && !workspace.source) return { stay: "the saved Claude session is missing from its selected account and working folder" };
+  if (input.required && args.includes("--resume") && !workspace.source) {
+    if (!input.freshWhenMissing) return { stay: "the saved Claude session is missing from its selected account and working folder" };
+    args[args.indexOf("--resume")] = "--session-id";
+  }
   const cwd = workspace.source ?? workspace.physical;
   const physicalConfig = physicalClaudePath(configDir);
   if (logical === resolve(home) || logical === resolve(input.dataDir) || within(logical, configDir) || within(configDir, logical) ||

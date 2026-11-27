@@ -86,10 +86,10 @@ function world() {
   const settingsPath = join(base, "launch", "settings.json");
   writeFileSync(settingsPath, JSON.stringify({ hooks: { PostToolUse: [{ matcher: "", hooks: [{ type: "command", command: "exit 0", timeout: 5 }] }] } }));
   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: configDir };
-  const plan = (resume: boolean): ClaudeRemotePlan => {
+  const plan = (resume: boolean, freshWhenMissing = false): ClaudeRemotePlan => {
     const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--mcp-config", mcpPath, "--settings", settingsPath, resume ? "--resume" : "--session-id", SESSION];
     const planned = planClaudeRemote({ botId: "bot-1", threadId: "thread-1", sessionId: SESSION, cliCommand: join(pkg, "bin", "claude"), args, cwd, env,
-      managed: false, required: true, dataDir: join(base, "data"), proxyPath: engineScripts().proxy, remoteBase: engineBase });
+      managed: false, required: true, dataDir: join(base, "data"), proxyPath: engineScripts().proxy, remoteBase: engineBase, freshWhenMissing });
     if (!("plan" in planned)) throw new Error(planned.stay);
     return planned.plan;
   };
@@ -169,6 +169,28 @@ it("confirms the stop when a pool host dies under a warm chat, so the next turn 
   expect((await turn(second.engine, "after the host died")).sessionLines).toBe(2);
   second.engine.stdin.end();
 }, 60_000);
+
+it("stops a pool engine in the middle of a turn with a confirmed stop, and the chat's next turn starts", async () => {
+  const w = world();
+  const pool = fakePool(w.poolRoot);
+  const first = await poolEngine(w, pool, false);
+  await turn(first.engine, "one");
+  await turn(first.engine, "two");
+  first.engine.stdin.write(message("hang"));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  expect(await killCliTree(first.engine as unknown as ChildProcess, 2_000)).toBe(true);
+  const second = await poolEngine(w, pool, true);
+  expect((await turn(second.engine, "after the stop")).sessionLines).toBeGreaterThanOrEqual(3);
+  second.engine.stdin.end();
+}, 60_000);
+
+it("starts a fresh session on the pool when a chat's saved session never reached the home, instead of refusing every later turn", () => {
+  const w = world();
+  expect(() => w.plan(true)).toThrow("the saved Claude session is missing");
+  const args = w.plan(true, true).launch.args;
+  expect(args).toContain("--session-id");
+  expect(args).not.toContain("--resume");
+});
 
 it("delivers lines that arrive before anyone listens, and confirms the stop before the link closes", async () => {
   const { socket, sent } = fakeSocket();
