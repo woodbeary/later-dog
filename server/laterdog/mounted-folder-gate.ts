@@ -13,6 +13,7 @@ export class MountedFolderStalled extends Error {
 }
 
 type Probe = (path: string) => Promise<unknown>;
+export type FolderWait = { waiting: true } | { waiting: false; opened: boolean; waitedMs: number };
 
 export interface MountedFolderGateOptions {
   probe?: Probe;
@@ -62,7 +63,24 @@ export function createMountedFolderGate(options: MountedFolderGateOptions = {}) 
     if (!(await answers(path))) throw new MountedFolderStalled(path);
   }
 
-  return { answers, require, stalledPaths: () => [...stalledAt.keys()] };
+  async function wait(path: string, budgetMs: number, onWait?: (wait: FolderWait) => void): Promise<void> {
+    if (!active()) return;
+    const began = now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let announced = false;
+    const notice = setTimeout(() => { announced = true; onWait?.({ waiting: true }); }, answerMs);
+    const late = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), budgetMs); });
+    const answered = await Promise.race([start(path).then(() => true as const), late]);
+    clearTimeout(timer);
+    clearTimeout(notice);
+    if (announced) onWait?.({ waiting: false, opened: answered, waitedMs: Math.max(0, now() - began) });
+    if (!answered) {
+      stalledAt.set(path, now());
+      throw new MountedFolderStalled(path);
+    }
+  }
+
+  return { answers, require, wait, stalledPaths: () => [...stalledAt.keys()] };
 }
 
 export const mountedFolderGate = createMountedFolderGate();

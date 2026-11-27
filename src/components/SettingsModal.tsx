@@ -28,6 +28,7 @@ import { DefaultModelRow } from "./DefaultModelSettings";
 import { CallButtonRow } from "./CallButtonSettings";
 import { MacAccessGroup } from "./MacAccessGroup";
 import { FullAccessAllGroup } from "./FullAccessAllGroup";
+import { RecentlyDeletedGroup } from "./RecentlyDeletedGroup";
 import { PhoneGroup } from "./PhoneGroup";
 import { DevicesGroup } from "./DevicesGroup";
 import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
@@ -304,6 +305,7 @@ function ComputerPage({ mac }: { mac: boolean }) {
   return (
     <>
       {state.config?.cloudHome === true && <FullAccessAllGroup />}
+      <RecentlyDeletedGroup />
       {state.config?.cloudHome === true && <MacAccessGroup />}
       {state.config?.cloudHome === true && <PhoneGroup />}
       <DevicesGroup />
