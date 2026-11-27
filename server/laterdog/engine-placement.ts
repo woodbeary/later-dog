@@ -1,7 +1,8 @@
 import type { GuestDriverRuntime } from "./guest-cli-runtime.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
-import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dogFiles } from "./dog-mounts.ts";
 import { writeFileAtomic } from "../atomic.ts";
 import { killCliTree, registerTreeStopper } from "../procs.ts";
 import { homedir } from "node:os";
@@ -166,6 +167,7 @@ const within = (parent: string, child: string) => { const rel = relative(parent,
 
 export interface ClaudePlacement {
   botId: string;
+  botFolder?: boolean;
   threadId: string;
   sessionId: string;
   cliCommand: string;
@@ -179,6 +181,7 @@ export interface ClaudePlacement {
   proxyPath: string;
   now?: number;
   remoteBase?: string;
+  freshWhenMissing?: boolean;
 }
 
 export interface PlacedEnginePlan { threadId: string; launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; guestRuntime?: { kind: "node" } | { kind: "acp"; cli: GuestDriverRuntime }; renewal?: ClaudeRenewal | null }
@@ -207,7 +210,10 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   const configDir = resolve(input.env.CLAUDE_CONFIG_DIR || join(home, ".claude"));
   const logical = resolve(input.cwd);
   const workspace = claudeSessionWorkspace(logical, configDir, input.sessionId);
-  if (input.required && args.includes("--resume") && !workspace.source) return { stay: "the saved Claude session is missing from its selected account and working folder" };
+  if (input.required && args.includes("--resume") && !workspace.source) {
+    if (!input.freshWhenMissing) return { stay: "the saved Claude session is missing from its selected account and working folder" };
+    args[args.indexOf("--resume")] = "--session-id";
+  }
   const cwd = workspace.source ?? workspace.physical;
   const physicalConfig = physicalClaudePath(configDir);
   if (logical === resolve(home) || logical === resolve(input.dataDir) || within(logical, configDir) || within(configDir, logical) ||
@@ -279,7 +285,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     { id: "launch", path: stagingDir, writable: false },
   ];
   if (credential) roots.push({ id: "credential", path: configDir, writable: false, pushOnly: true, files: [".credentials.json"] });
-  const botFolder = !input.textOnly && botFolderRoot(input.dataDir, input.botId, cwd, configDir, stagingDir);
+  const botFolder = !input.textOnly && botFolderRoot(input.dataDir, input.botId, cwd, configDir, stagingDir, input.botFolder === true);
   if (botFolder) roots.push(botFolder);
   const pushes = credential ? (): PushedFile[] => {
     let bytes: Buffer | null = null;
@@ -307,10 +313,17 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
 export const BOT_FOLDER_FILE_BYTES = 8 * 1024 * 1024;
 export const BOT_FOLDER_TOTAL_BYTES = 64 * 1024 * 1024;
 
-export function botFolderRoot(dataDir: string, botId: string, cwd: string, configDir: string, stagingDir: string): EngineFileRoot | null {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(botId)) return null;
-  const path = join(resolve(dataDir), "workspaces", botId);
-  try { if (!lstatSync(path).isDirectory()) return null; } catch { return null; }
+const botFolderPath = (dataDir: string, botId: string) => /^[A-Za-z0-9_-]{1,128}$/.test(botId) ? join(resolve(dataDir), "workspaces", botId) : null;
+
+export async function botFolderPresent(dataDir: string, botId: string): Promise<boolean> {
+  const path = botFolderPath(dataDir, botId);
+  if (!path) return false;
+  try { return (await dogFiles.lstat(path))?.isDirectory() === true; } catch { return false; }
+}
+
+export function botFolderRoot(dataDir: string, botId: string, cwd: string, configDir: string, stagingDir: string, present: boolean): EngineFileRoot | null {
+  const path = botFolderPath(dataDir, botId);
+  if (!path || !present) return null;
   if (within(cwd, path) || within(path, configDir) || within(configDir, path) || within(path, stagingDir)) return null;
   const exclude = within(path, cwd) ? [relative(path, cwd)] : [];
   return { id: "bot", path, writable: false, readOnly: true, bounded: { fileBytes: BOT_FOLDER_FILE_BYTES, totalBytes: BOT_FOLDER_TOTAL_BYTES, exclude } };

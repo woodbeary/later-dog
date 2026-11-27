@@ -47,3 +47,22 @@ describe("whether a Stop pressed on an earlier turn leaves the running one alone
     expect(keepsNewerTurn({ seen: 1_000, resumed: false })).toBe(false);
   });
 });
+
+describe("a person's stop that has to outlast a restart", () => {
+  it("marks the person's latest message stopped, so the pickup after a restart leaves the chat alone", async () => {
+    const { planPickup } = await import("./restart-pickup.ts");
+    const { persistPickupStop } = await import("./pickup-stops.ts");
+    const path = [
+      { id: "m1", at: 1, role: "user", kind: "text", text: "start the job" },
+      { id: "m2", at: 2, role: "bot", kind: "activity", tool: { name: "working" } },
+    ] as never[];
+    const cancelled: string[] = [];
+    persistPickupStop(path as never, (id) => cancelled.push(id));
+    expect(cancelled).toEqual(["m1"]);
+    const stopped = path.map((message: { id: string }) => cancelled.includes(message.id) ? { ...message, requestCancelled: true } : message);
+    const plan = planPickup({ path: stopped as never, name: "nextdoor", owner: true, queued: false, routine: () => false, now: 3 });
+    expect(plan).toEqual({ kind: "none", why: "stopped" });
+    persistPickupStop(stopped as never, (id) => cancelled.push(id));
+    expect(cancelled).toEqual(["m1"]);
+  });
+});

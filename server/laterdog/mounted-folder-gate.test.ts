@@ -74,3 +74,30 @@ describe("asking a mounted working folder before touching it", () => {
     await expect(gate.answers("/data/.laterdog/workspaces/a")).resolves.toBe(true);
   });
 });
+
+describe("waiting for a waking computer's folder at the start of a turn", () => {
+  it("waits past the short answer time for a folder that answers once its computer wakes, and says it is waiting", async () => {
+    let answer!: () => void;
+    let awake = false;
+    const gate = createMountedFolderGate({ probe: () => awake ? Promise.resolve() : new Promise<void>((resolve) => { answer = () => { awake = true; resolve(); }; }), answerMs: 20, active: () => true });
+    const waits: unknown[] = [];
+    const waiting = gate.wait("/data/.laterdog/workspaces/waking", 5_000, (wait) => waits.push(wait));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(waits).toEqual([{ waiting: true }]);
+    answer();
+    await expect(waiting).resolves.toBeUndefined();
+    expect(waits).toEqual([{ waiting: true }, { waiting: false, opened: true, waitedMs: expect.any(Number) }]);
+    await expect(gate.answers("/data/.laterdog/workspaces/waking")).resolves.toBe(true);
+  });
+
+  it("gives up only after the wake budget, and a folder that answers at once never shows a wait", async () => {
+    const stuck = createMountedFolderGate({ probe: () => never(), answerMs: 10, active: () => true });
+    const waits: unknown[] = [];
+    await expect(stuck.wait("/data/.laterdog/workspaces/stuck", 60, (wait) => waits.push(wait))).rejects.toBeInstanceOf(MountedFolderStalled);
+    expect(waits).toEqual([{ waiting: true }, { waiting: false, opened: false, waitedMs: expect.any(Number) }]);
+    const quick = createMountedFolderGate({ probe: async () => ({}), answerMs: 50, active: () => true });
+    const none: unknown[] = [];
+    await quick.wait("/data/.laterdog/workspaces/awake", 1_000, (wait) => none.push(wait));
+    expect(none).toEqual([]);
+  });
+});

@@ -62,8 +62,10 @@ import { prepareCodexShellGuard } from "../laterdog/codex-shell-guard.ts";
 import { codexPendingDispatch, type codexCheckpoint } from "../laterdog/codex-checkpoint.ts";
 import { verifiedCodexGuard } from "../laterdog/codex-computer-guard.ts";
 import { planCodexRemote } from "../laterdog/codex-placement.ts";
+import { recoverCodexRollout } from "../laterdog/codex-recover.ts";
 import { DEFAULT_ENGINE_OPEN_BUDGET_MS, acceptedEnginePlacement, engineOpener, notePlacement, recordEngineTurn, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { codexExternalAuthChannel, redactCodexExternalAuthFrame } from "../laterdog/codex-external-auth.ts";
+import { renewCodex } from "../laterdog/account-keeper.ts";
 import { chatEngineEnvironment } from "../laterdog/chat-environment.ts";
 import { codexToolTouch } from "../laterdog/tool-touches.ts";
 import { codexCompactionEvent } from "../laterdog/native-compaction.ts";
@@ -790,7 +792,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           ? await planCodexRemote({ dataDir: DATA_DIR, botId: turn.botId!, threadId, instanceId, cli: config.cli, cwd: turn.cwd, env,
             cursor: typeof turn.resumeCursor === "string" ? turn.resumeCursor : undefined, opener, required, images: turn.images,
             guardShell: turn.integrations?.hooks?.guardShell === true,
-            refresh: async () => { if (!await codexAccountEmail(config.cli, env, 30_000, true)) throw new Error("The home could not refresh the selected account."); } }) : undefined;
+            refresh: async () => { if (!await renewCodex(config.cli, env)) throw new Error("The home could not refresh the selected account."); },
+            recover: (cursor) => recoverCodexRollout(turn.botId!, join(DATA_DIR, "engine-launch"), cursor) }) : undefined;
         if (remoteChoice?.binding) binding = remoteChoice.binding;
         const remote = remoteChoice?.plan ? remoteChoice : undefined;
         if (required && !remote) throw new Error(`Codex could not start on this dog's computer. ${remoteChoice?.stay ?? unavailable ?? "The selected session could not be placed."} No prompt was sent.`);
@@ -1234,7 +1237,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           ...mcpArgsIdentity,
           command: method === "execCommandApproval" || method === "item/commandExecution/requestApproval"
             ? permissionCommand(params.command, params.cwd ?? (
-              !params.threadId || params.threadId === codexThreadId ? commandCwd : undefined
+              !params.threadId || params.threadId === codexThreadId ? commandCwd() : undefined
             )) : undefined,
           choices,
           ...(protocolQuestions ? { questions: protocolQuestions.map((pair) => pair.question) } : {}),
@@ -1702,11 +1705,21 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           : plan
             ? { model: turn.model, modelProvider: "openai_chatgpt_plan" }
             : decodeCodexSelection(turn.model);
-        const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+        const freshStart = Boolean(remote?.fresh);
+        const cursor = typeof turn.resumeCursor === "string" && !freshStart ? turn.resumeCursor : null;
         let startedModel: string | null = null;
         let resumedNativeThread = false;
         let rebuiltFromReplay = false;
         let promptText = turn.text;
+        if (freshStart) {
+          emit({ ...base(threadId, turnId), type: "runtime.notice", message: "The earlier engine session for this chat was not found, so it continues in a fresh session with the conversation so far." });
+          if (turn.recoveryText?.trim()) {
+            const rebuild = recoveryPromptFor({ recoveryText: turn.recoveryText, currentText: turn.text,
+              failure: classifyResumeFailure({ attempted: true, rejected: true, promptSubmitted: false, producedOutput: false }) });
+            rebuiltFromReplay = rebuild.replayed;
+            promptText = rebuild.text;
+          }
+        }
         if (cursor) {
           const resumeThread = () => request("thread/resume", {
             ...selectionConfig,

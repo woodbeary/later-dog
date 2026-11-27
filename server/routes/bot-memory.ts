@@ -1,3 +1,4 @@
+import { MountDown } from "../laterdog/mount-guard.ts";
 import { z } from "zod";
 import type { ServerResponse } from "node:http";
 
@@ -21,7 +22,7 @@ import {
 import { upkeepEnabled, type MemoryUpkeep } from "../memory-upkeep.ts";
 import { dismissLearned, keepLearned, listLearnedFacts, listPendingLearned, removeLearned } from "../profile-learned.ts";
 import { importIntoAboutMe, MAX_IMPORT_CHARS } from "../laterdog/profile-import.ts";
-import { memoryDate, mountedWorkspaceUnavailable, workspaceDir } from "../workspace.ts";
+import { memoryDate, mountGuard, mountedWorkspaceUnavailable, workspaceDir } from "../workspace.ts";
 import { mountedFolderGate } from "../laterdog/mounted-folder-gate.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
@@ -35,7 +36,7 @@ export interface BotMemoryRouteDeps {
 
 export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
   function replyMemoryError(res: ServerResponse, error: unknown) {
-    if (mountedWorkspaceUnavailable(error)) return json(res, 503, { error: "The working folder is temporarily unavailable. Try again.", code: "unavailable" });
+    if (error instanceof MountDown || mountedWorkspaceUnavailable(error)) return json(res, 503, { error: "The working folder is temporarily unavailable. Try again.", code: "unavailable" });
     if (!(error instanceof MemoryStoreError)) throw error;
     if (error.code === "conflict") {
       return json(res, error.status, { error: error.message, code: error.code, currentHash: error.currentHash, current: error.current });
@@ -49,11 +50,12 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
     return threadTitle ? { ...visible, threadTitle } : visible;
   }
 
-  return async ({ req, res, url, path, method, auth, json, readBody }) => {
+  const handle: RouteHandler = async ({ req, res, url, path, method, auth, json, readBody }) => {
     let m: RegExpMatchArray | null = null;
     const owner = path.match(/^\/api\/bots\/([\w-]+)\/memory(?:\/|$)/)?.[1];
     if (owner && deps.bot(owner)) {
       try {
+        if (mountGuard.isDown(workspaceDir(owner))) throw new MountDown(workspaceDir(owner));
         await mountedFolderGate.require(workspaceDir(owner));
       } catch (error) {
         return replyMemoryError(res, error);
@@ -63,8 +65,8 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
     if (m && method === "GET") {
       if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });
       try {
-        const overview = memoryOverview(m[1]);
-        return json(res, 200, { ...overview, text: readMemoryDoc(m[1], MEMORY_INDEX).text, truncated: overview.index.truncated });
+        const overview = await memoryOverview(m[1]);
+        return json(res, 200, { ...overview, text: (await readMemoryDoc(m[1], MEMORY_INDEX)).text, truncated: overview.index.truncated });
       } catch (error) {
         return replyMemoryError(res, error);
       }
@@ -75,7 +77,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (!parsed.success) return json(res, 400, { error: "text must be a string" });
       try {
         const botId = m[1];
-        const { doc } = journalMemoryWrite(botId, MEMORY_INDEX, parsed.data.text, { actor: "person", via: "api" });
+        const { doc } = await journalMemoryWrite(botId, MEMORY_INDEX, parsed.data.text, { actor: "person", via: "api" });
         return json(res, 200, { ok: true, hash: doc.hash, truncated: memoryCapacity(doc.text).truncated });
       } catch (error) {
         if (error instanceof MemoryStoreError && error.code === "too-large") return json(res, 400, { error: error.message });
@@ -86,7 +88,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
     if (m && method === "GET") {
       if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });
       try {
-        return json(res, 200, readMemoryDoc(m[1], url.searchParams.get("path") ?? MEMORY_INDEX));
+        return json(res, 200, await readMemoryDoc(m[1], url.searchParams.get("path") ?? MEMORY_INDEX));
       } catch (error) {
         return replyMemoryError(res, error);
       }
@@ -99,12 +101,12 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (!parsed.success) return json(res, 400, { error: "text must be a string; path and expectedHash are optional strings" });
       try {
         const botId = m[1];
-        const { doc, entry } = journalMemoryWrite(botId, parsed.data.path, parsed.data.text, {
+        const { doc, entry } = await journalMemoryWrite(botId, parsed.data.path, parsed.data.text, {
           actor: "person",
           via: "ui",
           expectedHash: parsed.data.expectedHash,
         });
-        return json(res, 200, { ok: true, ...doc, entry: entry ? journalEntryForClient(m[1], entry) : null, overview: memoryOverview(m[1]) });
+        return json(res, 200, { ok: true, ...doc, entry: entry ? journalEntryForClient(m[1], entry) : null, overview: await memoryOverview(m[1]) });
       } catch (error) {
         return replyMemoryError(res, error);
       }
@@ -114,8 +116,8 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       const file = url.searchParams.get("path") ?? "";
       try {
         const botId = m[1];
-        const entry = journalMemoryDelete(botId, file, { actor: "person", via: "ui" });
-        return json(res, 200, { ok: true, path: file, entry: entry ? journalEntryForClient(m[1], entry) : null, overview: memoryOverview(m[1]) });
+        const entry = await journalMemoryDelete(botId, file, { actor: "person", via: "ui" });
+        return json(res, 200, { ok: true, path: file, entry: entry ? journalEntryForClient(m[1], entry) : null, overview: await memoryOverview(m[1]) });
       } catch (error) {
         return replyMemoryError(res, error);
       }
@@ -133,9 +135,9 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });
       await flushMemoryJournal(m[1]);
       const botId = m[1], changeId = m[2];
-      const result = revertMemoryChange(botId, changeId);
+      const result = await revertMemoryChange(botId, changeId);
       if (!result.ok) return json(res, result.status, { error: result.error });
-      return json(res, 200, { ok: true, ...result.doc, entry: result.entry ? journalEntryForClient(m[1], result.entry) : null, overview: memoryOverview(m[1]) });
+      return json(res, 200, { ok: true, ...result.doc, entry: result.entry ? journalEntryForClient(m[1], result.entry) : null, overview: await memoryOverview(m[1]) });
     }
     if (method === "GET" && path === "/api/profile/learned") {
       return json(res, 200, { learned: listLearnedFacts(), pending: listPendingLearned() });
@@ -177,14 +179,14 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (!upkeepEnabled(bot)) return json(res, 409, { error: "Switch on Memory upkeep for this dog first." });
       const report = await deps.upkeep.tidy(bot.id);
       await flushMemoryJournal(bot.id);
-      return json(res, 200, { report, overview: memoryOverview(bot.id) });
+      return json(res, 200, { report, overview: await memoryOverview(bot.id) });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/memory\/open$/);
     if (m && method === "POST") {
       if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });
       const parsed = z.object({ target: z.enum(["obsidian", "folder"]) }).safeParse(await readBody(req));
       if (!parsed.success) return json(res, 400, { error: "target must be obsidian or folder" });
-      const workspacePath = memoryOverview(m[1]).workspacePath;
+      const workspacePath = workspaceDir(m[1]);
       if (auth.kind !== "loopback") {
         return json(res, 403, { error: `This only works on the computer running later.dog. The memory folder there is ${workspacePath}`, workspacePath });
       }
@@ -193,5 +195,14 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       return json(res, 200, opened);
     }
     return PASS;
+  };
+
+  return async (context) => {
+    try {
+      return await handle(context);
+    } catch (error) {
+      if (error instanceof MountDown || mountedWorkspaceUnavailable(error)) return replyMemoryError(context.res, error);
+      throw error;
+    }
   };
 }

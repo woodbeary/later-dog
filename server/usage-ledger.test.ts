@@ -38,6 +38,14 @@ describe("usage ledger files", () => {
   beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), "laterdog-usage-")); });
   afterEach(async () => { await removeTempDir(dataDir); });
 
+  it("keeps the written cache count and cleans it like the other counts", async () => {
+    appendUsage(dataDir, row({ at: "2026-09-03T11:00:00.000Z", cachedWrite: 40.9 }));
+    appendUsage(dataDir, row({ at: "2026-09-03T11:01:00.000Z", cachedWrite: -3 }));
+    await flushUsageLedger(dataDir);
+    const rows = readUsage(dataDir, { from: new Date("2026-09-01T00:00:00Z"), to: new Date("2026-09-30T23:59:59Z") });
+    expect(rows.map((entry) => entry.cachedWrite)).toEqual([40, 0]);
+  });
+
   it("treats malformed execution metadata as legacy usage", async () => {
     const at = new Date("2026-11-08T10:00:00Z");
     await appendUsage(dataDir, row({ at: at.toISOString() }));
@@ -233,12 +241,13 @@ describe("usage summaries", () => {
       { ...rows[1]!, botName: '=HYPERLINK("x")', trigger: { kind: "user", email: "a,b@example.test" } },
     ]);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("time,bot,model,engine,triggered_by,input_tokens,output_tokens,cached_input_tokens,cost_usd,cost_source,thread");
-    expect(lines[1]).toBe("2026-09-01T10:00:00.000Z,Scout,claude-sonnet-5,claudeAgent,ada@example.test,1200,300,900,0.012,reported,t1");
+    expect(lines[0]).toBe("time,bot,model,engine,triggered_by,input_tokens,output_tokens,cached_input_tokens,cost_usd,cost_source,thread,account,cache_write_tokens");
+    expect(lines[1]).toBe("2026-09-01T10:00:00.000Z,Scout,claude-sonnet-5,claudeAgent,ada@example.test,1200,300,900,0.012,reported,t1,claude,");
     expect(lines[2]).toContain("\"'=HYPERLINK(\"\"x\"\")\"");
     expect(lines[2]).toContain('"a,b@example.test"');
-    expect(lines[2]).toMatch(/,,,t1$/);
-    expect(usageCsv([{ ...rows[0]!, costSource: "estimated" }]).split("\n")[1]).toContain(",0.012,estimated,t1");
+    expect(lines[2]).toMatch(/,,,t1,[^,]*,[^,]*$/);
+    expect(usageCsv([{ ...rows[0]!, costSource: "estimated" }]).split("\n")[1]).toContain(",0.012,estimated,t1,");
+    expect(usageCsv([{ ...rows[0]!, cachedWrite: 450 }]).split("\n")[1]).toMatch(/,t1,claude,450$/);
   });
 
   it("keeps estimates apart from reported cost, and reads rows written before estimates existed as reported", () => {

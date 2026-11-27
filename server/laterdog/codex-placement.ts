@@ -1,20 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { codexHome } from "../drivers/codex-identity.ts";
 import type { McpServerSpec, TurnImageInput } from "../contracts.ts";
 import { mcpStdioServer } from "../mcp-gate-config.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { ChangedCodexCheckpoint, codexCheckpoint } from "./codex-checkpoint.ts";
 import { codexExternalAccount } from "./codex-external-auth.ts";
-import { validatedCodexRollout } from "./codex-rollout.ts";
-import { botFolderRoot, engineCliPackage, REMOTE_ENGINE_BASE, type EngineOpener, type PlacedEnginePlan } from "./engine-placement.ts";
+import { MissingCodexSession, validatedCodexRollout } from "./codex-rollout.ts";
+import { realFolderPath } from "./dog-mounts.ts";
+import { botFolderPresent, botFolderRoot, engineCliPackage, REMOTE_ENGINE_BASE, type EngineOpener, type PlacedEnginePlan } from "./engine-placement.ts";
 import type { StdioSpec } from "./engine-remote.ts";
 
 const quoted = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
 
-export function codexComputerWorkspace(dataDir: string, bot: string, thread: string, cwd: string): boolean {
+export async function codexComputerWorkspace(dataDir: string, bot: string, thread: string, cwd: string): Promise<boolean> {
   if (![bot, thread].every(value => /^[\w-]{1,128}$/.test(value))) return false;
   const data = resolve(dataDir);
   const folder = resolve(cwd);
@@ -23,7 +24,8 @@ export function codexComputerWorkspace(dataDir: string, bot: string, thread: str
     return rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel);
   });
   if (!owned) return false;
-  try { return realpathSync(folder) === join(realpathSync(data), relative(data, folder)); }
+  const real = await realFolderPath(folder);
+  try { return real !== undefined && real === join(realpathSync(data), relative(data, folder)); }
   catch { return false; }
 }
 
@@ -32,6 +34,18 @@ export interface CodexPlacement {
   env: NodeJS.ProcessEnv; cursor?: string; opener: EngineOpener; guardShell: boolean;
   required?: boolean; images?: TurnImageInput[];
   refresh(): Promise<unknown>;
+  recover?(cursor: string): Promise<{ name: string; bytes: Buffer } | null>;
+}
+
+async function placeRecoveredRollout(home: string, cursor: string, rollout: { name: string; bytes: Buffer }): Promise<string | null> {
+  try { validatedCodexRollout(rollout.name, cursor); } catch { return null; }
+  const first = rollout.bytes.subarray(0, Math.max(0, rollout.bytes.indexOf(10))).toString("utf8");
+  try { if (JSON.parse(first)?.payload?.id !== cursor) return null; } catch { return null; }
+  const target = join(home, "sessions", rollout.name);
+  if (existsSync(target)) return null;
+  mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+  writeFileSync(target, rollout.bytes, { mode: 0o600, flag: "wx" });
+  return target;
 }
 
 export async function planCodexRemote(input: CodexPlacement) {
@@ -51,8 +65,20 @@ export async function planCodexRemote(input: CodexPlacement) {
   const cli = engineCliPackage(input.cli, input.env.PATH, "@openai/codex");
   if (!cli) return { stay: "the selected Codex CLI package could not be identified" } as const;
   const cwd = resolve(input.cwd);
-  if (!codexComputerWorkspace(input.dataDir, input.botId, input.threadId, cwd)) return { stay: "this working folder is outside the dog's cloud workspace" } as const;
-  if (input.cursor && input.required) bound = await binding.bindSaved(input.cursor, cwd);
+  if (!await codexComputerWorkspace(input.dataDir, input.botId, input.threadId, cwd)) return { stay: "this working folder is outside the dog's cloud workspace" } as const;
+  let fresh = false;
+  if (input.cursor && input.required) {
+    try { bound = await binding.bindSaved(input.cursor, cwd); }
+    catch (error) {
+      if (!(error instanceof MissingCodexSession)) throw error;
+      const recovered = await input.recover?.(input.cursor).catch(() => null);
+      const placed = recovered ? await placeRecoveredRollout(home, input.cursor, recovered) : null;
+      if (placed) {
+        try { bound = await binding.bindSaved(input.cursor, cwd); }
+        catch { rmSync(placed, { force: true }); fresh = true; }
+      } else fresh = true;
+    }
+  }
   const run = randomUUID();
   const remoteBase = input.opener.remoteBase ?? REMOTE_ENGINE_BASE;
   const stagingDir = join(input.dataDir, "engine-launch", run);
@@ -73,7 +99,7 @@ export async function planCodexRemote(input: CodexPlacement) {
       socketPath, stateFile: `${remoteBase}/state/${binding.key}.json`, lockFile: `${remoteBase}/locks/${binding.key}.lock`,
     },
   };
-  const botRoot = botFolderRoot(input.dataDir, input.botId, cwd, home, stagingDir);
+  const botRoot = botFolderRoot(input.dataDir, input.botId, cwd, home, stagingDir, await botFolderPresent(input.dataDir, input.botId));
   if (botRoot) {
     plan.launch.roots.push(botRoot);
     plan.mkdirs.push(botRoot.path);
@@ -102,7 +128,7 @@ export async function planCodexRemote(input: CodexPlacement) {
   } catch (error) { rmSync(stagingDir, { recursive: true, force: true }); throw error; }
   let selectedPath: string | undefined;
   return {
-    plan, binding, imagePaths,
+    plan, binding, imagePaths, fresh,
     selectedRollout(cursor: string, nativePath: string) {
       const name = validatedCodexRollout(relative(sessions, nativePath), cursor);
       if (nativePath !== join(sessions, name)) throw new Error("The native Codex checkpoint path is not canonical.");

@@ -96,3 +96,28 @@ it("closes pending guest operations even when the transport never acknowledges a
   channel.close();
   await expect(pending).rejects.toHaveProperty("code", "EIO");
 });
+
+it("keeps an idle dog folder open after saving it, so the next look does not reopen and re-check it out", async () => {
+  vi.useFakeTimers();
+  try {
+    const dir = mkdtempSync(join(tmpdir(), "folder-mount-"));
+    folders.push(dir);
+    const names = new WorkFolderNamespace(layout, dir, join(dir, "visible"));
+    const close = vi.fn();
+    const checkpoint = vi.fn(async () => {});
+    const open = vi.fn(async () => ({ channel: { closed: false, close, call: async () => ({ ok: true, attr: { ino: "7", mode: 0o100600, size: "1" } }) }, checkpoint }));
+    const router = new WorkFolderMountRouter(names, open as never, vi.fn(async () => {}), 1000, 1000, () => {}, async () => null);
+    const look = () => router.dispatch({ op: "getattr", path: "dogs/lab/MEMORY.md", root: "work-folders" });
+    await look();
+    expect(open).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await look();
+    expect(open).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(11 * 60_000);
+    expect(close).toHaveBeenCalledOnce();
+    await look();
+    expect(open).toHaveBeenCalledTimes(2);
+    await router.close();
+  } finally { vi.useRealTimers(); }
+});

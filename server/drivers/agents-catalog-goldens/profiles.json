@@ -1,13 +1,14 @@
 {
   "direct": {
-    "bytes": 43630,
-    "sha256": "408f12b53a94cd3361e3b5e0ab79a6aa7a1a688e4d1ba75dd42938a80378270c",
+    "bytes": 44630,
+    "sha256": "b4c3aef8df0fffe1a5a8163eb772b5038b23c35b7d2c6fb9b2b2cc2af47a6c6f",
     "tools": [
       "execution_advice",
       "tool_result_read",
       "vault_secret",
       "coordinate_bots",
       "start_tasks",
+      "start_swarm",
       "list_bots",
       "account_usage",
       "switch_account",
@@ -38,14 +39,15 @@
     ]
   },
   "direct+voice": {
-    "bytes": 44371,
-    "sha256": "b7d00c356946d5b411665a58d201c66a3e9c4c66b05150ab5a28b398e77bd8f4",
+    "bytes": 45371,
+    "sha256": "5e748b24e0cdd59b8decb49093c99d307270ada60336ffd815285945ab7271b8",
     "tools": [
       "execution_advice",
       "tool_result_read",
       "vault_secret",
       "coordinate_bots",
       "start_tasks",
+      "start_swarm",
       "list_bots",
       "account_usage",
       "switch_account",
@@ -77,8 +79,8 @@
     ]
   },
   "direct+shared": {
-    "bytes": 48659,
-    "sha256": "6010c1450bb4eb422d90d6cd9f192df29d2b95a3aeda948558672b2bc4b9e8a7",
+    "bytes": 49659,
+    "sha256": "618364e452766f36608280816af6e652a84a1d32f1c55f5d4eabfe8da9e05be6",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -87,6 +89,7 @@
       "vault_secret",
       "coordinate_bots",
       "start_tasks",
+      "start_swarm",
       "list_bots",
       "account_usage",
       "switch_account",
@@ -117,8 +120,8 @@
     ]
   },
   "direct+shared+voice": {
-    "bytes": 49400,
-    "sha256": "f483eeadb43e3b6dc54b5858b2b31504722ea1c066af82e0504fc54c7ef327d7",
+    "bytes": 50400,
+    "sha256": "b1d3ea14cb6cf8eb87d63f2530eca5290190a3432596b658e94e6785e30cea81",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -127,6 +130,7 @@
       "vault_secret",
       "coordinate_bots",
       "start_tasks",
+      "start_swarm",
       "list_bots",
       "account_usage",
       "switch_account",
@@ -158,14 +162,15 @@
     ]
   },
   "direct+skills": {
-    "bytes": 45494,
-    "sha256": "50784aa67a6e2cd6e524944fd1fd2144408c4ed4a3afbf62497cbcc82544ee0e",
+    "bytes": 46494,
+    "sha256": "82201ba47e9dd3f86aa971316f7bee52b819b90d758b6f67819ca4b8fe1d28f9",
     "tools": [
       "execution_advice",
       "tool_result_read",
       "vault_secret",
       "coordinate_bots",
       "start_tasks",
+      "start_swarm",
       "list_bots",
       "account_usage",
       "switch_account",
@@ -198,14 +203,15 @@
     ]
   },
   "direct+skills+voice": {
-    "bytes": 46235,
-    "sha256": "5e609ed39f4a4500d54fdf159d6f114bc58219176aee1bc17b8a134a23c7f035",
+    "bytes": 47235,
+    "sha256": "6edfe8faae6a199bc29d8458f708755e8cd19d4424bcdcf7e49f3903268cb1e9",
     "tools": [
       "execution_advice",
       "tool_result_read",
       "vault_secret",
       "coordinate_bots",
       "start_tasks",
+      "start_swarm",
       "list_bots",
       "account_usage",
       "switch_account",
@@ -239,8 +245,8 @@
     ]
   },
   "direct+skills+shared": {
-    "bytes": 50523,
-    "sha256": "b0502d03bde3c34339e23a9d5b3fceb5823c05e07d9c2421a6717b5fc7de46f9",
+    "bytes": 51523,
+    "sha256": "4a823a4b417e2eba5263cac8f1dc6c7f7d185dac202b46102fb6d82491c2813e",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -249,6 +255,7 @@
       "vault_secret",
       "coordinate_bots",
       "start_tasks",
+      "start_swarm",
       "list_bots",
       "account_usage",
       "switch_account",
@@ -281,8 +288,8 @@
     ]
   },
   "direct+skills+shared+voice": {
-    "bytes": 51264,
-    "sha256": "963b33f02c3c95d88675a13c91735cbc2437a9566a78d7f83617bf13c97360d4",
+    "bytes": 52264,
+    "sha256": "053edfbe71be6ddaf818d22c638203ab752ca1733259ef66e8c90b3bc71388d2",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -291,6 +298,7 @@
       "vault_secret",
       "coordinate_bots",
       "start_tasks",
+      "start_swarm",
       "list_bots",
       "account_usage",
       "switch_account",
@@ -324,8 +332,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home": {
-    "bytes": 58184,
-    "sha256": "2febd87e004c9837519b0a5913474559ad24079baa411aa19cbb1950a18466bb",
+    "bytes": 59184,
+    "sha256": "54c8e7dbdb9032c0b4a42d3b9b4240a8fc22cb2df8866306114a3aa24999172f",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -337,6 +345,7 @@
       "send_email",
       "coordinate_bots",
       "start_tasks",
+      "start_swarm",
       "list_bots",
       "account_usage",
       "switch_account",
@@ -375,8 +384,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home+phone": {
-    "bytes": 62214,
-    "sha256": "02e9c1b0bc7208d8c0337debc5b5b14bed153c9f39200802af055c35167696c4",
+    "bytes": 63214,
+    "sha256": "9d9b5c35256759172c8f5bf37a9d4516865387dac2f03ad8e7e4d2c5c1596279",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -392,6 +401,7 @@
       "nearby_places",
       "coordinate_bots",
       "start_tasks",
+      "start_swarm",
       "list_bots",
       "account_usage",
       "switch_account",

@@ -9,12 +9,17 @@ import type { ProviderSnapshot } from "../contracts.ts";
 import { checkUnknown } from "./cli-version.ts";
 import { NEARLY_EMPTY_PERCENT, roomTier } from "./account-spread.ts";
 import { choiceReadyAt, decideAccount, paysPastPlan, shownRoute, type AccountChoice, type AccountChoiceInput, type Blocked, type Ran } from "./account-choice.ts";
+import { modelFamily } from "../../shared/model-family.ts";
 import { SETUP_STOP, limitHit, modelLimitName, modelRestKey, restModel, restOwner, sameModel } from "./account-limits.ts";
 import { sameModelId } from "./model-change.ts";
 
 export { NEARLY_EMPTY_PERCENT, SETUP_STOP };
 
-export const BATTERY_DRIVERS: readonly string[] = ["claudeAgent", "codex"];
+export const BATTERY_DRIVERS: readonly string[] = ["claudeAgent", "codex", "antigravityAgent", "geminiAgent"];
+
+export type GoogleKeyUse = "free" | "paid";
+
+const ALWAYS_LISTED: readonly string[] = ["claudeAgent", "codex"];
 
 export const DEFAULT_REST_MS = 5 * 60 * 60 * 1000;
 export const SETUP_REST_MS = 30 * 60 * 1000;
@@ -42,6 +47,12 @@ export interface AccountBatteryConfig {
   order: Record<string, string[]>;
   auto?: boolean;
   sequence?: string[];
+  googleKeys?: Record<string, GoogleKeyUse>;
+}
+
+export function googleKeyUse(config: AccountBatteryConfig | undefined, instanceId: string): GoogleKeyUse | undefined {
+  const use = config?.googleKeys && Object.hasOwn(config.googleKeys, instanceId) ? config.googleKeys[instanceId] : undefined;
+  return use === "free" || use === "paid" ? use : undefined;
 }
 
 export type AccountBatteryPatch = Partial<AccountBatteryConfig>;
@@ -77,6 +88,7 @@ export interface Rest {
 export interface Quota {
   resetsAt?: string;
   kind?: string;
+  scope?: "model";
 }
 
 export interface BatteryTurn {
@@ -105,6 +117,7 @@ export interface BatteryStatus {
   routed: Record<string, WireAccountRoute>;
   fromNextMessage: Record<string, WireAccountRoute>;
   ranModel: Record<string, string>;
+  googleKeys?: Record<string, GoogleKeyUse>;
 }
 
 export interface ModelRestShown {
@@ -176,7 +189,7 @@ export function batteryOrder(config: AccountBatteryConfig | undefined, accounts:
   for (const driver of BATTERY_DRIVERS) {
     const eligible = accounts.filter((account) => account.driverKind === driver && account.eligible).map((account) => account.instanceId);
     const saved = (config?.order?.[driver] ?? []).filter((id) => eligible.includes(id));
-    order[driver] = [...new Set([...saved, ...eligible])];
+    if (eligible.length || ALWAYS_LISTED.includes(driver)) order[driver] = [...new Set([...saved, ...eligible])];
   }
   return order;
 }
@@ -428,7 +441,7 @@ export function selectionOnAccount(
     : { instanceId: account.instanceId, model: chosenModelOn(account, accounts, preferred) ?? account.defaultModel ?? account.models[0] ?? selection.model };
 }
 
-const ENGINE_NAMES: Readonly<Record<string, string>> = { claudeAgent: "Claude", codex: "Codex" };
+const ENGINE_NAMES: Readonly<Record<string, string>> = { claudeAgent: "Claude", codex: "Codex", antigravityAgent: "Antigravity", geminiAgent: "Gemini" };
 
 export function engineName(driverKind: string): string {
   return ENGINE_NAMES[driverKind] ?? driverKind;
@@ -475,7 +488,7 @@ export function checkBatteryConfig(
   if (patch.order !== undefined) {
     order = {};
     for (const [driver, ids] of Object.entries(patch.order)) {
-      if (!BATTERY_DRIVERS.includes(driver)) return { ok: false, error: "The token battery works with Claude and Codex accounts only." };
+      if (!BATTERY_DRIVERS.includes(driver)) return { ok: false, error: "The token battery works with Claude, ChatGPT, Antigravity and Gemini accounts only." };
       const unknown = ids.find((id) => !accounts.some((account) => account.instanceId === id && account.driverKind === driver && account.eligible));
       if (unknown !== undefined) return { ok: false, error: `“${unknown}” is not an eligible subscription account here. Refresh the list and try again.` };
       order[driver] = [...new Set(ids)];
@@ -486,16 +499,30 @@ export function checkBatteryConfig(
     return { ok: false, error: "An account in this order is unavailable. Refresh the list and try again." };
   }
   const auto = patch.auto ?? current?.auto;
-  return { ok: true, config: { enabled: patch.enabled ?? batteryEnabled(current, accounts), order, ...(auto === undefined ? {} : { auto }), ...(sequence === undefined ? {} : { sequence: [...new Set(sequence)] }) } };
+  let googleKeys = current?.googleKeys;
+  if (patch.googleKeys !== undefined) {
+    googleKeys = {};
+    for (const [id, use] of Object.entries(patch.googleKeys)) {
+      if (use !== "free" && use !== "paid") return { ok: false, error: "Choose free tier or paid use for a Gemini key." };
+      if (!accounts.some((account) => account.instanceId === id && account.driverKind === "geminiAgent")) {
+        return { ok: false, error: `“${id}” is not a Gemini account here. Refresh the list and try again.` };
+      }
+      googleKeys[id] = use;
+    }
+  }
+  const keys = googleKeys && (patch.googleKeys !== undefined || Object.keys(googleKeys).length) ? { googleKeys } : {};
+  return { ok: true, config: { enabled: patch.enabled ?? batteryEnabled(current, accounts), order, ...(auto === undefined ? {} : { auto }), ...(sequence === undefined ? {} : { sequence: [...new Set(sequence)] }), ...keys } };
 }
 
 export function withoutAccount(config: AccountBatteryConfig | undefined, instanceId: string): AccountBatteryConfig | undefined {
-  if (!config || (!Object.values(config.order ?? {}).some((ids) => ids.includes(instanceId)) && !config.sequence?.includes(instanceId))) return undefined;
+  if (!config || (!Object.values(config.order ?? {}).some((ids) => ids.includes(instanceId)) && !config.sequence?.includes(instanceId) && googleKeyUse(config, instanceId) === undefined)) return undefined;
+  const keys = Object.entries(config.googleKeys ?? {}).filter(([id]) => id !== instanceId);
   return {
     enabled: config.enabled,
     order: Object.fromEntries(Object.entries(config.order).map(([driver, ids]) => [driver, ids.filter((id) => id !== instanceId)])),
     ...(config.auto === undefined ? {} : { auto: config.auto }),
     ...(config.sequence === undefined ? {} : { sequence: config.sequence.filter((id) => id !== instanceId) }),
+    ...(keys.length ? { googleKeys: Object.fromEntries(keys) as Record<string, GoogleKeyUse> } : {}),
   };
 }
 
@@ -660,6 +687,23 @@ export class AccountBattery {
     return decideAccount(this.choiceInput(selection, accounts, threadId, dog)).run;
   }
 
+  nextWhenOut(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string, backups: readonly ModelSelection[] = this.preferredFor(threadId) ?? []): BatteryAccount | undefined {
+    if (!this.enabled) return undefined;
+    const input = this.choiceInput(selection, accounts, threadId);
+    const now = this.now();
+    const resting = { ...input.resting, [selection.instanceId]: { until: new Date(now + DEFAULT_REST_MS).toISOString(), since: new Date(now).toISOString(), estimated: true } };
+    const choice = decideAccount({
+      chosen: selection, accounts, keepGoing: true, resting, now,
+      order: batterySequence({ config: this.options.config(), accounts, resting, now }),
+      ...(input.usage ? { usage: input.usage } : {}), ...(input.preferred ? { preferred: input.preferred } : {}),
+    });
+    if (choice.kind !== "waiting" && choice.run.instanceId !== selection.instanceId) return accounts.find((account) => account.instanceId === choice.run.instanceId);
+    const own = accounts.find((account) => account.instanceId === selection.instanceId);
+    return backups.map((backup) => accounts.find((account) => account.instanceId === backup.instanceId))
+      .find((account) => account && account.driverKind !== own?.driverKind && account.enabled && account.signedIn !== false &&
+        !activeRest(account, undefined, accounts, resting, now));
+  }
+
   decide(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): AccountChoice {
     return decideAccount(this.choiceInput(selection, accounts, threadId));
   }
@@ -720,7 +764,7 @@ export class AccountBattery {
     const reported = resetInstant(quota.resetsAt, now);
     const reset = reported && Date.parse(reported) > now ? reported : undefined;
     const kind = quota.kind && /^[a-z][a-z0-9_-]{0,39}$/i.test(quota.kind) ? quota.kind.toLowerCase() : undefined;
-    const limited = modelLimitName(kind, model);
+    const limited = quota.scope === "model" && model?.trim() ? modelFamily(model) : modelLimitName(kind, model);
     const reading = quotaReading(this.options.usage?.(instanceId), { kind, model: limited });
     const rest: Rest = {
       until: reset ?? new Date(now + DEFAULT_REST_MS).toISOString(),
@@ -813,6 +857,10 @@ export class AccountBattery {
       .flatMap((account) => this.limitsOf(account, accounts).map((rest) => [account.instanceId, rest.model ?? "", rest.until])).sort());
   }
 
+  restsNow(accounts: readonly BatteryAccount[]): Record<string, Rest> {
+    return this.resting(accounts);
+  }
+
   private resting(accounts: readonly BatteryAccount[]): Record<string, Rest> {
     return withReadings(this.state.resting, accounts, this.options.usage, this.now());
   }
@@ -853,7 +901,7 @@ export class AccountBattery {
     this.shownOrder = JSON.stringify({ order, sequence });
     this.shownResting = this.limitsKey(accounts);
     return { enabled: batteryEnabled(config, accounts), auto: config?.auto === true, order,
-      sequence, resting, modelResting, routed, fromNextMessage, ranModel };
+      sequence, resting, modelResting, routed, fromNextMessage, ranModel, ...(config?.googleKeys && Object.keys(config.googleKeys).length ? { googleKeys: config.googleKeys } : {}) };
   }
 
   noteReadings(accounts: readonly BatteryAccount[]): void {

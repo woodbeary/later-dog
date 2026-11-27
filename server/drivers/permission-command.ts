@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { onMountedFolder, realFolderPath } from "../laterdog/dog-mounts.ts";
 
 export function permissionCommand(command: unknown, cwd: unknown): { command: string; cwd: string } | undefined {
   if (typeof command !== "string" || !command.trim() || command.includes("\0")) return undefined;
@@ -7,8 +8,15 @@ export function permissionCommand(command: unknown, cwd: unknown): { command: st
   return { command, cwd };
 }
 
-export function permissionLaunchCwd(cwd: string): string | undefined {
-  try { return realpathSync(cwd); } catch { return undefined; }
+export function permissionLaunchCwd(cwd: string): () => string | undefined {
+  if (!onMountedFolder(cwd)) {
+    let real: string | undefined;
+    try { real = realpathSync(cwd); } catch {}
+    return () => real;
+  }
+  let real: string | undefined = cwd;
+  void realFolderPath(cwd).then((value) => { real = value; });
+  return () => real;
 }
 
 export function acpPermissionCommand(rawInput: unknown, launchCwd: string | undefined): ReturnType<typeof permissionCommand> {

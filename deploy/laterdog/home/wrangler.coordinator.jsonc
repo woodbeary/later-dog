@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "laterdog-coordinator",
+  "main": "src/coordinator.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "durable_objects": {
+    "bindings": [
+      { "name": "DOGS", "class_name": "Dog" },
+      { "name": "PERSON_INDEX", "class_name": "PersonIndex" },
+      { "name": "DOG_INDEX", "class_name": "DogIndex" }
+    ]
+  },
+  "exports": {
+    "Dog": { "type": "durable-object", "storage": "sqlite" },
+    "PersonIndex": { "type": "durable-object", "storage": "sqlite" },
+    "DogIndex": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

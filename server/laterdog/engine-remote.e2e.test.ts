@@ -70,7 +70,7 @@ function world(sessionId = "s-1", options: { preToolUse?: string; env?: Record<s
   const args = (resume: boolean) => ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--mcp-config", mcpPath, "--settings", settingsPath, resume ? "--resume" : "--session-id", sessionId];
   const plan = (resume = false) => {
     const planned = planClaudeRemote({ botId: "bot-1", threadId: "thread-1", sessionId, cliCommand: join(pkg, "bin", "claude"), args: args(resume), cwd, env,
-      managed: false, dataDir: join(base, "data"), proxyPath: PROXY, remoteBase });
+      managed: false, dataDir: join(base, "data"), proxyPath: PROXY, remoteBase, botFolder: existsSync(join(base, "data", "workspaces", "bot-1")) });
     if (!("plan" in planned)) throw new Error(planned.stay);
     Object.assign(planned.plan.launch.env, { FAKE_ENGINE_SLUG: env.FAKE_ENGINE_SLUG, FAKE_ENGINE_LAUNCHES: env.FAKE_ENGINE_LAUNCHES });
     return planned.plan;
@@ -272,6 +272,7 @@ it("recovers a later guest transcript before dispatch and preserves both copies 
   const diagnostics: string[] = [];
   conflict.engine.stderr.on("data", chunk => diagnostics.push(String(chunk)));
   expect(await closed(conflict.engine)).toBe(1);
+  expect(await killCliTree(conflict.engine as unknown as ChildProcess, 0)).toBe(true);
   expect(diagnostics.join("")).toContain("Both copies were preserved");
   expect(readFileSync(w.sessionFile, "utf8")).toBe("home revision");
   expect(readFileSync(guest, "utf8")).toBe("computer revision");

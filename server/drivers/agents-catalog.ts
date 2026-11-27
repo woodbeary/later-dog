@@ -4,6 +4,7 @@ import { OPTIONS_CARD_LIMITS, WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared/o
 import { TAKEOVER_REASONS } from "../../shared/takeover.ts";
 import { agentToolAnnotations } from "../agent-tool-policy.ts";
 import { COMPUTER_RULE } from "../laterdog/mac-computer.ts";
+import { MACHINE_SIZE_HINT, MACHINE_SIZES } from "../laterdog/machine-size-words.ts";
 
 export interface CatalogProfile {
   skillAuthoring: boolean;
@@ -331,8 +332,22 @@ const TOOL_DEFINITIONS = [
       tasks: { type: "array", minItems: 1, maxItems: 5, items: { type: "object", additionalProperties: false, properties: {
         title: { type: "string", minLength: 1, maxLength: 60 },
         instruction: { type: "string", minLength: 1, maxLength: 4000 },
+        machine: { type: "string", enum: [...MACHINE_SIZES], description: MACHINE_SIZE_HINT },
       }, required: ["title", "instruction"] } },
     }, required: ["tasks"] },
+  },
+  {
+    name: "start_swarm",
+    description: "Only when the person asks for a swarm: split one big job into 2-8 parallel parts, each a task on its own machine and account. Each part sees only its instruction. Results come back here in one message; then answer.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      goal: { type: "string", minLength: 1, maxLength: 400 },
+      parts: { type: "array", minItems: 2, maxItems: 8, items: { type: "object", additionalProperties: false, properties: {
+        title: { type: "string", minLength: 1, maxLength: 60 },
+        instruction: { type: "string", minLength: 1, maxLength: 4000 },
+        size: { type: "string", enum: ["small", "large"] },
+      }, required: ["title", "instruction"] } },
+      gather: { type: "string", minLength: 1, maxLength: 2000 },
+    }, required: ["goal", "parts", "gather"] },
   },
   {
     name: "list_bots",
@@ -963,7 +978,7 @@ function catalogTools(profile: CatalogProfile) {
   const BOT_SCOPED_TOOLS = TOOL_DEFINITIONS.filter((tool) =>
     (profile.botId === WATCHER_OPTIONS_CARD_BOT_ID || !WATCHER_TOOL_NAMES.has(tool.name)) &&
     (profile.memoryEnabled !== false || (tool.name !== "memory_update" && tool.name !== "memory_log")) &&
-    (profile.insideTask !== true || tool.name !== "start_tasks"));
+    (profile.insideTask !== true || (tool.name !== "start_tasks" && tool.name !== "start_swarm")));
   const AUTHORING_TOOLS = profile.skillAuthoring
     ? BOT_SCOPED_TOOLS
     : BOT_SCOPED_TOOLS.filter((tool) => !SKILL_TOOL_NAMES.has(tool.name));

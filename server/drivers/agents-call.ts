@@ -394,6 +394,10 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const { ok, body } = await apiResponse("/api/internal/tasks/start", { method: "POST", body: JSON.stringify(args) });
     return { text: String(body.text ?? body.error ?? "The tasks could not be started."), ...(ok ? {} : { isError: true }) };
   }
+  if (name === "start_swarm") {
+    const { ok, body } = await apiResponse("/api/internal/swarm/start", { method: "POST", body: JSON.stringify(args) });
+    return { text: String(body.text ?? body.error ?? "The swarm could not be started."), ...(ok ? {} : { isError: true }) };
+  }
   if (name === "nearby_places") {
     const { ok, body } = await apiResponse("/api/internal/nearby-places", { method: "POST", body: JSON.stringify(args) });
     if (!ok) return { text: String(body.error ?? "Couldn't look for places nearby."), isError: true };

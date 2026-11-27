@@ -1,0 +1,25 @@
+#!/usr/bin/env node
+const { mkdirSync, writeFileSync } = process.getBuiltinModule("node:fs");
+const { join } = process.getBuiltinModule("node:path");
+const { gunzipSync } = process.getBuiltinModule("node:zlib");
+const { pathToFileURL } = process.getBuiltinModule("node:url");
+
+const scratch = process.env.TMPDIR;
+const packed = process.env.LATERDOG_ENGINE_FILES;
+delete process.env.LATERDOG_ENGINE_FILES;
+if (!scratch || !scratch.startsWith("/") || !packed) {
+  process.stderr.write("laterdog pool relay: missing scratch folder or relay files\n");
+  process.exit(2);
+}
+const files = JSON.parse(gunzipSync(Buffer.from(packed, "base64")).toString("utf8"));
+const dir = join(scratch, "relay");
+mkdirSync(dir, { recursive: true, mode: 0o700 });
+for (const [name, body] of Object.entries(files)) {
+  if (!/^engine-[a-z]+\.mjs$/.test(name) || typeof body !== "string") continue;
+  writeFileSync(join(dir, name), Buffer.from(body, "base64"), { mode: 0o600 });
+}
+process.env.LATERDOG_ENGINE_TEST_ROOT = join(scratch, "m");
+import(pathToFileURL(join(dir, "engine-relay.mjs")).href).catch((error) => {
+  process.stderr.write(`laterdog pool relay: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(1);
+});
