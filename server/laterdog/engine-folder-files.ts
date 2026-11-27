@@ -366,7 +366,6 @@ export async function applyFolder(
       .map((e) => [e.path, "former-" + randomUUID()]),
   );
   try {
-    await store.prefetchPages(changed.flatMap((e) => (e.kind === "file" && !e.hardlink ? [e.contents] : [])));
     await parallel(
       changed.filter((e) => e.kind !== "dir" && !(e.kind === "file" && e.hardlink)),
       async (e) => {

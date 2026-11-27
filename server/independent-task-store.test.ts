@@ -6,16 +6,16 @@ import { approvalModeFor } from "../shared/approval-mode.ts";
 import { DATA_DIR } from "./config.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { isProjectEmoji, Store, type BotRecord, type GroupRecord, type TaskPatch } from "./store.ts";
-import { ensureTaskWorkspace } from "./workspace.ts";
+import { ensureTaskWorkspaceReady } from "./workspace.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "default" });
 const savedBots = (): BotRecord[] => JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8"));
 const savedGroups = (): GroupRecord[] => JSON.parse(readFileSync(join(DATA_DIR, "groups.json"), "utf8"));
 
 describe("independent bot task state", () => {
-  beforeEach(() => rmSync(DATA_DIR, { recursive: true, force: true }));
+  beforeEach(async () => rmSync(DATA_DIR, { recursive: true, force: true }));
 
-  it("applies an explicit bot-wide approval mode without changing history or provider choices", () => {
+  it("applies an explicit bot-wide approval mode without changing history or provider choices", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const other = store.createBot({}, { seedMessages: false });
@@ -40,7 +40,7 @@ describe("independent bot task state", () => {
     expect(new Store(selection).tasks(bot.id).every(task => task.approvalMode === "ask")).toBe(true);
   });
 
-  it("refreshes one thread's permissions from the bot default and leaves the rest", () => {
+  it("refreshes one thread's permissions from the bot default and leaves the rest", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const first = bot.threadId;
@@ -78,7 +78,7 @@ describe("independent bot task state", () => {
     expect(reloaded.bot(bot.id)?.approvalMode).toBe("full");
   });
 
-  it("does not partially elevate any thread when saving the all-threads change fails", () => {
+  it("does not partially elevate any thread when saving the all-threads change fails", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     store.createTask(bot.id, "Second thread");
@@ -92,7 +92,7 @@ describe("independent bot task state", () => {
     } finally { save.mockRestore(); }
   });
 
-  it("does not let a hidden routine execution hold the bot unread", () => {
+  it("does not let a hidden routine execution hold the bot unread", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const visible = bot.threadId;
@@ -108,7 +108,7 @@ describe("independent bot task state", () => {
     expect(bot.unread).toBe(true);
   });
 
-  it("heals a saved hidden routine execution that was left unread", () => {
+  it("heals a saved hidden routine execution that was left unread", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const execution = store.createTask(bot.id, "Execution", false)!;
@@ -127,7 +127,7 @@ describe("independent bot task state", () => {
     expect(persisted.tasks!.find((task) => task.threadId === execution.threadId)?.unread).toBe(false);
   });
 
-  it("persists routine execution identity without sharing context or approval settings", () => {
+  it("persists routine execution identity without sharing context or approval settings", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const first = store.createTask(bot.id, "First run", false)!;
@@ -142,7 +142,7 @@ describe("independent bot task state", () => {
     expect(new Store(selection).taskByThread(bot.id, first.threadId)?.routineRunId).toBeUndefined();
   });
 
-  it("never silently switches into an internal run when deleting a visible task", () => {
+  it("never silently switches into an internal run when deleting a visible task", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const original = bot.threadId;
@@ -157,7 +157,7 @@ describe("independent bot task state", () => {
     expect(new Store(selection).bot(bot.id)?.threadId).toBe(bot.threadId);
   });
 
-  it("leaves an opened internal run when a different visible task is deleted", () => {
+  it("leaves an opened internal run when a different visible task is deleted", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const original = bot.threadId;
@@ -172,7 +172,7 @@ describe("independent bot task state", () => {
     expect(new Store(selection).bot(bot.id)?.threadId).toBe(original);
   });
 
-  it("caps new task titles before persistence and preserves the blank-title fallback", () => {
+  it("caps new task titles before persistence and preserves the blank-title fallback", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const task = store.createTask(bot.id, `  ${"t".repeat(120)}  `)!;
@@ -181,12 +181,12 @@ describe("independent bot task state", () => {
     expect(store.createTask(bot.id, "  ")?.title).toBe("New thread");
   });
 
-  it("retains generated and user-selected project files when conversations are deleted", () => {
+  it("retains generated and user-selected project files when conversations are deleted", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
-    const first = ensureTaskWorkspace(bot.id, bot.threadId);
+    const first = await ensureTaskWorkspaceReady(bot.id, bot.threadId);
     const secondTask = store.createTask(bot.id)!;
-    const second = ensureTaskWorkspace(bot.id, secondTask.threadId);
+    const second = await ensureTaskWorkspaceReady(bot.id, secondTask.threadId);
     const chosen = join(DATA_DIR, "user-selected-project");
     mkdirSync(chosen);
     for (const folder of [first, second, chosen]) writeFileSync(join(folder, "result.txt"), "Keep my project");
@@ -197,7 +197,7 @@ describe("independent bot task state", () => {
     for (const folder of [first, second, chosen]) expect(readFileSync(join(folder, "result.txt"), "utf8")).toBe("Keep my project");
   });
 
-  it("keeps own models, approvals, cursor, rewind and pin snapshots across navigation, deletion and reload; other threads follow the bot's model", () => {
+  it("keeps own models, approvals, cursor, rewind and pin snapshots across navigation, deletion and reload; other threads follow the bot's model", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const first = bot.threadId;
@@ -263,7 +263,7 @@ describe("independent bot task state", () => {
     expect(reloaded.bot(bot.id)?.modelSelection).toEqual(selection());
   });
 
-  it("projects cloned dispatch settings and permits only constrained task fields", () => {
+  it("projects cloned dispatch settings and permits only constrained task fields", async () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const task = store.activeTask(bot.id)!;
@@ -290,7 +290,7 @@ describe("independent bot task state", () => {
     expect(store.patchTask(bot.id, "missing", { unread: true })).toBeNull();
   });
 
-  it("aggregates independent task activity without persisting it or clearing another task", () => {
+  it("aggregates independent task activity without persisting it or clearing another task", async () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const first = bot.threadId;
@@ -331,7 +331,7 @@ describe("independent bot task state", () => {
     expect(bot).toMatchObject({ activity: "idle", busy: false });
   });
 
-  it("restarts the working timer after a person's answer without changing the turn or a sibling's timer", () => {
+  it("restarts the working timer after a person's answer without changing the turn or a sibling's timer", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
     try {
       const store = new Store(selection);
@@ -401,7 +401,7 @@ describe("independent bot task state", () => {
     expect(restored.turnStartedAt).toBeUndefined();
   });
 
-  it("keeps background unread after reading the selected task, including across restart", () => {
+  it("keeps background unread after reading the selected task, including across restart", async () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const first = bot.threadId;
@@ -419,7 +419,7 @@ describe("independent bot task state", () => {
     expect(reloaded.bot(bot.id)?.unread).toBe(false);
   });
 
-  it("migrates legacy model, cursor, pin and unread without losing transcripts or stale active pointers", () => {
+  it("migrates legacy model, cursor, pin and unread without losing transcripts or stale active pointers", async () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const first = bot.threadId;
@@ -456,7 +456,7 @@ describe("independent bot task state", () => {
     expect(savedBots()[0]!.tasks!.every((task) => task.modelSelection === undefined)).toBe(true);
   });
 
-  it("revokes elevated task snapshots along with a stale bot elevation grant", () => {
+  it("revokes elevated task snapshots along with a stale bot elevation grant", async () => {
     const store = new Store(selection);
     const bot = store.createBot();
     store.patchBot(bot.id, { approvalMode: "full", autoApprove: true });
@@ -471,7 +471,7 @@ describe("independent bot task state", () => {
     expect(approvalModeFor(reloaded.projectBotForTask(bot.id, task.threadId)!)).toBe("ask");
   });
 
-  it("groups threads in folders without changing models or running state", () => {
+  it("groups threads in folders without changing models or running state", async () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const legacyThread = bot.threadId;
@@ -505,7 +505,7 @@ describe("independent bot task state", () => {
     expect(reloaded.projectBotForTask(bot.id, task.threadId)?.modelSelection).toEqual(running.modelSelection);
   });
 
-  it("persists folder order and emoji without creating threads or changing their settings", () => {
+  it("persists folder order and emoji without creating threads or changing their settings", async () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const originalThread = bot.threadId;
@@ -534,7 +534,7 @@ describe("independent bot task state", () => {
     expect(reloaded.tasks(bot.id)).toEqual(originalTasks);
   });
 
-  it("rejects invalid folder order and emoji without partially changing saved state", () => {
+  it("rejects invalid folder order and emoji without partially changing saved state", async () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const sibling = store.createBot();
@@ -558,7 +558,7 @@ describe("independent bot task state", () => {
     expect(reloaded.messagesFor(task.threadId).at(-1)?.text).toBe("Keep history");
   });
 
-  it("accepts one Unicode emoji, including composed forms, but not text or incomplete components", () => {
+  it("accepts one Unicode emoji, including composed forms, but not text or incomplete components", async () => {
     for (const emoji of ["📁", "🗂️", "👩🏽‍💻", "👩‍👩‍👦", "🇮🇳", "👍🏽", "❤️", "♥", "1️⃣"]) {
       expect(isProjectEmoji(emoji), emoji).toBe(true);
     }
@@ -567,7 +567,7 @@ describe("independent bot task state", () => {
     }
   });
 
-  it("discards unshipped folder model defaults without changing saved thread models", () => {
+  it("discards unshipped folder model defaults without changing saved thread models", async () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const sibling = store.createBot();
@@ -588,7 +588,7 @@ describe("independent bot task state", () => {
     expect(reloaded.createTask(bot.id, undefined, false, project.id)?.modelSelection).toBeUndefined();
   });
 
-  it("moves the dog's one conversation onto its own model when it loads", () => {
+  it("moves the dog's one conversation onto its own model when it loads", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const old = store.createTask(bot.id, "Old thread", false)!;
@@ -603,7 +603,7 @@ describe("independent bot task state", () => {
     expect(savedBots().find((entry) => entry.id === bot.id)!.tasks!.find((entry) => entry.threadId === bot.threadId)!.modelSelection).toBeUndefined();
   });
 
-  it("pins a thread without storing false, and advances updatedAt from a message without rewriting bots.json", () => {
+  it("pins a thread without storing false, and advances updatedAt from a message without rewriting bots.json", async () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     const task = store.createTask(bot.id, "Pinned later")!;

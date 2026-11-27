@@ -160,17 +160,18 @@ export function writePendingAssignments(assignments: Record<string, string[]>, r
   writeFileAtomic(pendingAssignmentsPath(root), `${JSON.stringify(assignments, null, 2)}\n`, { mode: 0o600 });
 }
 
-export function runSkillsLibraryBootSweep(options: {
+export async function runSkillsLibraryBootSweep(options: {
   bots: readonly { id: string; assignedSkills?: string[] }[];
   patch?: (botId: string, assignedSkills: string[]) => void;
   root?: string;
-}): SkillsMigrationReport {
+  migrate?: (botId: string, root: string) => SkillsMigrationReport | Promise<SkillsMigrationReport>;
+}): Promise<SkillsMigrationReport> {
   const root = options.root ?? skillsLibraryRoot();
   const outcomes: SkillMigrationOutcome[] = [];
   const assignments: Record<string, string[]> = {};
   const pending = options.patch ? readPendingAssignments(root) : {};
   for (const bot of options.bots) {
-    const report = migrateBotSkillsToLibrary(bot.id, root);
+    const report = await (options.migrate ?? migrateBotSkillsToLibrary)(bot.id, root);
     outcomes.push(...report.outcomes);
     const current = bot.assignedSkills ?? [];
     const merged = [...new Set([...(pending[bot.id] ?? []), ...(report.assignments[bot.id] ?? []), ...current])].sort();

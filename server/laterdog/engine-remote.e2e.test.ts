@@ -70,7 +70,7 @@ function world(sessionId = "s-1", options: { preToolUse?: string; env?: Record<s
   const args = (resume: boolean) => ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--mcp-config", mcpPath, "--settings", settingsPath, resume ? "--resume" : "--session-id", sessionId];
   const plan = (resume = false) => {
     const planned = planClaudeRemote({ botId: "bot-1", threadId: "thread-1", sessionId, cliCommand: join(pkg, "bin", "claude"), args: args(resume), cwd, env,
-      managed: false, dataDir: join(base, "data"), proxyPath: PROXY, remoteBase });
+      managed: false, dataDir: join(base, "data"), proxyPath: PROXY, remoteBase, botFolder: existsSync(join(base, "data", "workspaces", "bot-1")) });
     if (!("plan" in planned)) throw new Error(planned.stay);
     Object.assign(planned.plan.launch.env, { FAKE_ENGINE_SLUG: env.FAKE_ENGINE_SLUG, FAKE_ENGINE_LAUNCHES: env.FAKE_ENGINE_LAUNCHES });
     return planned.plan;

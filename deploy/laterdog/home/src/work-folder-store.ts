@@ -362,26 +362,6 @@ async function migrateBatch(scope: Scope, request: Request): Promise<Response> {
   return json({ verified: items.map(i => i.sha256) });
 }
 
-const EDGE_READS = new Set(["head", "versions", "ranges", "manifests", "blobs"]);
-
-export function servedAtEdge(request: Request): boolean {
-  const { pathname } = new URL(request.url);
-  if (!pathname.startsWith(WORK_FOLDER_ROUTE)) return false;
-  const route = pathname.slice(WORK_FOLDER_ROUTE.length).split("/")[2] ?? "";
-  return (request.method === "GET" || request.method === "HEAD") ? EDGE_READS.has(route) : request.method === "POST" && route === "pages";
-}
-
-async function pages(scope: Scope, request: Request): Promise<Response> {
-  const body = parse(await payload(request, 8 * 1024));
-  const hashes = body.hashes;
-  if (!exact(body, ["hashes"]) || !Array.isArray(hashes) || !hashes.length || hashes.length > WORK_FOLDER_PAGE_SIZE || !hashes.every(validHash)) return invalid("Invalid page request");
-  const found = await Promise.all(hashes.map(async (hash) => {
-    const obj = await scope.bucket.get(scope.prefix + "manifests/" + hash);
-    return obj ? new Response(obj.body).text() : null;
-  }));
-  return found.every((page) => page !== null) ? json({ pages: found }) : absent();
-}
-
 export async function handleWorkFolder(request: Request, bucket: WorkFolderBucket, stableId: string, origin: string, bootstrap: string, now = Date.now()): Promise<Response> {
   const url = new URL(request.url);
   if (url.origin !== origin || !url.pathname.startsWith(WORK_FOLDER_ROUTE)) return absent();
@@ -455,7 +435,6 @@ export async function handleWorkFolder(request: Request, bucket: WorkFolderBucke
       const head = await jsonRecord<WorkFolderHead>(bucket, scope.prefix + "head");
       return head ? json(head.value) : json({ error: "never_published" }, 404);
     }
-    if (route === "pages" && !id && request.method === "POST") return await pages(scope, request);
     if (!validHash(id)) return absent();
     if (route === "versions" && request.method === "GET") {
       const held = await jsonRecord<WorkFolderHead>(bucket, scope.prefix + "versions/" + id);
@@ -475,7 +454,7 @@ export async function handleWorkFolder(request: Request, bucket: WorkFolderBucke
     }
     if (request.method === "GET") {
       const obj = await bucket.get(key);
-      return obj ? new Response(obj.body, { headers: { "content-length": String(obj.size), "content-type": route === "blobs" ? "application/octet-stream" : "application/json", etag: '"' + id + '"', "cache-control": "private, max-age=31536000, immutable" } }) : absent();
+      return obj ? new Response(obj.body, { headers: { "content-length": String(obj.size), "content-type": route === "blobs" ? "application/octet-stream" : "application/json", etag: '"' + id + '"', "cache-control": "private, no-store" } }) : absent();
     }
     if (request.method !== "PUT") return json({ error: "method_not_allowed" }, 405);
     const data = await payload(request, WORK_FOLDER_BLOB_BYTES);

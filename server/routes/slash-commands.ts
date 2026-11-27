@@ -13,7 +13,7 @@ const patchSchema = z.object({ name: z.string().optional(), text: z.string().opt
 
 export interface SlashCommandRouteDeps {
   saved: SavedCommands;
-  tricks(botId: string): readonly DogTrick[] | null;
+  tricks(botId: string): readonly DogTrick[] | null | Promise<readonly DogTrick[] | null>;
 }
 
 export function createSlashCommandRoutes(deps: SlashCommandRouteDeps): RouteHandler {
@@ -30,7 +30,7 @@ export function createSlashCommandRoutes(deps: SlashCommandRouteDeps): RouteHand
     const dog = DOG_COMMANDS.exec(path);
     if (dog) {
       if (method !== "GET") return json(res, 405, { error: "method_not_allowed" });
-      const tricks = deps.tricks(dog[1]);
+      const tricks = await deps.tricks(dog[1]);
       if (!tricks) return json(res, 404, { error: "no such bot" });
       return json(res, 200, { commands: dogCommands(deps.saved.list(), tricks) });
     }

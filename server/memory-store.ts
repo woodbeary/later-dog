@@ -1,17 +1,16 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 
-import { writeFileAtomic } from "./atomic.ts";
 import { redactSecretsInText } from "./redact.ts";
 import {
   MEMORY_FILE_MAX_BYTES,
   MEMORY_MAX_BYTES,
   MEMORY_MAX_LINES,
-  ensureWorkspace,
+  ensureWorkspaceReady,
+  dogFiles,
+  withMemoryLock,
   checkWorkspaceRead,
-  workspacePathExists,
   isMemoryTopicName,
   workspaceDir,
 } from "./workspace.ts";
@@ -74,35 +73,6 @@ function relativeSegments(ref: MemoryDocRef): string[] {
   return ["memory", "log", ref.name];
 }
 
-export function resolveMemoryPath(botId: string, path: string): string {
-  assertBotId(botId);
-  const ref = parseMemoryPath(path);
-  const root = workspaceDir(botId);
-  const absolute = join(root, ...relativeSegments(ref));
-  let realRoot: string;
-  try {
-    realRoot = realpathSync(root);
-  } catch (error) {
-    checkWorkspaceRead(error);
-    return absolute;
-  }
-  let ancestor = dirname(absolute);
-  while (!workspacePathExists(ancestor) && ancestor !== root) ancestor = dirname(ancestor);
-  const realAncestor = realpathSync(ancestor);
-  if (realAncestor !== realRoot && !realAncestor.startsWith(realRoot + sep)) {
-    throw new MemoryStoreError("path", 400, `memory path escapes the workspace: ${JSON.stringify(path)}`);
-  }
-  try {
-    if (lstatSync(absolute).isSymbolicLink()) {
-      throw new MemoryStoreError("path", 400, `memory file is a link, not a file: ${JSON.stringify(path)}`);
-    }
-  } catch (error) {
-    if (error instanceof MemoryStoreError) throw error;
-    checkWorkspaceRead(error);
-  }
-  return absolute;
-}
-
 export function hashMemoryText(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
@@ -157,43 +127,28 @@ export function memoryCapacity(raw: string): MemoryCapacity {
   };
 }
 
-function listMarkdown(dir: string, prefix: string): MemoryFileInfo[] {
-  let names: string[];
-  try {
-    names = readdirSync(dir);
-  } catch (error) {
-    checkWorkspaceRead(error);
-    return [];
-  }
+async function listMarkdown(dir: string, prefix: string): Promise<MemoryFileInfo[]> {
+  const found = await dogFiles.lstat(dir);
+  if (!found?.isDirectory()) return [];
   const files: MemoryFileInfo[] = [];
-  for (const name of names) {
+  for (const name of await dogFiles.list(dir)) {
     if (!isMemoryTopicName(name)) continue;
-    try {
-      const info = lstatSync(join(dir, name));
-      if (!info.isFile()) continue;
-      files.push({ path: `${prefix}/${name}`, name, bytes: info.size, modifiedAt: Math.round(info.mtimeMs) });
-    } catch (error) { checkWorkspaceRead(error); }
+    const info = await dogFiles.lstat(join(dir, name));
+    if (info?.isFile()) files.push({ path: `${prefix}/${name}`, name, bytes: info.size, modifiedAt: Math.round(info.mtimeMs) });
   }
   return files.sort((a, b) => b.modifiedAt - a.modifiedAt || a.name.localeCompare(b.name));
 }
 
-export function memoryOverview(botId: string): MemoryOverview {
+export async function memoryOverview(botId: string): Promise<MemoryOverview> {
   assertBotId(botId);
   const root = workspaceDir(botId);
-  let raw = "";
-  try {
-    raw = readFileSync(resolveMemoryPath(botId, MEMORY_INDEX), "utf8");
-  } catch (error) {
-    if (error instanceof MemoryStoreError) throw error;
-    checkWorkspaceRead(error);
-    raw = "";
-  }
+  const raw = (await readMemoryDoc(botId, MEMORY_INDEX)).text;
   return {
     botId,
     workspacePath: root,
     index: memoryCapacity(raw),
-    topics: listMarkdown(join(root, "memory"), "memory"),
-    logs: listMarkdown(join(root, "memory", "log"), "memory/log"),
+    topics: await listMarkdown(join(root, "memory"), "memory"),
+    logs: await listMarkdown(join(root, "memory", "log"), "memory/log"),
   };
 }
 
@@ -204,15 +159,41 @@ export interface MemoryDoc {
   exists: boolean;
 }
 
-export function readMemoryDoc(botId: string, path: string): MemoryDoc {
-  const absolute = resolveMemoryPath(botId, path);
+export async function resolveMemoryPathReady(botId: string, path: string): Promise<string> {
+  assertBotId(botId);
+  const ref = parseMemoryPath(path);
+  const root = workspaceDir(botId);
+  const absolute = join(root, ...relativeSegments(ref));
+  let realRoot: string;
   try {
-    const text = readFileSync(absolute, "utf8");
-    return { path, text, hash: hashMemoryText(text), exists: true };
+    realRoot = await dogFiles.realpath(root);
   } catch (error) {
     checkWorkspaceRead(error);
-    return { path, text: "", hash: hashMemoryText(""), exists: false };
+    return absolute;
   }
+  let ancestor = dirname(absolute);
+  while (ancestor !== root && !(await dogFiles.lstat(ancestor))) ancestor = dirname(ancestor);
+  const realAncestor = await dogFiles.realpath(ancestor);
+  if (realAncestor !== realRoot && !realAncestor.startsWith(realRoot + sep)) {
+    throw new MemoryStoreError("path", 400, `memory path escapes the workspace: ${JSON.stringify(path)}`);
+  }
+  if ((await dogFiles.lstat(absolute))?.isSymbolicLink()) {
+    throw new MemoryStoreError("path", 400, `memory file is a link, not a file: ${JSON.stringify(path)}`);
+  }
+  return absolute;
+}
+
+async function readMemoryDocReady(botId: string, path: string): Promise<MemoryDoc & { absolute: string }> {
+  const absolute = await resolveMemoryPathReady(botId, path);
+  const text = await dogFiles.readText(absolute);
+  return text === null
+    ? { path, text: "", hash: hashMemoryText(""), exists: false, absolute }
+    : { path, text, hash: hashMemoryText(text), exists: true, absolute };
+}
+
+export async function readMemoryDoc(botId: string, path: string): Promise<MemoryDoc> {
+  const { absolute: _absolute, ...doc } = await readMemoryDocReady(botId, path);
+  return doc;
 }
 
 export interface MemoryWriteResult {
@@ -227,11 +208,14 @@ export function writeMemoryDoc(
   path: string,
   text: string,
   opts: { expectedHash?: string } = {},
-): MemoryWriteResult {
+): Promise<MemoryWriteResult> {
+  return withMemoryLock(botId, () => writeMemoryDocNow(botId, path, text, opts));
+}
+
+async function writeMemoryDocNow(botId: string, path: string, text: string, opts: { expectedHash?: string }): Promise<MemoryWriteResult> {
   const ref = parseMemoryPath(path);
-  ensureWorkspace(botId);
-  if (ref.kind === "log") mkdirSync(join(workspaceDir(botId), "memory", "log"), { recursive: true, mode: 0o700 });
-  const absolute = resolveMemoryPath(botId, path);
+  await ensureWorkspaceReady(botId);
+  if (ref.kind === "log") await dogFiles.mkdir(join(workspaceDir(botId), "memory", "log"));
   const after = redactSecretsInText(text);
   const bytes = Buffer.byteLength(after, "utf8");
   if (bytes > MEMORY_FILE_MAX_BYTES) {
@@ -241,7 +225,7 @@ export function writeMemoryDoc(
       `memory files are capped at ${Math.round(MEMORY_FILE_MAX_BYTES / 1024)}KB — move longer notes into memory/<topic>.md files`,
     );
   }
-  const current = readMemoryDoc(botId, path);
+  const current = await readMemoryDocReady(botId, path);
   if (opts.expectedHash !== undefined && opts.expectedHash !== current.hash) {
     throw new MemoryStoreError(
       "conflict",
@@ -250,18 +234,17 @@ export function writeMemoryDoc(
       { currentHash: current.hash, current: current.text },
     );
   }
-  writeFileAtomic(absolute, after, { mode: 0o600 });
+  await dogFiles.writeAtomic(current.absolute, after);
   return { path, before: current.exists ? current.text : null, after, hash: hashMemoryText(after) };
 }
 
-export function deleteMemoryDoc(botId: string, path: string): { path: string; before: string | null } {
+export async function deleteMemoryDoc(botId: string, path: string): Promise<{ path: string; before: string | null }> {
   const ref = parseMemoryPath(path);
   if (ref.kind === "index") {
     throw new MemoryStoreError("forbidden", 400, "MEMORY.md cannot be deleted — clear its text instead");
   }
-  const absolute = resolveMemoryPath(botId, path);
-  const current = readMemoryDoc(botId, path);
-  if (current.exists) unlinkSync(absolute);
+  const current = await readMemoryDocReady(botId, path);
+  if (current.exists) await dogFiles.unlink(current.absolute);
   return { path, before: current.exists ? current.text : null };
 }
 
@@ -303,7 +286,7 @@ export async function openMemoryLocation(
   run: OpenerRunner = spawnOpener,
 ): Promise<{ ok: true; workspacePath: string } | { ok: false; error: string; workspacePath: string }> {
   assertBotId(botId);
-  const workspacePath = ensureWorkspace(botId);
+  const workspacePath = await ensureWorkspaceReady(botId);
   const location = target === "obsidian" ? obsidianUrlFor(workspacePath) : workspacePath;
   let command: string;
   let args: string[];

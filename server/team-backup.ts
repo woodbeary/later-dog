@@ -9,6 +9,7 @@ import { redactSecretsInText } from "./redact.ts";
 import {
   listMemoryLogs, listMemoryTopics, readMemoryFile, readMemoryLog, readMemoryTopic,
   writeMemoryFile, writeMemoryLog, writeMemoryTopic,
+  trackMemoryWrite, memoryFilesReady, withMemoryFiles, type MemoryFileRead,
 } from "./workspace.ts";
 
 function memoryFor(botId: string): TeamBackup["bots"][number]["memory"] {
@@ -25,10 +26,10 @@ function memoryFor(botId: string): TeamBackup["bots"][number]["memory"] {
   return { file, topics, logs };
 }
 
-function restoreMemory(botId: string, memory: NonNullable<TeamBackup["bots"][number]["memory"]>): void {
-  if (memory.file) writeMemoryFile(botId, memory.file);
-  for (const topic of memory.topics) writeMemoryTopic(botId, topic.name, topic.text);
-  for (const log of memory.logs) writeMemoryLog(botId, log.name, log.text);
+async function restoreMemory(botId: string, memory: NonNullable<TeamBackup["bots"][number]["memory"]>): Promise<void> {
+  if (memory.file) await writeMemoryFile(botId, memory.file);
+  for (const topic of memory.topics) await writeMemoryTopic(botId, topic.name, topic.text);
+  for (const log of memory.logs) await writeMemoryLog(botId, log.name, log.text);
 }
 
 function messageText(message: Message): string {
@@ -42,9 +43,17 @@ function messageText(message: Message): string {
   return parts.filter(Boolean).join("\n");
 }
 
-export function createTeamBackup(store: Store, routines: Routine[], name: string): TeamBackup {
+export async function createTeamBackup(store: Store, routines: Routine[], name: string): Promise<TeamBackup> {
   const botIds = new Set(store.bots.map((bot) => bot.id));
   const warnings: string[] = [];
+  const memoryFiles = new Map<string, ReadonlyMap<string, MemoryFileRead>>();
+  for (const bot of store.bots) {
+    try {
+      memoryFiles.set(bot.id, await memoryFilesReady(bot.id));
+    } catch {
+      warnings.push(`${bot.name}'s memory is not included because its folder did not answer.`);
+    }
+  }
   const history = (record: BotRecord | GroupRecord): BackupTask[] => {
     const tasks = record.tasks?.length ? record.tasks : [{ threadId: record.threadId, title: "Conversation", createdAt: record.createdAt }];
     return tasks.map((task) => ({
@@ -103,7 +112,7 @@ export function createTeamBackup(store: Store, routines: Routine[], name: string
       chiefOfStaff: Boolean(bot.chiefOfStaff), hidden: Boolean(bot.hidden), playbooks: bot.playbooks ?? [],
       ...(bot.connectorTools ? { connectorTools: structuredClone(bot.connectorTools) } : {}),
       ...(bot.toolScope !== undefined ? { toolScope: structuredClone(bot.toolScope) } : {}),
-      memory: memoryFor(bot.id),
+      memory: withMemoryFiles(bot.id, memoryFiles.get(bot.id) ?? new Map(), () => memoryFor(bot.id)),
       activeTask: bot.threadId, tasks: history(bot),
     })),
     groups,
@@ -166,7 +175,7 @@ export function importTeamBackup(store: Store, routines: RoutineManager, input: 
       botIds.set(source.key, bot.id);
       store.patchBot(bot.id, { composio: false, computer: "off", browser: false, approvalMode: "ask", autoApprove: false,
         connectorTools: {}, toolScope: source.toolScope, hidden: source.hidden, playbooks: source.playbooks });
-      if (source.memory) restoreMemory(bot.id, source.memory);
+      if (source.memory) trackMemoryWrite(restoreMemory(bot.id, source.memory), `team backup: memory for ${bot.id} was not restored`);
     }
     for (const source of backup.bots) {
       const bot = store.bot(botIds.get(source.key)!)!;

@@ -17,8 +17,8 @@ import {
 } from "./volatile-sections.ts";
 
 const BOT = "bot-volatile-sections";
-writeMemoryFile(BOT, "# Memory\n\n- Prefers pnpm.\n- Keeps repos under ~/code.\n");
-writeMemoryTopic(BOT, "deploys.md", "---\ntitle: deploys\ndescription: notes about deploys\n---\nbody");
+await writeMemoryFile(BOT, "# Memory\n\n- Prefers pnpm.\n- Keeps repos under ~/code.\n");
+await writeMemoryTopic(BOT, "deploys.md", "---\ntitle: deploys\ndescription: notes about deploys\n---\nbody");
 
 const recentLine = (said: string, at: number) => ({ threadId: "t1", at, where: "your chat", title: "Deploy", said, private: false });
 
@@ -42,7 +42,7 @@ const turnOf = (built: ReturnType<typeof prompt>, mentionTurn = false) => ({
 const reminderBody = (note: string) => note.replace(/^<system-reminder>\n/, "").replace(/\n<\/system-reminder>$/, "");
 
 describe("volatile sections", () => {
-  it("cuts the volatile half into named sections whose text joins back to it exactly", () => {
+  it("cuts the volatile half into named sections whose text joins back to it exactly", async () => {
     const built = prompt({});
     expect(built.volatileSections.map((section) => section.text).join("")).toBe(built.volatile);
     expect(built.volatileSections.map((section) => section.id)).toEqual([
@@ -54,7 +54,7 @@ describe("volatile sections", () => {
     expect(built.volatileSections.find((section) => section.id === "recent")?.text).toContain("Finished the deploy check.");
   });
 
-  it("keeps the stable half byte-identical across turns, new work, memory mode and days", () => {
+  it("keeps the stable half byte-identical across turns, new work, memory mode and days", async () => {
     const first = prompt({});
     for (const later of [
       prompt({}),
@@ -68,14 +68,14 @@ describe("volatile sections", () => {
     }
   });
 
-  it("sends nothing when no section changed", () => {
+  it("sends nothing when no section changed", async () => {
     const turn = turnOf(prompt({}));
     const first = claudeContextNote(turn, null);
     expect(first.note).not.toBe("");
     expect(claudeContextNote(turnOf(prompt({})), first.seen).note).toBe("");
   });
 
-  it("sends only the section that changed, labelled as replacing its earlier copy", () => {
+  it("sends only the section that changed, labelled as replacing its earlier copy", async () => {
     const first = claudeContextNote(turnOf(prompt({})), null);
     const next = claudeContextNote(turnOf(prompt({ said: "Posted the summary." })), first.seen);
     const body = reminderBody(next.note);
@@ -87,14 +87,14 @@ describe("volatile sections", () => {
     expect(body).not.toContain("Today");
   });
 
-  it("sends every section again to a fresh or rebuilt session", () => {
+  it("sends every section again to a fresh or rebuilt session", async () => {
     const built = prompt({});
     const fresh = reminderBody(claudeContextNote(turnOf(built), null).note);
     expect(fresh.startsWith(FULL_SECTIONS_HEADING)).toBe(true);
     for (const section of built.volatileSections) expect(fresh).toContain(`[${section.label}]\n${section.text.trim()}`);
   });
 
-  it("sends every section again on a tagged turn, as before", () => {
+  it("sends every section again on a tagged turn, as before", async () => {
     const first = claudeContextNote(turnOf(prompt({ mention: true })), null);
     const again = reminderBody(claudeContextNote(turnOf(prompt({ mention: true }), true), first.seen).note);
     expect(again.startsWith(FULL_SECTIONS_HEADING)).toBe(true);
@@ -102,13 +102,13 @@ describe("volatile sections", () => {
     expect(again).toContain("Prefers pnpm");
   });
 
-  it("says when a section has gone", () => {
+  it("says when a section has gone", async () => {
     const first = claudeContextNote(turnOf(prompt({ mention: true })), null);
     const body = reminderBody(claudeContextNote(turnOf(prompt({})), first.seen).note);
     expect(body).toBe(`${CHANGED_SECTIONS_HEADING}\n\n[Mentions]\nNothing here any more.`);
   });
 
-  it("resends memory guidance when the memory mode changes for a turn someone else started", () => {
+  it("resends memory guidance when the memory mode changes for a turn someone else started", async () => {
     const first = claudeContextNote(turnOf(prompt({})), null);
     const foreign = reminderBody(claudeContextNote(turnOf(prompt({ memoryReadOnly: true })), first.seen).note);
     expect(foreign).toContain("[Memory, standing part]");
@@ -116,7 +116,7 @@ describe("volatile sections", () => {
     expect(foreign).not.toContain("Prefers pnpm");
   });
 
-  it("keeps the whole-block note when sections are missing or do not match the volatile half", () => {
+  it("keeps the whole-block note when sections are missing or do not match the volatile half", async () => {
     const built = prompt({});
     const legacy = claudeVolatileNote(built.volatile, null);
     expect(claudeContextNote({ systemVolatile: built.volatile }, null).note).toBe(legacy);
@@ -127,14 +127,14 @@ describe("volatile sections", () => {
     expect(claudeSeenVolatile({ systemVolatile: built.volatile })).toBe(built.volatile);
   });
 
-  it("tells a session that had notes when every section is gone", () => {
+  it("tells a session that had notes when every section is gone", async () => {
     const first = claudeContextNote(turnOf(prompt({})), null);
     expect(reminderBody(claudeContextNote({ systemVolatile: "", systemVolatileSections: [] }, first.seen).note)).toContain("[Memory]\nNothing here any more.");
     expect(reminderBody(claudeContextNote({ systemVolatile: "", systemVolatileSections: [] }, "old whole note").note)).toBe(ALL_SECTIONS_CLEARED);
     expect(claudeContextNote({ systemVolatile: "", systemVolatileSections: [] }, null).note).toBe("");
   });
 
-  it("leaves a section whole when it has no standing part", () => {
+  it("leaves a section whole when it has no standing part", async () => {
     expect(volatileSectionsOf([{ id: "today", label: "Today", text: " Today is Thursday." }])).toEqual([
       { id: "today", label: "Today", text: " Today is Thursday." },
     ]);

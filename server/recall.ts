@@ -1,6 +1,6 @@
 import { recallMemoryOffThread, recallMessages, recallMessagesOffThread, recallTerms, type MemoryHit, type RecallHit } from "./message-db.ts";
-import { parseTopicHeader, readTopicHead, topicBody, topicWords, TOPIC_HEAD_BYTES } from "./memory-topics.ts";
-import { isMemoryTopicName, listMemoryTopics, memoryDate, readMemoryTopic, searchMemoryFiles, workspaceDir } from "./workspace.ts";
+import { parseTopicHeader, topicBody, topicWords, TOPIC_HEAD_BYTES } from "./memory-topics.ts";
+import { isMemoryTopicName, listMemoryTopics, memoryDate, memoryTopicHead, readMemoryTopic, searchMemoryFiles, workspaceDir } from "./workspace.ts";
 import { withoutExpired } from "./memory-entries.ts";
 import { join } from "node:path";
 
@@ -107,7 +107,7 @@ export function topicPassages(botId: string, query: string): RecallPassage[] {
   try {
     for (const topic of listMemoryTopics(botId)) {
       if (topic.name === "archive.md") continue;
-      const words = topicWords(topic.name, parseTopicHeader(readTopicHead(join(dir, topic.name))));
+      const words = topicWords(topic.name, parseTopicHeader(memoryTopicHead(join(dir, topic.name))));
       if (!terms.some((term) => words.some((word) => sameWord(term, word)))) continue;
       const body = topicBody(withoutExpired(readMemoryTopic(botId, topic.name) ?? "", memoryDate()).text);
       if (!body) continue;
@@ -161,9 +161,20 @@ export function buildRecall(input: RecallInput): RecallResult | null {
   return renderRecall([...notes, ...conversationPassages(input, query)]);
 }
 
+export interface RecallLookups {
+  memory(query: string, botId: string, limit: number): Promise<MemoryHit[]>;
+  messages(query: string, threadIds: readonly string[], limit: number): Promise<RecallHit[]>;
+}
+
+const offThreadLookups: RecallLookups = {
+  memory: async (query, botId, limit) => (await recallMemoryOffThread(query, [botId], limit, "any"))[0] ?? [],
+  messages: (query, threadIds, limit) => recallMessagesOffThread(query, threadIds, limit, undefined, "any"),
+};
+
 export interface BackgroundRecallInput extends RecallInput {
   docs?: ReadonlyMap<string, string>;
   mayShow?: (threadId: string) => boolean;
+  lookups?: RecallLookups;
 }
 
 export function topicPassagesFrom(docs: ReadonlyMap<string, string>, query: string): RecallPassage[] {
@@ -188,11 +199,12 @@ export async function buildRecallInBackground(input: BackgroundRecallInput): Pro
   const query = recallQuery(input.message);
   if (!query) return null;
   const topics = input.docs ? topicPassagesFrom(input.docs, query) : [];
+  const lookups = input.lookups ?? offThreadLookups;
   const named = new Set(topics.map((passage) => passage.label));
   const [memoryHits, conversationHits] = await Promise.all([
-    recallMemoryOffThread(query, [input.botId], MEMORY_HITS * 3, "any").then((found) => found[0] ?? []).catch((): MemoryHit[] => []),
+    lookups.memory(query, input.botId, MEMORY_HITS * 3).catch((): MemoryHit[] => []),
     input.threadIds.length
-      ? recallMessagesOffThread(query, input.threadIds, CONVERSATION_HITS * 6, undefined, "any").catch((): RecallHit[] => [])
+      ? lookups.messages(query, input.threadIds, CONVERSATION_HITS * 6).catch((): RecallHit[] => [])
       : Promise.resolve<RecallHit[]>([]),
   ]);
   const memory = memoryHits

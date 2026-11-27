@@ -33,7 +33,7 @@ export function placeProvider(instance: ProviderInstance, input: DriverCreateInp
     if (state.stopped) throw new Error("The turn was interrupted while the computer was starting.");
     const opener = engineOpener();
     if (!opener) throw new Error("The engine cannot reach the dog's computer.");
-    const prepared = guestProviderPlan(dataDir, driver, profile, turn, opener);
+    const prepared = await guestProviderPlan(dataDir, driver, profile, turn, opener);
     const proc = spawnPlacedEngine(prepared.plan, (plan, signal) => opener.open(turn.botId!, plan, signal), undefined, undefined, undefined, {
       openBudgetMs: opener.openBudgetMs,
       onWaiting: wait => {

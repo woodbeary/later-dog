@@ -299,17 +299,20 @@ const automaticRecoverySchema = z.object({
 }).strict().refine((recovery) => !recovery.enabled || recovery.backup !== undefined,
   { message: "Choose a backup model before enabling automatic recovery", path: ["backup"] });
 const batteryOrderSchema = z.record(z.string().trim().min(1).max(100), z.array(z.string().trim().min(1).max(200)).max(64));
+const googleKeysSchema = z.record(z.string().trim().min(1).max(200), z.enum(["free", "paid"]));
 const accountBatterySchema = z.object({
   enabled: z.boolean(),
   order: batteryOrderSchema.default({}),
   sequence: z.array(z.string().trim().min(1).max(200)).max(128).optional(),
   auto: z.boolean().optional(),
+  googleKeys: googleKeysSchema.optional(),
 }).strict();
 const accountBatteryPatchSchema = z.object({
   enabled: z.boolean().optional(),
   order: batteryOrderSchema.optional(),
   sequence: z.array(z.string().trim().min(1).max(200)).max(128).optional(),
   auto: z.boolean().optional(),
+  googleKeys: googleKeysSchema.optional(),
 }).strict();
 const threadsConfigSchema = z.object({
   maxConcurrentPerBot: z.number().int().min(1).max(MAX_CONCURRENT_BOT_THREADS),
@@ -470,7 +473,7 @@ export interface AppConfig {
   signIn?: { admins?: string[]; members?: string[] };
   defaultModelSelection?: ModelSelection;
   automaticRecovery?: { enabled: boolean; backup?: ModelSelection };
-  accountBattery?: { enabled: boolean; order: Record<string, string[]>; auto?: boolean; sequence?: string[] };
+  accountBattery?: { enabled: boolean; order: Record<string, string[]>; auto?: boolean; sequence?: string[]; googleKeys?: Record<string, "free" | "paid"> };
   newBotDefaults?: NewBotDefaults;
   newBots?: { effort?: EffortLevel };
   cliStartup?: {

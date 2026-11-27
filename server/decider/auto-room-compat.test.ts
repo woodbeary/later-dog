@@ -102,19 +102,19 @@ describe("team backups", () => {
     return { store, routines, ada, bea, group };
   };
 
-  it("round-trips an Auto room with its fallback mapped to the imported bot", () => {
+  it("round-trips an Auto room with its fallback mapped to the imported bot", async () => {
     const { store, routines, bea } = setup({ kind: "auto", fallbackBotId: "" });
     store.patchGroup(store.groups[0]!.id, { defaultResponder: { kind: "auto", fallbackBotId: bea.id } });
-    const backup = JSON.parse(JSON.stringify(createTeamBackup(store, routines.listRoutines(), "Team")));
+    const backup = JSON.parse(JSON.stringify((await createTeamBackup(store, routines.listRoutines(), "Team"))));
     expect(parseTeamBackup(backup).groups[0]!.defaultResponder).toEqual({ kind: "auto", fallbackBotId: bea.id });
     const result = importTeamBackup(store, routines, backup, { instanceId: "fixture", model: "fixture-model" });
     const importedBea = result.bots.find((bot) => bot.name.startsWith("Bea"))!;
     expect(result.groups[0]!.defaultResponder).toEqual({ kind: "auto", fallbackBotId: importedBea.id });
   });
 
-  it("restores an unknown kind as the first member leading", () => {
+  it("restores an unknown kind as the first member leading", async () => {
     const { store, routines, ada } = setup({ kind: "everyone" });
-    const backup = JSON.parse(JSON.stringify(createTeamBackup(store, routines.listRoutines(), "Team")));
+    const backup = JSON.parse(JSON.stringify((await createTeamBackup(store, routines.listRoutines(), "Team"))));
     backup.groups[0].defaultResponder = { kind: "round-robin" };
     expect(parseTeamBackup(backup).groups[0]!.defaultResponder).toEqual({ kind: "member", botId: ada.id });
   });

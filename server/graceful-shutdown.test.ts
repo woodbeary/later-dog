@@ -50,3 +50,39 @@ describe("createGracefulShutdown", () => {
     }
   });
 });
+
+describe("a server stopping for a code switch", () => {
+  it("finishes the steps that save data, gives the rest a short courtesy window, and says what it left", async () => {
+    vi.useFakeTimers();
+    try {
+      const exit = vi.fn();
+      const lines: string[] = [];
+      let saved = false;
+      const shutdown = createGracefulShutdown({
+        cleanup: [{ name: "flush journals", run: async () => { await new Promise((resolve) => setTimeout(resolve, 300)); saved = true; } }],
+        courtesy: [{ name: "close engines", run: () => new Promise<void>(() => {}) }],
+        exit,
+        log: (line) => lines.push(line),
+        now: () => Date.now(),
+      });
+      shutdown();
+      await vi.advanceTimersByTimeAsync(299);
+      expect(exit).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(saved).toBe(true);
+      expect(exit).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(450);
+      expect(exit).toHaveBeenCalledWith(0);
+      expect(lines).toEqual(["shutdown: flush journals took 300 ms", "shutdown: left close engines unfinished after 750 ms"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("exits as soon as everything is done, without waiting out the courtesy window", async () => {
+    const exit = vi.fn();
+    const shutdown = createGracefulShutdown({ cleanup: [() => {}], courtesy: [async () => {}], exit });
+    shutdown();
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+  });
+});

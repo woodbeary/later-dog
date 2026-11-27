@@ -120,7 +120,7 @@ describe("settings", () => {
     expect(checkBatteryConfig({ enabled: true, order: { codex: ["chatgpt-b", "chatgpt"] } }, [...ACCOUNTS, ...codex]))
       .toEqual({ ok: true, config: { enabled: true, order: { codex: ["chatgpt-b", "chatgpt"] } } });
     expect(checkBatteryConfig({ enabled: true, order: { codex: ["claude"] } }, [...ACCOUNTS, ...codex])).toMatchObject({ ok: false, error: expect.stringContaining("claude") });
-    expect(checkBatteryConfig({ enabled: true, order: { grokAgent: ["grok"] } }, ACCOUNTS)).toMatchObject({ ok: false, error: expect.stringMatching(/Claude and Codex accounts only/) });
+    expect(checkBatteryConfig({ enabled: true, order: { grokAgent: ["grok"] } }, ACCOUNTS)).toMatchObject({ ok: false, error: expect.stringMatching(/Claude, ChatGPT, Antigravity and Gemini accounts only/) });
     expect(checkBatteryConfig({ enabled: true, order: { claudeAgent: ["claudeApi"] } }, [...ACCOUNTS, account("claudeApi", { eligible: false })]))
       .toMatchObject({ ok: false, error: expect.stringContaining("claudeApi") });
     expect(checkBatteryConfig({ enabled: false, order: {} }, ACCOUNTS)).toEqual({ ok: true, config: { enabled: false, order: {} } });
