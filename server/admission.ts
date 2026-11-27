@@ -48,6 +48,7 @@ export interface AdmissionMessage {
   engineCanSteer?: boolean;
   engineSteersImages?: boolean;
   waitsForTurn?: boolean;
+  queuedAhead?: boolean;
   isQueueHead?: boolean;
   speakerPresent?: boolean;
 }
@@ -75,7 +76,7 @@ export function admit(
 ): AdmissionDecision {
   switch (surface) {
     case "direct-busy": {
-      const steerable = !message.waitsForTurn && (!message.carriesImages || message.engineSteersImages === true) && !message.pendingComputerSelection && message.engineCanSteer === true;
+      const steerable = !message.waitsForTurn && !message.queuedAhead && (!message.carriesImages || message.engineSteersImages === true) && !message.pendingComputerSelection && message.engineCanSteer === true;
       return steerable ? { action: "steer" } : { action: "queue" };
     }
     case "direct": {
