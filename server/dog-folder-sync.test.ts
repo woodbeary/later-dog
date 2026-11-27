@@ -144,3 +144,22 @@ describe("server code that reads or writes a dog's mounted folder", () => {
     expect(touched).toEqual([]);
   });
 });
+
+describe("the repo-wide tripwire for mounted folders", () => {
+  it("catches server code that makes a synchronous call on a mounted dog folder, and names the allowed desktop branch", async () => {
+    const { onMountedSyncCall, SYNC_CALLS_ALLOWED } = await import("./laterdog/sync-tripwire.ts");
+    const skillsModule = await import("./skills.ts");
+    const caught: string[] = [];
+    const previous = onMountedSyncCall((hit) => { caught.push(hit.call); });
+    vi.stubEnv("LATERDOG_CLOUD_ROLE", "home");
+    vi.stubEnv("LATERDOG_WORK_FOLDER_LAYOUT", "fixture");
+    try {
+      await workspace.ensureWorkspaceReady(bot);
+      skillsModule.syncSkillLinks(bot);
+    } finally {
+      onMountedSyncCall(previous);
+    }
+    expect(caught.length).toBeGreaterThan(0);
+    expect(SYNC_CALLS_ALLOWED.map((entry) => entry.frame)).toEqual(["dogTricks"]);
+  });
+});

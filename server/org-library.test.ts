@@ -422,7 +422,7 @@ describe("adding from the shelf", () => {
     await library.settled();
     const added = (await library.add(TEAM_ID, app.importDeps)) as any;
     const installId = added.value.result.installId;
-    expect(library.addOfferedSkill(own.id, installId, "objection-handling")).toMatchObject({ ok: true, status: 201 });
+    expect(await library.addOfferedSkill(own.id, installId, "objection-handling")).toMatchObject({ ok: true, status: 201 });
 
     for (const id of app.store.groups.map((group) => group.id)) app.store.deleteGroup(id);
     for (const bot of added.value.result.bots) app.store.deleteBot(bot.id);
@@ -450,7 +450,7 @@ describe("adding from the shelf", () => {
     await library.settled();
     const added = (await library.add(TEAM_ID, app.importDeps)) as any;
     const installId = added.value.result.installId;
-    library.addOfferedSkill(own.id, installId, "objection-handling");
+    await library.addOfferedSkill(own.id, installId, "objection-handling");
     for (const id of app.store.groups.map((group) => group.id)) app.store.deleteGroup(id);
     for (const bot of added.value.result.bots) app.store.deleteBot(bot.id);
     await new Promise((resolve) => setTimeout(resolve, 400));
@@ -581,29 +581,29 @@ describe("adding from the shelf", () => {
     expect(app.readState().installs[installId]).toMatchObject({ kind: "library", status: "installed", bots: {} });
     expect(await library.add(LIBRARY_ID, app.importDeps)).toEqual({ ok: true, status: 200, value: { alreadyAdded: true, installId } });
 
-    expect(library.offeredSkills(bot.id)).toEqual({
+    expect(await library.offeredSkills(bot.id)).toEqual({
       organization: { id: ORG, name: "Customer Co" },
       skills: [
         expect.objectContaining({ installId, name: "objection-handling", publisher: "Acme Partners", packageName: "Sales skills", added: false }),
         expect.objectContaining({ installId, name: "follow-up", added: false }),
       ],
     });
-    const added = library.addOfferedSkill(bot.id, installId, "follow-up");
+    const added = await library.addOfferedSkill(bot.id, installId, "follow-up");
     expect(added).toMatchObject({ ok: true, status: 201, value: { name: "follow-up", enabled: true, source: "org:acme/sales-skills@2.0.1" } });
-    expect(library.addOfferedSkill(bot.id, installId, "follow-up")).toMatchObject({ ok: false, status: 409, code: "skill_exists" });
-    expect(library.addOfferedSkill(bot.id, installId, "not-offered")).toMatchObject({ ok: false, status: 404 });
-    expect(library.offeredSkills(bot.id).skills.find((skill) => skill.name === "follow-up")!.added).toBe(true);
+    expect(await library.addOfferedSkill(bot.id, installId, "follow-up")).toMatchObject({ ok: false, status: 409, code: "skill_exists" });
+    expect(await library.addOfferedSkill(bot.id, installId, "not-offered")).toMatchObject({ ok: false, status: 404 });
+    expect((await library.offeredSkills(bot.id)).skills.find((skill) => skill.name === "follow-up")!.added).toBe(true);
     app.store.deleteBot(bot.id);
     await new Promise((resolve) => setTimeout(resolve, 400));
     await library.settled();
     expect(app.readState().installs[installId].status).toBe("installed");
 
     const other = app.store.createBot({ name: "Other" });
-    library.addOfferedSkill(other.id, installId, "objection-handling");
+    await library.addOfferedSkill(other.id, installId, "objection-handling");
     library.applyRelay(relay(catalog([entry(LIBRARY_ID, skills, { release: null, withdrawnReleases: [{ version: "2.0.1", sha256: skills.sha256 }] })])));
     await library.settled();
     expect(app.skills.listSkills(other.id)).toEqual([expect.objectContaining({ name: "objection-handling", enabled: false })]);
-    expect(library.offeredSkills(other.id).skills).toEqual([]);
+    expect((await library.offeredSkills(other.id)).skills).toEqual([]);
   });
 
   it("adopts a skills-only package as a skills-only package after a lost state.json", async () => {
@@ -616,7 +616,7 @@ describe("adding from the shelf", () => {
     library.applyRelay(relay(body));
     await library.settled();
     const installId = (await library.add(LIBRARY_ID, app.importDeps) as any).value.result.installId;
-    library.addOfferedSkill(bot.id, installId, "follow-up");
+    await library.addOfferedSkill(bot.id, installId, "follow-up");
     library.dispose();
     unlinkSync(app.statePath);
 
@@ -628,7 +628,7 @@ describe("adding from the shelf", () => {
     await new Promise((resolve) => setTimeout(resolve, 400));
     await library.settled();
     expect(app.readState().installs[installId]).toMatchObject({ kind: "library", status: "installed" });
-    expect(library.offeredSkills(bot.id).skills.find((skill) => skill.name === "follow-up")).toMatchObject({ added: true });
+    expect((await library.offeredSkills(bot.id)).skills.find((skill) => skill.name === "follow-up")).toMatchObject({ added: true });
   });
 });
 
@@ -741,7 +741,7 @@ describe("with no organization", () => {
     app.store.createBot({ name: "Solo" });
     const library = app.open();
     expect(library.list()).toEqual({ organization: null, packages: [] });
-    expect(library.offeredSkills()).toEqual({ organization: null, skills: [] });
+    expect(await library.offeredSkills()).toEqual({ organization: null, skills: [] });
     expect(library.installStatuses()).toEqual(new Map());
     expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 404 });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -888,7 +888,7 @@ describe("presets from the shelf", () => {
     expect(app.readState().installs[installId]).toEqual({ ...indexed, addedAt: expect.any(Number), updatedAt: expect.any(Number) });
     expect(await library.add(LIBRARY_ID, app.importDeps)).toEqual({ ok: true, status: 200, value: { alreadyAdded: true, installId } });
     expect(app.importDeps.presets.list()).toHaveLength(1);
-    expect(library.offeredSkills().skills.map((skill) => skill.name)).toEqual(["objection-handling", "follow-up"]);
+    expect((await library.offeredSkills()).skills.map((skill) => skill.name)).toEqual(["objection-handling", "follow-up"]);
 
     library.applyRelay(relay(catalog([entry(LIBRARY_ID, skills, { release: null, withdrawnReleases: [{ version: "2.0.1", sha256: skills.sha256 }] })])));
     await library.settled();
