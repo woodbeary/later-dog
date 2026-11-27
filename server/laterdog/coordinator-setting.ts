@@ -4,6 +4,8 @@ import { z } from "zod";
 
 export const CAPABILITY_MODES = ["random", "signed"] as const;
 export const QUEUE_MODES = ["container", "object"] as const;
+export const HISTORY_MODES = ["off", "shadow"] as const;
+export type HistoryMode = (typeof HISTORY_MODES)[number];
 export type CapabilityMode = (typeof CAPABILITY_MODES)[number];
 export type QueueMode = (typeof QUEUE_MODES)[number];
 export const EVERY_DOG = "*";
@@ -11,6 +13,7 @@ export const EVERY_DOG = "*";
 export interface CoordinatorSetting {
   capabilities: CapabilityMode;
   queue: Record<string, QueueMode>;
+  history: HistoryMode;
 }
 
 const FILE = "coordinator.json";
@@ -19,9 +22,10 @@ const DOG_KEY = /^(?:\*|[\w-]{1,128})$/;
 export const coordinatorSettingSchema = z.object({
   capabilities: z.enum(CAPABILITY_MODES).optional(),
   queue: z.record(z.string().regex(DOG_KEY), z.enum(QUEUE_MODES).nullable()).optional(),
+  history: z.enum(HISTORY_MODES).optional(),
 }).strict();
 
-export const OFF: CoordinatorSetting = { capabilities: "random", queue: {} };
+export const OFF: CoordinatorSetting = { capabilities: "random", queue: {}, history: "off" };
 
 export function readCoordinatorSetting(dataDir: string): CoordinatorSetting {
   const file = join(dataDir, FILE);
@@ -41,7 +45,7 @@ export function mergeCoordinatorSetting(current: CoordinatorSetting, change: z.i
     if (mode === null) delete queue[dog];
     else queue[dog] = mode;
   }
-  return { capabilities: change.capabilities ?? current.capabilities, queue };
+  return { capabilities: change.capabilities ?? current.capabilities, queue, history: change.history ?? current.history };
 }
 
 export function saveCoordinatorSetting(dataDir: string, setting: CoordinatorSetting): void {

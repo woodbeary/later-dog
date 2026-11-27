@@ -10,8 +10,8 @@ vi.mock("cloudflare:workers", () => ({
   },
 }));
 
-const { chatQueue, dogSlots, CANCELLED_KEPT_MS } = await import("../src/chat-queue.ts");
-const { serveQueue, coordinate } = await import("../src/coordinator.ts");
+const { chatQueue, chatHistory, dogSlots, CANCELLED_KEPT_MS } = await import("../src/chat-queue.ts");
+const { serveQueue, serveHistory, coordinate } = await import("../src/coordinator.ts");
 const { CAPABILITY_CLAIMS_HEADER } = await import("../src/edge-routes.ts");
 type Claims = import("../../../../shared/signed-capability.ts").SignedCapabilityClaims;
 
@@ -33,11 +33,12 @@ function memoryStorage() {
 }
 
 function ports() {
-  const chats = new Map<string, ReturnType<typeof chatQueue>>();
+  const chats = new Map<string, ReturnType<typeof chatQueue> & ReturnType<typeof chatHistory>>();
+  const chatObject = () => { const db = sql(); return { ...chatQueue(db), ...chatHistory(db) }; };
   const dogs = new Map<string, ReturnType<typeof dogSlots>>();
   return {
     dog: (home: string, dog: string) => dogs.get(`${home}/${dog}`) ?? dogs.set(`${home}/${dog}`, dogSlots(memoryStorage())).get(`${home}/${dog}`)!,
-    chat: (home: string, chat: string) => chats.get(`${home}/${chat}`) ?? chats.set(`${home}/${chat}`, chatQueue(sql())).get(`${home}/${chat}`)!,
+    chat: (home: string, chat: string) => chats.get(`${home}/${chat}`) ?? chats.set(`${home}/${chat}`, chatObject()).get(`${home}/${chat}`)!,
   };
 }
 
@@ -73,6 +74,20 @@ describe("chat queue", () => {
     at += CANCELLED_KEPT_MS + 1;
     await queue.put([{ id: "d", status: "pending", payload: {}, at: 2 }]);
     expect((await queue.rows()).map((row) => row.id)).toEqual(["d"]);
+  });
+});
+
+describe("chat history mirror", () => {
+  it("keeps one row per message, takes the latest write, and pages in time order", async () => {
+    const p = ports();
+    const append = (messages: unknown[]) => serveHistory({ op: "append", messages }, claims("c"), p);
+    await append([{ id: "m2", at: 20, json: "{\"v\":1}" }, { id: "m1", at: 10, json: "{}" }]);
+    await append([{ id: "m2", at: 20, json: "{\"v\":2}" }]);
+    const first = await (await serveHistory({ op: "page", limit: 1 }, claims("c"), p)).json() as { rows: Array<{ id: string; json: string }>; count: number };
+    expect(first).toMatchObject({ count: 2, rows: [{ id: "m1" }] });
+    const next = await (await serveHistory({ op: "page", after: "m1", limit: 5 }, claims("c"), p)).json() as { rows: Array<{ id: string; json: string }> };
+    expect(next.rows).toEqual([{ id: "m2", at: 20, json: "{\"v\":2}" }]);
+    expect((await append([{ id: "big", at: 1, json: "x".repeat(300 * 1024) }])).status).toBe(400);
   });
 });
 

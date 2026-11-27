@@ -444,6 +444,16 @@ export function updateMessage(threadId: string, message: Message): void {
   writes?.message(threadId, message.id);
 }
 
+export function readMessagesJson(threadId: string, ids: readonly string[]): Array<{ id: string; at: number; json: string }> {
+  const statement = db().prepare("SELECT id, at, json FROM messages WHERE thread_id = ? AND id = ?");
+  const rows: Array<{ id: string; at: number; json: string }> = [];
+  for (const id of ids) {
+    const row = statement.get(threadId, id) as { id: string; at: number; json: string } | undefined;
+    if (row) rows.push(row);
+  }
+  return rows;
+}
+
 export function openPermissionCards(): Array<{ threadId: string; message: Message }> {
   const rows = db()
     .prepare(

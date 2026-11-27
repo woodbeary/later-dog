@@ -325,7 +325,8 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
-import { indexCoverageTable, indexOutbox, readForIndex, watchMessageWrites } from "./message-db.ts";
+import { indexCoverageTable, indexOutbox, readForIndex, readMessagesJson, watchMessageWrites } from "./message-db.ts";
+import { HistoryMirror } from "./laterdog/history-mirror.ts";
 import { SHADOW_INDEX_BUDGETS, SearchIndexWiring } from "./laterdog/search-index-wiring.ts";
 import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
@@ -1061,6 +1062,14 @@ if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () 
 let coordinatorSetting: CoordinatorSetting = readCoordinatorSetting(DATA_DIR);
 const capabilitySigner = CLOUD_HOME ? turnCapabilitySigner({ home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
 const objectQueue = CLOUD_HOME ? new ObjectQueue({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
+const historyMirror = CLOUD_HOME ? new HistoryMirror({
+  origin: CLOUD_HOME.publicOrigin,
+  home: CLOUD_HOME.machineId,
+  bootstrapSecret: CLOUD_HOME.bootstrapSecret,
+  read: readMessagesJson,
+  ownerOf: (threadId) => store.botByThread(threadId)?.id ?? (store.groupByThread(threadId) ? `room-${store.groupByThread(threadId)!.id}` : null),
+}) : null;
+if (historyMirror) historyMirror.enabled = coordinatorSetting.history === "shadow";
 const queuesInObject = (botId: string) => Boolean(objectQueue) && queueModeFor(coordinatorSetting, botId) === "object";
 const objectRowOf = (item: SteerQueueItem, status: "accepted" | "pending") =>
   ({ id: item.messageId, sendId: item.sendId ?? null, status, payload: item, at: item.queuedAt });
@@ -1153,7 +1162,14 @@ const searchIndex = CLOUD_HOME ? new SearchIndexWiring({
   },
   log: (line) => console.log(line),
 }) : null;
-if (searchIndex) watchMessageWrites(searchIndex.wrote);
+if (searchIndex || historyMirror) {
+  const index = searchIndex?.wrote;
+  watchMessageWrites({
+    message: (threadId, id) => { index?.message(threadId, id); historyMirror?.wrote(threadId, id); },
+    chat: (threadId) => index?.chat(threadId),
+    memory: (botId, path) => index?.memory(botId, path),
+  });
+}
 const skillsPrompts = searchIndex ? new SkillsPromptCache(skillsPromptWorker()) : null;
 const promptFromIndex = () => searchIndex?.mode === "remote";
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
@@ -6303,6 +6319,7 @@ compactionLive.foldLeftovers();
 let companyShutdown = false;
 const inflightTurns = createInflightTurns(objectSlotsLedger(fileInflightLedger(join(DATA_DIR, "turns-running.json"))), { stopping: () => companyShutdown });
 let pickingUpAfterRestart = true;
+const awaitingPickup = new Set<string>();
 store.onChange((change) => {
   if ((change.type === "message" || change.type === "message.patch") && change.message.needsYou) {
     delegatedWaiting.delete(change.threadId);
@@ -6349,7 +6366,7 @@ const restartPickupHost: RestartPickupHost = {
     return bot && task && !task.archivedAt ? { botId: bot.id, name: bot.name } : null;
   },
   owner: (threadId) => !CLOUD_HOME || cloudOwnerOnlyThread(threadId),
-  queued: (botId, threadId) => hasQueuedSteeredMessages(botId, threadId) || limitHold.holds(threadId),
+  queued: (botId, threadId) => (hasQueuedSteeredMessages(botId, threadId) && !awaitingPickup.has(threadId)) || limitHold.holds(threadId),
   busy: (botId, threadId) => threadBusy(botId, threadId),
   routine: (threadId, at) => Boolean(routines?.runDuring(threadId, at)),
   carriesOnAfterLimit: () => accountBattery.enabled,
@@ -8783,7 +8800,7 @@ function drainQueuedSends() {
       }).catch(reject);
     }),
     (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId) || chatWaitsForAccount(threadId) || heldForSwitchedOff(threadId),
+      || parksBehindCoordination(botId, threadId) || chatWaitsForAccount(threadId) || heldForSwitchedOff(threadId) || awaitingPickup.has(threadId),
   );
 }
 
@@ -8793,7 +8810,7 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
   const off = switchedOffNow(threadId);
   const decision = admit("direct", {}, {
     atCapacity: botAtThreadCapacity(botId),
-    threadBusy: threadBusy(botId, threadId) || behindHeld || off || queuedAhead,
+    threadBusy: threadBusy(botId, threadId) || behindHeld || off || queuedAhead || awaitingPickup.has(threadId),
     groupTurn: Boolean(activeGroupTurnForBot(botId)),
     parksBehindCoordination: parksBehindCoordination(botId, threadId),
   });
@@ -14331,10 +14348,11 @@ ROUTES.push(createSearchIndexRoutes({
 if (searchIndex) searchIndex.setMode(readSearchIndexMode(DATA_DIR));
 ROUTES.push(createCoordinatorRoutes({
   available: () => Boolean(CLOUD_HOME),
-  read: () => coordinatorSetting,
+  read: () => ({ ...coordinatorSetting, mirror: historyMirror ? { pending: historyMirror.pending(), ...historyMirror.state } : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
   change: (change) => {
     coordinatorSetting = mergeCoordinatorSetting(coordinatorSetting, change);
     saveCoordinatorSetting(DATA_DIR, coordinatorSetting);
+    if (historyMirror) historyMirror.enabled = coordinatorSetting.history === "shadow";
     return coordinatorSetting;
   },
 }));
@@ -22684,6 +22702,8 @@ server.listen(PORT, "127.0.0.1", async () => {
   console.log(`later.dog server on http://127.0.0.1:${PORT}`);
   await reconcileQueueObjects().catch((error) => console.warn(`[object queue] restore failed: ${(error as Error).message}`));
   if (companyShutdown) return;
+  const leftoverTurns = inflightTurns.takeLeftovers();
+  for (const turn of leftoverTurns) if (queuesInObject(turn.botId)) awaitingPickup.add(turn.threadId);
   followupsReady = true;
   limitHold.restorePeople();
   drainQueuedSends();
@@ -22696,10 +22716,12 @@ server.listen(PORT, "127.0.0.1", async () => {
   memoryUpkeep.start();
   const waiting = limitHold.resume();
   if (waiting.length) console.log(`token battery: ${waiting.length} conversation(s) waiting on a usage limit from a previous run`);
-  void pickUpTurnsAfterRestart(restartPickupHost, inflightTurns.takeLeftovers()).then((outcomes) => {
+  void pickUpTurnsAfterRestart(restartPickupHost, leftoverTurns).then((outcomes) => {
     if (outcomes.length) console.log(`restart pickup: ${outcomes.map((outcome) => `${outcome.threadId} ${outcome.kind}`).join(", ")}`);
   }).finally(() => {
     pickingUpAfterRestart = false;
+    awaitingPickup.clear();
+    drainQueuedSends();
     finishRestartPickup();
   });
 });

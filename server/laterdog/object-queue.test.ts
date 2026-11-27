@@ -8,7 +8,7 @@ const bootstrapSecret = "queue-secret";
 function fakeCoordinator(failFirst = 0) {
   const calls: Array<{ chat: string; body: Record<string, unknown> }> = [];
   let failures = failFirst;
-  const fetch = (async (url: string, init: RequestInit) => {
+  const fakeFetch = (async (url: string, init: RequestInit) => {
     expect(url).toBe(`https://home${QUEUE_ROUTE}`);
     const token = String((init.headers as Record<string, string>).authorization).slice("Bearer ".length);
     const check = verifyCapabilitySync(capabilitySecret(bootstrapSecret), token, { home, now: Date.now(), kinds: ["turns"] });
@@ -19,7 +19,7 @@ function fakeCoordinator(failFirst = 0) {
     if (body.op === "restore") return Response.json({ ok: true, slots: [{ chat: "c1", since: 5 }], chats: { c1: [] } });
     return Response.json({ ok: true });
   }) as typeof fetch;
-  return { calls, fetch };
+  return { calls, fetch: fakeFetch };
 }
 
 describe("object queue client", () => {

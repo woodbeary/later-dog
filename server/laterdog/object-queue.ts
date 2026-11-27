@@ -90,7 +90,7 @@ export class ObjectQueue {
   }
 
   async idle(): Promise<void> {
-    while (this.running.size) await Promise.all([...this.running.values()]);
+    while (this.running.size) await Promise.all(this.running.values());
   }
 
   async restore(dog: string, budgetMs = RESTORE_BUDGET_MS): Promise<RestoredQueue | null> {

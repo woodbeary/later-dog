@@ -22,6 +22,56 @@ export interface QueueRowInput {
   at: number;
 }
 
+export const MAX_HISTORY_MESSAGE_BYTES = 256 * 1024;
+
+export interface HistoryRow {
+  id: string;
+  at: number;
+  json: string;
+}
+
+export function validHistoryRow(value: unknown): value is HistoryRow {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === "string" && ID.test(row.id) && typeof row.at === "number" && Number.isSafeInteger(row.at) &&
+    typeof row.json === "string" && row.json.length <= MAX_HISTORY_MESSAGE_BYTES;
+}
+
+export interface ChatHistoryPort {
+  append(rows: HistoryRow[]): Promise<number>;
+  page(after: string | null, limit: number): Promise<{ rows: HistoryRow[]; count: number }>;
+}
+
+export function chatHistory(sql: Sql): ChatHistoryPort {
+  sql.exec(`CREATE TABLE IF NOT EXISTS history (
+    id TEXT PRIMARY KEY,
+    at INTEGER NOT NULL,
+    json TEXT NOT NULL
+  )`);
+  sql.exec("CREATE INDEX IF NOT EXISTS history_at ON history (at, id)");
+  return {
+    async append(rows) {
+      let stored = 0;
+      for (const row of rows) {
+        if (!validHistoryRow(row)) continue;
+        sql.exec("INSERT INTO history (id, at, json) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET at = excluded.at, json = excluded.json", row.id, row.at, row.json);
+        stored += 1;
+      }
+      return stored;
+    },
+    async page(after, limit) {
+      const size = Math.max(1, Math.min(500, Math.floor(limit)));
+      const anchor = after ? sql.exec("SELECT at FROM history WHERE id = ?", after).toArray()[0] : undefined;
+      const rows = (anchor
+        ? sql.exec("SELECT id, at, json FROM history WHERE at > ? OR (at = ? AND id > ?) ORDER BY at, id LIMIT ?", anchor.at, anchor.at, after, size)
+        : sql.exec("SELECT id, at, json FROM history ORDER BY at, id LIMIT ?", size)).toArray()
+        .map((row) => ({ id: String(row.id), at: Number(row.at), json: String(row.json) }));
+      const count = Number(sql.exec("SELECT COUNT(*) AS n FROM history").toArray()[0]?.n ?? 0);
+      return { rows, count };
+    },
+  };
+}
+
 export interface ChatQueuePort {
   put(rows: QueueRowInput[]): Promise<number>;
   settle(ids: string[], status: QueueRowStatus | null): Promise<number>;
@@ -102,8 +152,15 @@ export function chatQueue(sql: Sql, now: () => number = Date.now): ChatQueuePort
   };
 }
 
-export class ChatQueue extends DurableObject implements ChatQueuePort {
+export class ChatQueue extends DurableObject implements ChatQueuePort, ChatHistoryPort {
   private readonly queue = chatQueue(this.ctx.storage.sql);
+  private readonly history = chatHistory(this.ctx.storage.sql);
+  append(rows: HistoryRow[]) {
+    return this.history.append(rows);
+  }
+  page(after: string | null, limit: number) {
+    return this.history.page(after, limit);
+  }
   put(rows: QueueRowInput[]) {
     return this.queue.put(rows);
   }

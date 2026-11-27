@@ -5,7 +5,7 @@ import type { z } from "zod";
 
 export interface CoordinatorRouteDeps {
   available(): boolean;
-  read(): CoordinatorSetting;
+  read(): CoordinatorSetting & Record<string, unknown>;
   change(change: z.infer<typeof coordinatorSettingSchema>): CoordinatorSetting;
 }
 
