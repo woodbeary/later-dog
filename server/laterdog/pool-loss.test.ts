@@ -34,9 +34,10 @@ it("reports a pool engine lost when its stream drops, and not when the home or t
   expect(lost).toEqual(["pool stream closed"]);
 });
 
-it("hands one retry per loss and keeps the chat off the pool for a while, except after a memory eviction", () => {
+it("keeps a chat off the pool for a while only after a loss that cut a turn short, never after a memory eviction or a loss between turns", () => {
   const now = Date.now();
   notePoolLoss("bot-a", "thread-a", "pool stream closed", now);
+  expect(poolAvoided("bot-a", "thread-a", now + 500)).toBe(false);
   expect(takePoolLoss("bot-a", "thread-a", now + 1_000)).toBe(true);
   expect(takePoolLoss("bot-a", "thread-a", now + 2_000)).toBe(false);
   expect(poolAvoided("bot-a", "thread-a", now + 60_000)).toBe(true);
@@ -58,6 +59,7 @@ it("opens a chat whose pool engine was just lost on the dog's computer", async (
   const unused: PoolService = { open: async () => { throw new Error("the pool was asked"); }, close: async () => true, stream: async () => { throw new Error("unused"); } };
   const plan = { threadId: "thread-lost", cli: { name: "@anthropic-ai/claude-code", version: "9" }, launch: { cli: "/home/dog/.laterdog-engine/cli/claude-code-9/node_modules/.bin/claude" } } as unknown as ClaudeRemotePlan;
   notePoolLoss("bot-lost", "thread-lost", "pool stream went silent");
+  expect(takePoolLoss("bot-lost", "thread-lost")).toBe(true);
   await poolEngineOpener(computer, data, () => unused).open("bot-lost", plan);
   expect(opened).toEqual(["bot-lost"]);
   expect(readFileSync(join(data, "engine-placement.log"), "utf8")).toContain("lost this chat's engine");
@@ -93,7 +95,8 @@ it("marks a chat as on the pool while its pool engine is open, and records a los
   socket.emit("close");
   await closed;
   expect(onPool("thread-on")).toBe(false);
-  expect(poolAvoided("bot-on", "thread-on")).toBe(true);
+  expect(poolAvoided("bot-on", "thread-on")).toBe(false);
   expect(takePoolLoss("bot-on", "thread-on")).toBe(true);
+  expect(poolAvoided("bot-on", "thread-on")).toBe(true);
   expect(readFileSync(join(data, "engine-placement.log"), "utf8")).toContain("lost its pool engine (pool stream closed)");
 });
