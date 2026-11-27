@@ -166,7 +166,11 @@ else if (
         local("journal"),
         cfg,
       );
-    else receipt = await exportFrozen(api, data, cfg);
+    else
+      receipt = await exportFrozen(api, data, {
+        ...cfg,
+        journal: cfg.journal ? local("journal") : null,
+      });
   } finally {
     await bounded(close, 30_000).catch(() => {});
   }

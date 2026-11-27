@@ -286,6 +286,7 @@ export async function exportFrozen(
     sourceSha256,
     eventSequence = null,
     concurrency = 4,
+    journal = null,
   },
 ) {
   assert(hex.test(sourceSha256), "Invalid coordinator source checksum");
@@ -309,7 +310,19 @@ export async function exportFrozen(
       Buffer.compare(Buffer.from(a), Buffer.from(b)),
     );
   assert(ids.length === before.threads, "Incomplete frozen shard directory");
+  const kept = journal && join(journal, "export", digest(JSON.stringify(before)));
   const shards = await mapLimit(ids, concurrency, async (threadId) => {
+    const path = kept && join(kept, digest(threadId));
+    if (path && existsSync(path)) {
+      const saved = read(path);
+      assert(
+        saved.threadId === threadId && saved.shard.proof.threadId === threadId,
+        "Foreign frozen thread export",
+      );
+      if (BigInt(saved.watermark) > BigInt(eventSequence ?? 0))
+        eventSequence = saved.watermark;
+      return saved.shard;
+    }
     const shard = await fetchThread(api, threadId, directory);
     shard.commands = await acceptedCommands(
       (q) => api.admin({ ...q, threadId, op: "commands" }),
@@ -324,6 +337,7 @@ export async function exportFrozen(
       "Invalid remote native event watermark",
     );
     if (BigInt(value) > BigInt(eventSequence ?? 0)) eventSequence = value;
+    if (path) saveJson(path, { threadId, shard, watermark: value });
     return shard;
   });
   const after = await fence();

@@ -203,6 +203,11 @@ it("reconciles a lost response, a vanished shard, a changed shard and late contr
     env.control.barrier = true;
     const remote = await exportFrozen(env.api, data, held);
     expect(readCatalog(data, remote.sha256).shards).toHaveLength(3);
+    const resumable = { ...held, journal: join(dir, "export-journal") };
+    expect(await exportFrozen(env.api, data, resumable)).toEqual(remote);
+    const exportedPages = env.counters.pages;
+    expect(await exportFrozen(env.api, data, resumable)).toEqual(remote);
+    expect(env.counters.pages).toBe(exportedPages);
     const out = join(dir, "restored.db");
     await reconstruct(coord, data, remote.sha256, out, "test", env.api);
     const restore = new DatabaseSync(out, { readOnly: true });
