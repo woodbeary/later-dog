@@ -14,8 +14,43 @@ export function usageFiles(location) {
   return readdirSync(folder).filter((name) => /^\d{4}-\d{2}\.jsonl$/.test(name)).sort().map((name) => join(folder, name));
 }
 
+function csvCells(line) {
+  const cells = [];
+  let cell = "";
+  let quoted = false;
+  for (let at = 0; at < line.length; at += 1) {
+    const char = line[at];
+    if (quoted && char === '"' && line[at + 1] === '"') { cell += '"'; at += 1; }
+    else if (char === '"') quoted = !quoted;
+    else if (char === "," && !quoted) { cells.push(cell); cell = ""; }
+    else cell += char;
+  }
+  cells.push(cell);
+  return cells;
+}
+
+const csvNumber = (text) => (text === undefined || text === "" ? undefined : Number(text));
+
+export function csvRows(text) {
+  const [head, ...lines] = text.split("\n").filter((line) => line.trim());
+  const names = csvCells(head ?? "");
+  const at = (cells, name) => cells[names.indexOf(name)];
+  return lines.map(csvCells).map((cells) => ({
+    at: at(cells, "time"), threadId: at(cells, "thread"), instanceId: at(cells, "account") || at(cells, "engine"),
+    input: csvNumber(at(cells, "input_tokens")) ?? 0, cachedInput: csvNumber(at(cells, "cached_input_tokens")),
+    cachedWrite: csvNumber(at(cells, "cache_write_tokens")),
+  }));
+}
+
 export function readRows(location, { since, until } = {}) {
   const rows = [];
+  if (location.endsWith(".csv")) {
+    for (const row of csvRows(readFileSync(resolve(location), "utf8"))) {
+      if (typeof row.at !== "string" || (since && row.at < since) || (until && row.at >= until)) continue;
+      rows.push(row);
+    }
+    return rows.sort((a, b) => a.at.localeCompare(b.at));
+  }
   for (const file of usageFiles(location)) {
     for (const line of readFileSync(file, "utf8").split("\n")) {
       if (!line.trim()) continue;

@@ -353,6 +353,11 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (!ok) return { text: String(body.error ?? "The command could not run on your computer."), isError: true };
     return { text: String(body.text ?? ""), isError: body.failed === true };
   }
+  if (name === "folder") {
+    const { ok, body } = await apiResponse("/api/internal/dog-folder", { method: "POST", body: JSON.stringify(args) });
+    if (!ok) return { text: String(body.error ?? "The folder could not do that."), isError: true };
+    return { text: String(body.text ?? "") };
+  }
   if (name === "attach_file") {
     const { ok, body } = await apiResponse("/api/internal/attach-file", {
       method: "POST",
