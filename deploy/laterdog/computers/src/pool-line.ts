@@ -4,6 +4,7 @@ import type { AgentStatus, EngineView, PoolHost } from "./pool-host";
 import { loadFrom } from "./pool-host";
 import {
   CHECK_MS,
+  ENGINES_PER_HOST,
   type EngineSpec,
   type HostLoad,
   type PoolHostRecord,
@@ -89,6 +90,29 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 export class PoolLine extends DurableObject<Env> {
   private readonly settings = poolSettings(this.env);
+  private readonly heading = new Map<string, number>();
+  private readonly opened = new Map<string, Set<string>>();
+
+  private headFor(id: string): () => void {
+    this.heading.set(id, (this.heading.get(id) ?? 0) + 1);
+    let gone = false;
+    return () => {
+      if (gone) return;
+      gone = true;
+      const left = (this.heading.get(id) ?? 1) - 1;
+      if (left > 0) this.heading.set(id, left);
+      else this.heading.delete(id);
+    };
+  }
+
+  private hostsCountingArrivals(): PoolHostRecord[] {
+    return this.hosts().map((host) => {
+      const coming = this.heading.get(host.id) ?? 0;
+      const known = this.opened.get(host.id)?.size ?? 0;
+      if (!host.load || (!coming && known <= host.load.engines)) return host;
+      return { ...host, load: { ...host.load, engines: Math.max(host.load.engines, known) + coming } };
+    });
+  }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -195,27 +219,43 @@ export class PoolLine extends DurableObject<Env> {
       await this.addHost();
       scaledOut = true;
     }
-    for (let attempt = 0; attempt <= this.settings.maxHosts + 1; attempt++) {
-      const hosts = this.hosts();
+    for (let attempt = 0; attempt <= 2 * this.settings.maxHosts + 2; attempt++) {
+      const hosts = this.hostsCountingArrivals();
       let target = place(hosts, spec.chat, this.sticky(spec.chat), skip);
+      const live = hosts.filter((host) => host.state !== "draining");
+      const growing = live.length < this.settings.maxHosts || live.some((host) => host.state === "starting" && !skip.has(host.id) && (this.heading.get(host.id) ?? 0) < ENGINES_PER_HOST);
+      if (target.host && target.scaleOut && growing) target = { sticky: false, scaleOut: true };
+      let arrived: () => void = () => {};
       if (!target.host) {
-        const starting = hosts.find((host) => host.state === "starting" && !skip.has(host.id));
-        const live = hosts.filter((host) => host.state !== "draining").length;
-        const next = starting ?? (live < this.settings.maxHosts ? await this.addHost() : undefined);
+        const starting = hosts.filter((host) => host.state === "starting" && !skip.has(host.id));
+        const roomy = starting.find((host) => (this.heading.get(host.id) ?? 0) < ENGINES_PER_HOST);
+        const next = roomy ?? (live.length < this.settings.maxHosts ? await this.addHost() : starting[0]);
         if (!next) break;
-        scaledOut ||= !starting;
+        scaledOut ||= !roomy;
         if (!wait) return { value: { chat: spec.chat, host: next.id, state: "waking", sticky: false, placeMs: Date.now() - began, scaledOut, stream: streamPath(spec.chat) } };
+        arrived = this.headFor(next.id);
         const ready = await this.untilReady(next.id);
         if (!ready) {
+          arrived();
           skip.add(next.id);
           continue;
         }
+        const crowd = this.hostsCountingArrivals().find((host) => host.id === ready.id)?.load?.engines ?? 0;
+        if (crowd > ENGINES_PER_HOST && growing) {
+          arrived();
+          continue;
+        }
         target = { host: ready.id, sticky: false, scaleOut: false };
-      }
+      } else if (!target.sticky) arrived = this.headFor(target.host);
       const id = target.host!;
       const answer = await this.stub(id).open(spec).catch(() => undefined);
+      arrived();
       if (answer && (answer.status === 200 || answer.status === 201)) {
         const engine = answer.body.engine!;
+        const onHost = this.opened.get(id) ?? new Set<string>();
+        onHost.add(spec.chat);
+        for (const evicted of engine.evicted) onHost.delete(evicted);
+        this.opened.set(id, onHost);
         this.ctx.storage.sql.exec("INSERT OR REPLACE INTO chats (chat, host, at) VALUES (?, ?, ?)", spec.chat, id, Date.now());
         const row = this.hostRow(id);
         if (row?.load) {
@@ -265,6 +305,7 @@ export class PoolLine extends DurableObject<Env> {
     const host = this.sticky(chat);
     if (!host) return false;
     this.ctx.storage.sql.exec("DELETE FROM chats WHERE chat = ?", chat);
+    this.opened.get(host)?.delete(chat);
     const answer = await this.stub(host).close(chat).catch(() => undefined);
     return answer?.status === 200;
   }
