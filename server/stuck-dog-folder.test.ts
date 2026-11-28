@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 
 const waking = vi.hoisted(() => `/workspaces/waking-${process.pid}`);
-const onWakingFolder = (path: unknown) => typeof path === "string" && (path.includes(`${waking}/`) || path.endsWith(waking));
+const onWakingFolder = vi.hoisted(() => (path: unknown) => typeof path === "string" && (path.includes(`${waking}/`) || path.endsWith(waking)));
 
 vi.mock("node:fs/promises", async (original) => {
   const real = await original<typeof import("node:fs/promises")>();
