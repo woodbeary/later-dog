@@ -2444,4 +2444,26 @@ describe("bookkeeping saves", () => {
   });
 });
 
+
+describe("chat cache under memory pressure", () => {
+  it("keeps fewer chats in memory while the home is short of memory", () => {
+    let available = 8 * 1024 ** 3;
+    vi.useFakeTimers();
+    try {
+      const store = new Store(selection, undefined, undefined, undefined, { maxThreads: 80, maxMessages: 100_000, availableMemory: () => available });
+      const bots = Array.from({ length: 70 }, () => store.createBot({}, { seedMessages: false }));
+      for (const bot of bots) store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "hi" });
+      for (const bot of bots) store.messagesFor(bot.threadId);
+      expect(store.cachedThreadCount()).toBe(70);
+      available = 3 * 1024 ** 3;
+      vi.advanceTimersByTime(1_001);
+      store.messagesFor(bots[0]!.threadId);
+      store.appendMessage(bots[1]!.threadId, { role: "user", kind: "text", text: "again" });
+      expect(store.cachedThreadCount()).toBeLessThanOrEqual(64);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 });

@@ -480,8 +480,12 @@ function taskCountsAsBotUnread(task: { unread?: boolean; routineRunId?: string }
 
 export const DEFAULT_THREAD_CACHE_MAX_THREADS = 256;
 export const DEFAULT_THREAD_CACHE_MAX_MESSAGES = 40_000;
+export const LEAN_THREAD_CACHE_MAX_THREADS = 64;
+export const LEAN_THREAD_CACHE_MAX_MESSAGES = 10_000;
+export const LEAN_CACHE_BELOW_BYTES = 4 * 1024 ** 3;
 
 export interface ThreadCacheLimits {
+  availableMemory?: () => number;
   maxThreads?: number;
   maxMessages?: number;
 }
@@ -495,8 +499,25 @@ export class Store {
   bots: BotRecord[] = [];
   groups: GroupRecord[] = [];
   private threads = new Map<string, ThreadState>();
-  private readonly maxCachedThreads: number;
-  private readonly maxCachedMessages: number;
+  private readonly roomyCachedThreads: number;
+  private readonly roomyCachedMessages: number;
+  private readonly availableMemory: () => number;
+  private leanUntil = 0;
+  private leanNow = false;
+  private get lean(): boolean {
+    const now = Date.now();
+    if (now >= this.leanUntil) {
+      this.leanNow = this.availableMemory() < LEAN_CACHE_BELOW_BYTES;
+      this.leanUntil = now + 1_000;
+    }
+    return this.leanNow;
+  }
+  private get maxCachedThreads(): number {
+    return this.lean ? Math.min(this.roomyCachedThreads, LEAN_THREAD_CACHE_MAX_THREADS) : this.roomyCachedThreads;
+  }
+  private get maxCachedMessages(): number {
+    return this.lean ? Math.min(this.roomyCachedMessages, LEAN_THREAD_CACHE_MAX_MESSAGES) : this.roomyCachedMessages;
+  }
   private defaultSelection: () => ModelSelection;
   private completeNewBotSelection: (selection: ModelSelection) => ModelSelection;
   private driverKindOf: (instanceId: string) => string | undefined;
@@ -514,8 +535,9 @@ export class Store {
     newDogComputer: () => BotRecord["computer"] = () => undefined,
     threadCacheLimits: ThreadCacheLimits = {},
   ) {
-    this.maxCachedThreads = Math.max(1, threadCacheLimits.maxThreads ?? DEFAULT_THREAD_CACHE_MAX_THREADS);
-    this.maxCachedMessages = Math.max(1, threadCacheLimits.maxMessages ?? DEFAULT_THREAD_CACHE_MAX_MESSAGES);
+    this.roomyCachedThreads = Math.max(1, threadCacheLimits.maxThreads ?? DEFAULT_THREAD_CACHE_MAX_THREADS);
+    this.roomyCachedMessages = Math.max(1, threadCacheLimits.maxMessages ?? DEFAULT_THREAD_CACHE_MAX_MESSAGES);
+    this.availableMemory = threadCacheLimits.availableMemory ?? (() => process.availableMemory());
     this.defaultSelection = defaultSelection;
     this.completeNewBotSelection = completeNewBotSelection;
     this.driverKindOf = driverKindOf;
@@ -1298,11 +1320,13 @@ export class Store {
   }
 
   private evictThreads(keepThreadId?: string): void {
+    const maxThreads = this.maxCachedThreads;
+    const maxMessages = this.maxCachedMessages;
     let totalMessages = 0;
     for (const state of this.threads.values()) totalMessages += state.messages.length;
-    if (this.threads.size <= this.maxCachedThreads && totalMessages <= this.maxCachedMessages) return;
+    if (this.threads.size <= maxThreads && totalMessages <= maxMessages) return;
     for (const [id, state] of this.threads) {
-      if (this.threads.size <= this.maxCachedThreads && totalMessages <= this.maxCachedMessages) break;
+      if (this.threads.size <= maxThreads && totalMessages <= maxMessages) break;
       if (id === keepThreadId || this.isThreadBusy(id)) continue;
       this.threads.delete(id);
       totalMessages -= state.messages.length;
