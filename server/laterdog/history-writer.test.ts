@@ -208,4 +208,19 @@ describe("history writer", () => {
     await instance.idle();
     expect((await remote.chatFor(HOME, "chat-out").stats()).count).toBe(1);
   });
+
+  it("checks every chat again after a spell switched off, so writes made while off reach the object", async () => {
+    const database = localDatabase();
+    const remote = objects();
+    const { instance } = writer(database, remote);
+    write(database, "chat-g", "m1", "one");
+    instance.setMode("shadow");
+    await instance.idle();
+    instance.setMode("off");
+    await instance.idle();
+    database.prepare("INSERT INTO messages (thread_id, id, at, role, kind, text, json) VALUES ('chat-g', 'm2', 2, 'user', 'text', 'two', '{}')").run();
+    instance.setMode("shadow");
+    await instance.idle();
+    expect((await remote.chatFor(HOME, "chat-g").stats()).count).toBe(2);
+  });
 });
