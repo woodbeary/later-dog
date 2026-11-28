@@ -502,7 +502,7 @@ export interface NativeTurnResult {
   ok: boolean;
   stopReason: string | null;
   cost: number | null;
-  usage?: { input: number; output: number; cachedInput?: number };
+  usage?: { input: number; output: number; cachedInput?: number; cachedWrite?: number };
 }
 
 export function sumNativeTurnResults(earlier: NativeTurnResult | null, latest: NativeTurnResult): NativeTurnResult {
@@ -513,6 +513,9 @@ export function sumNativeTurnResults(earlier: NativeTurnResult | null, latest: N
         output: earlier.usage.output + latest.usage.output,
         ...(earlier.usage.cachedInput !== undefined || latest.usage.cachedInput !== undefined
           ? { cachedInput: (earlier.usage.cachedInput ?? 0) + (latest.usage.cachedInput ?? 0) }
+          : {}),
+        ...(earlier.usage.cachedWrite !== undefined || latest.usage.cachedWrite !== undefined
+          ? { cachedWrite: (earlier.usage.cachedWrite ?? 0) + (latest.usage.cachedWrite ?? 0) }
           : {}),
       }
     : latest.usage ?? earlier.usage;
@@ -1647,7 +1650,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         ok: boolean,
         stopReason: string | null,
         total: number | null = null,
-        usage?: { input: number; output: number; cachedInput?: number },
+        usage?: { input: number; output: number; cachedInput?: number; cachedWrite?: number },
       ) => {
         const t = session.turn;
         if (!t || t.settled) return;
@@ -1930,6 +1933,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 ...(typeof msg.usage.cache_read_input_tokens === "number"
                   ? { cachedInput: msg.usage.cache_read_input_tokens }
                   : {}),
+                ...(typeof msg.usage.cache_creation_input_tokens === "number"
+                  ? { cachedWrite: msg.usage.cache_creation_input_tokens }
+                  : {}),
                 contextTokens,
               });
             }
@@ -2001,6 +2007,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                       output: o.usage.output_tokens || 0,
                       ...(typeof o.usage.cache_read_input_tokens === "number"
                         ? { cachedInput: o.usage.cache_read_input_tokens }
+                        : {}),
+                      ...(typeof o.usage.cache_creation_input_tokens === "number"
+                        ? { cachedWrite: o.usage.cache_creation_input_tokens }
                         : {}),
                     },
                   }
