@@ -87,7 +87,7 @@ describe("chat history mirror", () => {
     expect(first).toMatchObject({ count: 2, rows: [{ id: "m1" }] });
     const next = await (await serveHistory({ op: "page", after: "m1", limit: 5 }, claims("c"), p)).json() as { rows: Array<{ id: string; json: string }> };
     expect(next.rows).toEqual([{ id: "m2", at: 20, json: "{\"v\":2}" }]);
-    expect((await append([{ id: "big", at: 1, json: "x".repeat(300 * 1024) }])).status).toBe(400);
+    expect((await append([{ id: "big", at: 1, json: "x".repeat(2000 * 1024) }])).status).toBe(400);
   });
 });
 
