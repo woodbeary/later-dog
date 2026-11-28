@@ -26,7 +26,7 @@ export const POOL_LOST_REASON = "engine machine lost";
 export const POOL_WARM_MS = 10 * 60_000;
 const poolThreads = new Set<string>();
 export const onPool = (threadId: string): boolean => poolThreads.has(threadId);
-export const POOL_NOTE = "\n\nWhere you work: this chat runs on a shared engine machine. Your built-in file, search and shell tools act on a scratch folder there, not on your working folder, and that scratch folder can be cleared at any time. For your own files use the folder tool (list, read, search, write, edit, delete). For builds, tests, installs and long or heavy commands use run_on_computer.\n";
+export const POOL_NOTE = "\n\nWhere you work: this chat runs on a shared engine machine. Your built-in file, search and shell tools act on a scratch folder there. Scratch is not your working folder: it is not saved and can be cleared at any time, so never tell the person a file you made in scratch is saved. For your own files use the folder tool (list, read, search, write, edit, delete); if it says a change was not saved, tell the person it was not saved. For builds, tests, installs and long or heavy commands use run_on_computer.\n";
 const poolLosses = new Map<string, { at: number; taken: boolean; memory: boolean; avoid: boolean }>();
 const CLEAN_CLOSES = ["closed by the home", "pool relay exited 0", "pool closed the engine: idle", "pool closed the engine: closed"];
 const MEMORY_CLOSE = "pool closed the engine: memory";
