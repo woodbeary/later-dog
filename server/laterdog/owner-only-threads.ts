@@ -15,7 +15,11 @@ export function lastMessageKey(last: Message | undefined): string {
 export class OwnerOnlyThreads {
   private readonly known = new Map<string, { last: string; owner: boolean }>();
 
-  constructor(private readonly deps: OwnerOnlyThreadsDeps) {}
+  private readonly deps: OwnerOnlyThreadsDeps;
+
+  constructor(deps: OwnerOnlyThreadsDeps) {
+    this.deps = deps;
+  }
 
   ownerOnly(threadId: string): boolean {
     const last = lastMessageKey(this.deps.lastMessage(threadId));

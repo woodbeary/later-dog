@@ -2,6 +2,8 @@ import { lstat, readdir, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+import { scanYielding } from "./yielding-scan.ts";
+
 export const LOG_THREAD_ID = /^[\w-]{8,200}$/;
 export const threadLogPaths = (id: string) => {
   if (!LOG_THREAD_ID.test(id)) throw new Error("invalid archive thread");
@@ -538,9 +540,14 @@ export class LogArchiveCoordinator {
     };
     const failing = () => failedInARow >= SWEEP_FAILURES_IN_A_ROW;
     const batch = Array.from({ length: maximum }, (_, at) => known[(this.cursor + at) % known.length]);
-    const tracked = new Set(known.flatMap(id => this.allSessionsOf(id)));
-    const held = new Set(known.filter(id => !idle(id)).flatMap(id => this.sessionsOf(id)));
-    const wanted = new Set(batch.filter(id => idle(id)).flatMap(id => this.sessionsOf(id)).filter(id => !held.has(id)));
+    const tracked = new Set<string>();
+    const busy = new Set<string>();
+    await scanYielding(known, (id) => {
+      for (const session of this.allSessionsOf(id)) tracked.add(session);
+      if (!idle(id)) busy.add(id);
+    });
+    const held = new Set([...busy].flatMap(id => this.sessionsOf(id)));
+    const wanted = new Set(batch.filter(id => !busy.has(id)).flatMap(id => this.sessionsOf(id)).filter(id => !held.has(id)));
     if (this.waiting && tracked.has(this.waiting)) wanted.add(this.waiting);
     const archiveCodexSessions = this.options.archiveCodexSessions ?? false;
     const sessionFiles = await findSessionFiles(root, wanted, SESSION_SCAN_ENTRIES, archiveCodexSessions);
