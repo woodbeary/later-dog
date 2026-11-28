@@ -6,6 +6,8 @@ import { HISTORY_MODES, type HistoryMode } from "./history-writer.ts";
 export const CAPABILITY_MODES = ["random", "signed"] as const;
 export const QUEUE_MODES = ["container", "object"] as const;
 export const DOG_PART_MODES = ["container", "object"] as const;
+export const ADMISSION_MODES = ["container", "edge"] as const;
+export type AdmissionMode = (typeof ADMISSION_MODES)[number];
 export type DogPartMode = (typeof DOG_PART_MODES)[number];
 
 export { HISTORY_MODES, type HistoryMode };
@@ -20,6 +22,7 @@ export interface CoordinatorSetting {
   routines: Record<string, DogPartMode>;
   inbox: Record<string, DogPartMode>;
   historyDogs: string[];
+  admission: Record<string, AdmissionMode>;
 }
 
 const FILE = "coordinator.json";
@@ -32,9 +35,10 @@ export const coordinatorSettingSchema = z.object({
   routines: z.record(z.string().regex(DOG_KEY), z.enum(DOG_PART_MODES).nullable()).optional(),
   inbox: z.record(z.string().regex(DOG_KEY), z.enum(DOG_PART_MODES).nullable()).optional(),
   historyDogs: z.array(z.string().regex(DOG_KEY)).min(1).max(500).optional(),
+  admission: z.record(z.string().regex(DOG_KEY), z.enum(ADMISSION_MODES).nullable()).optional(),
 }).strict();
 
-export const OFF: CoordinatorSetting = { capabilities: "random", queue: {}, history: "off", routines: {}, inbox: {}, historyDogs: [EVERY_DOG] };
+export const OFF: CoordinatorSetting = { capabilities: "random", queue: {}, history: "off", routines: {}, inbox: {}, historyDogs: [EVERY_DOG], admission: {} };
 
 export function readCoordinatorSetting(dataDir: string): CoordinatorSetting {
   const file = join(dataDir, FILE);
@@ -65,6 +69,7 @@ export function mergeCoordinatorSetting(current: CoordinatorSetting, change: z.i
     routines: mergeDogModes(current.routines ?? {}, change.routines),
     inbox: mergeDogModes(current.inbox ?? {}, change.inbox),
     historyDogs: change.historyDogs ?? current.historyDogs ?? [EVERY_DOG],
+    admission: mergeDogModes(current.admission ?? {}, change.admission),
   };
 }
 
@@ -84,4 +89,8 @@ export function dogPartModeFor(modes: Record<string, DogPartMode>, dogId: string
 
 export function historyCovers(setting: CoordinatorSetting, dogId: string | null): boolean {
   return setting.historyDogs.includes(EVERY_DOG) || (dogId !== null && setting.historyDogs.includes(dogId));
+}
+
+export function edgeAdmissionDogs(setting: CoordinatorSetting): string[] {
+  return Object.entries(setting.admission ?? {}).filter(([, mode]) => mode === "edge").map(([dog]) => dog);
 }

@@ -6,6 +6,7 @@ const CALL_MS = 8_000;
 const START_MS = 3_000;
 const TOKEN_MS = 10 * 60_000;
 const POLL_MS = 2_000;
+const RETRY_MS = [2_000, 5_000, 15_000, 30_000, 60_000] as const;
 const TERMINAL = new Set(["completed", "failed", "missed", "cancelled"]);
 
 export interface DogObjectCallsOptions {
@@ -90,6 +91,7 @@ export class ObjectRoutines {
   private readonly log: (line: string) => void;
   private readonly dueAt = new Map<string, number | null>();
   private readonly dirty = new Set<string>();
+  private readonly retries = new Map<string, { attempt: number; at: number }>();
   private readonly settling = new Map<string, { dog: string; runId: string; state: "started" | "settled" }>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private polling = false;
@@ -154,8 +156,14 @@ export class ObjectRoutines {
       for (const dog of this.options.dogs()) {
         if (!this.options.owned(dog)) continue;
         const due = this.dueAt.get(dog);
-        if (!this.dirty.has(dog) && !(this.dueAt.has(dog) && due !== null && due !== undefined && due <= now)) continue;
-        await this.sync(dog, book).catch((error) => this.fail(error));
+        const retry = this.retries.get(dog);
+        if (retry && retry.at > now) continue;
+        if (!retry && !this.dirty.has(dog) && !(this.dueAt.has(dog) && due !== null && due !== undefined && due <= now)) continue;
+        await this.sync(dog, book).then(() => { this.retries.delete(dog); }, (error) => {
+          this.fail(error);
+          const attempt = (retry?.attempt ?? 0) + 1;
+          this.retries.set(dog, { attempt, at: this.now() + RETRY_MS[Math.min(attempt, RETRY_MS.length) - 1]! });
+        });
       }
     } finally {
       this.polling = false;
