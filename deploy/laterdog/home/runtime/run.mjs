@@ -232,12 +232,12 @@ async function main() {
       return;
     }
     if (stopping || !alive()) return;
-    await pinHelper(next.launcher);
     reloading = true;
     const switched = await switchLauncher({
       previous: child,
       carryOn: () => !stopping && reloading,
       start: () => {
+        void pinHelper(next.launcher);
         launcher = next.launcher;
         reloading = false;
         log(`running pushed server code ${next.hash.slice(0, 12)}${next.label ? ` (${next.label})` : ""}`);
