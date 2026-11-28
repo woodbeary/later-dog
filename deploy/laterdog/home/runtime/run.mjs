@@ -17,6 +17,7 @@ import { FINAL_SAVE_MS, collectGarbageWithin, createHttpStore, settleWithin, sna
 import { restoredFirst, restoresLater, startRestore } from "./restore-engine.mjs";
 import { restoreUntilDone } from "./restore-until-done.mjs";
 import { switchLauncher } from "./launcher-switch.mjs";
+import { pinFolderHelper } from "./folder-helper.mjs";
 import { holdStopsWhileRestoring } from "./restore-signals.mjs";
 
 const DATA = process.env.HOME || "/data";
@@ -114,6 +115,11 @@ async function main() {
   if (pushed) log(`running pushed server code ${pushed.hash.slice(0, 12)}${pushed.label ? ` (${pushed.label})` : ""}`);
   let launcher = pushed?.launcher ?? LAUNCHER;
   let child = null;
+  const pinHelper = (from) => pinFolderHelper(from).then(
+    (path) => { process.env.LATERDOG_FOLDER_HELPER = environment.LATERDOG_FOLDER_HELPER = path; },
+    (error) => log(`the folder helper of ${from} could not be pinned: ${error.message}`),
+  );
+  await pinHelper(launcher);
   const folderMount = await startWorkFolderMounts({ home: DATA, placement, mounts, owner: dogOwner(), server: SERVER_DIR,
     onLost: () => { log("Work folder transport stopped; restarting the coordinator."); if (child) child.kill("SIGTERM"); else process.exit(1); },
   });
@@ -231,6 +237,7 @@ async function main() {
       previous: child,
       carryOn: () => !stopping && reloading,
       start: () => {
+        void pinHelper(next.launcher);
         launcher = next.launcher;
         reloading = false;
         log(`running pushed server code ${next.hash.slice(0, 12)}${next.label ? ` (${next.label})` : ""}`);

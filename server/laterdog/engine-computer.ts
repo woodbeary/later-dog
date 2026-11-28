@@ -1,5 +1,6 @@
 import { guestCliPreparation } from "./guest-cli-runtime.ts";
 import { GUEST_FOLDER_HELPER } from "./engine-folder-process.ts";
+import { pinnedFolderHelper } from "./engine-folder-helper-source.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
@@ -50,6 +51,15 @@ export interface EngineBox {
 }
 
 let bundledFolderHelper: Buffer | undefined;
+function builtFolderHelper(): Buffer {
+  if (!bundledFolderHelper) {
+    const source = join(SERVER_ROOT, "laterdog", "engine-folder-cli.ts");
+    const built = existsSync(source) ? join(SERVER_ROOT, "..", "dist-server", "laterdog", "engine-folder-cli.js") : join(SERVER_ROOT, "laterdog", "engine-folder-cli.js");
+    bundledFolderHelper = existsSync(built) ? readFileSync(built) : Buffer.from(createRequire(import.meta.url)("esbuild").buildSync({entryPoints:[source],write:false,bundle:true,platform:"node",target:"node24",format:"esm"}).outputFiles[0].contents);
+  }
+  return bundledFolderHelper;
+}
+
 export async function prepareEngineFolderTools(box: EngineBox, folders: readonly { path: string }[] = []): Promise<void> {
   if (folders.length) {
     const script = "import os,sys,pwd,stat; from pathlib import Path\n" +
@@ -65,17 +75,13 @@ export async function prepareEngineFolderTools(box: EngineBox, folders: readonly
     const made = await box.exec("sudo -n python3 -c " + quote(script) + " " + folders.map(folder=>quote(folder.path)).join(" "), ENGINE_STEP_BUDGET_MS);
     if (made.exitCode !== 0) throw new Error("The assigned guest working folder could not be safely prepared");
   }
-  if (!bundledFolderHelper) {
-    const source = join(SERVER_ROOT, "laterdog", "engine-folder-cli.ts");
-    const built = existsSync(source) ? join(SERVER_ROOT, "..", "dist-server", "laterdog", "engine-folder-cli.js") : join(SERVER_ROOT, "laterdog", "engine-folder-cli.js");
-    bundledFolderHelper = existsSync(built) ? readFileSync(built) : Buffer.from(createRequire(import.meta.url)("esbuild").buildSync({entryPoints:[source],write:false,bundle:true,platform:"node",target:"node24",format:"esm"}).outputFiles[0].contents);
-  }
-  const checksum = createHash("sha256").update(bundledFolderHelper).digest("hex");
+  const helper = pinnedFolderHelper() ?? builtFolderHelper();
+  const checksum = createHash("sha256").update(helper).digest("hex");
   const dir = dirname(GUEST_FOLDER_HELPER);
   const ready = await box.exec(`umask 077; mkdir -p ${quote(dir)} && test -f ${quote(GUEST_FOLDER_HELPER)} && test "$(sha256sum ${quote(GUEST_FOLDER_HELPER)} | cut -d' ' -f1)" = ${quote(checksum)}`, ENGINE_STEP_BUDGET_MS);
   if (ready.exitCode === 0) return;
   const tmp = `${dir}/install-${randomUUID()}.mjs`;
-  await box.write(tmp, bundledFolderHelper);
+  await box.write(tmp, helper);
   const installed = await box.exec(`set -e; trap 'rm -f ${tmp}' EXIT; test "$(sha256sum ${quote(tmp)} | cut -d' ' -f1)" = ${quote(checksum)}; chmod 600 ${quote(tmp)}; mv -f ${quote(tmp)} ${quote(GUEST_FOLDER_HELPER)}`, ENGINE_STEP_BUDGET_MS);
   if (installed.exitCode !== 0) throw new Error("Could not install the guest working folder synchronizer");
 }

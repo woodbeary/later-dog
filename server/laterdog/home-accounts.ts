@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import { assertSeparateClaudeAccount } from "../claude-accounts.ts";
@@ -12,6 +12,7 @@ import {
   accountEmailSchema,
   accountKindOf,
   DEVICE_ID,
+  antigravityLoginSchema,
   claudeLoginSchema,
   codexLoginSchema,
   handoffSchema,
@@ -22,6 +23,7 @@ import {
   type Handoff,
 } from "./ai-account-login.ts";
 import { setHeldAccount } from "./held-accounts.ts";
+import { antigravityProfileDirectory } from "../drivers/antigravity-acp.ts";
 
 export interface HomeAccountDeps {
   cloudHome: boolean;
@@ -41,7 +43,7 @@ const FILE_LIMIT = 256 * 1024;
 
 const markerSchema = z.object({
   version: z.literal(1),
-  kind: z.enum(["claude", "codex"]),
+  kind: z.enum(["claude", "codex", "antigravity"]),
   fingerprint: z.string().regex(/^[0-9a-f]{16}$/),
   deviceId: z.string().regex(DEVICE_ID).nullable().optional(),
   providerAccount: z.string().max(300).nullable().optional(),
@@ -49,7 +51,8 @@ const markerSchema = z.object({
 });
 type Marker = z.infer<typeof markerSchema>;
 
-const credentialFile = (kind: AiAccountKind) => (kind === "claude" ? ".credentials.json" : "auth.json");
+const ANTIGRAVITY_TOKEN = join("antigravity-acp", "acp_token.json");
+const credentialFile = (kind: AiAccountKind) => (kind === "claude" ? ".credentials.json" : kind === "codex" ? "auth.json" : ANTIGRAVITY_TOKEN);
 
 const raw = (entry: InstanceConfig | undefined): Record<string, unknown> =>
   entry?.config && typeof entry.config === "object" && !Array.isArray(entry.config) ? entry.config as Record<string, unknown> : {};
@@ -81,13 +84,21 @@ function privateDirectory(directory: string): void {
 
 const writePrivate = (path: string, data: string) => writeFileAtomic(path, data, { mode: 0o600 });
 
-function storedLogin(directory: string, kind: AiAccountKind) {
-  const text = readPrivate(join(directory, credentialFile(kind)));
+function credentialPath(dataDir: string, instanceId: string, directory: string, kind: AiAccountKind): string {
+  return kind === "antigravity" ? join(antigravityProfileDirectory(instanceId, dataDir), ANTIGRAVITY_TOKEN) : join(directory, credentialFile(kind));
+}
+
+function storedLogin(path: string, kind: AiAccountKind) {
+  const text = readPrivate(path);
   if (text === null) return null;
   try {
     const parsed = JSON.parse(text) as unknown;
     if (kind === "claude") {
       const login = claudeLoginSchema.safeParse((parsed as { claudeAiOauth?: unknown } | null)?.claudeAiOauth);
+      return login.success ? login.data : null;
+    }
+    if (kind === "antigravity") {
+      const login = antigravityLoginSchema.safeParse(parsed);
       return login.success ? login.data : null;
     }
     const login = codexLoginSchema.safeParse(parsed);
@@ -101,6 +112,7 @@ function sameDriver(kind: AiAccountKind, entry: InstanceConfig | undefined): boo
   if (!entry) return true;
   const config = raw(entry);
   if (config.managed) return false;
+  if (kind === "antigravity") return entry.driver === "antigravityAgent";
   return kind === "claude"
     ? entry.driver === "claudeAgent" && entry.access !== "api" && config.requireApiKey !== true
     : entry.driver === "codex" && config.authMode !== "chatgpt-plan";
@@ -111,6 +123,7 @@ function placed(kind: AiAccountKind, entry: InstanceConfig | undefined, director
     const config = raw(entry);
     return { ...(entry ?? { driver: "claudeAgent" }), displayName, config: { ...config, ...(config.cli === undefined && typeof claudeCli === "string" && claudeCli ? { cli: claudeCli } : {}), configDir: directory } };
   }
+  if (kind === "antigravity") return { ...(entry ?? { driver: "antigravityAgent" }), displayName };
   return { ...(entry ?? { driver: "codex" }), displayName, environment: { ...entry?.environment, CODEX_HOME: directory } };
 }
 
@@ -130,8 +143,8 @@ export function withHandedOverEmail<T extends { instanceId: string; snapshot: Pr
 export function createHomeAccountRoutes(deps: HomeAccountDeps): RouteHandler {
   const folder = (instanceId: string) => join(deps.dataDir, "providers", instanceId);
 
-  function forgetFiles(directory: string, kind: AiAccountKind) {
-    rmSync(join(directory, credentialFile(kind)), { force: true });
+  function forgetFiles(instanceId: string, directory: string, kind: AiAccountKind) {
+    rmSync(credentialPath(deps.dataDir, instanceId, directory, kind), { force: true });
     rmSync(join(directory, MARKER), { force: true });
   }
 
@@ -147,7 +160,7 @@ export function createHomeAccountRoutes(deps: HomeAccountDeps): RouteHandler {
       const sameProviderAccount = provider !== null && marker.providerAccount === provider;
       if (!sameProviderAccount) return { status: 409, body: { code: "other_device", error: "My Cloud already holds this account's sign-in from another computer." } };
     }
-    if (marker && marker.kind === handoff.kind && marker.fingerprint === fingerprint && storedLogin(directory, handoff.kind)) {
+    if (marker && marker.kind === handoff.kind && marker.fingerprint === fingerprint && storedLogin(credentialPath(deps.dataDir, instanceId, directory, handoff.kind), handoff.kind)) {
       setHeldAccount(deps.file, instanceId, null);
       await deps.reload(instanceId);
       const signedIn = await deps.signedIn(instanceId);
@@ -165,12 +178,17 @@ export function createHomeAccountRoutes(deps: HomeAccountDeps): RouteHandler {
     const created = marker ? false : !existing;
     privateDirectory(directory);
     const credential = handoff.kind === "claude" ? { claudeAiOauth: handoff.login } : handoff.login;
-    writePrivate(join(directory, credentialFile(handoff.kind)), `${JSON.stringify(credential, null, 2)}\n`);
+    const credentialAt = credentialPath(deps.dataDir, instanceId, directory, handoff.kind);
+    if (handoff.kind === "antigravity") {
+      privateDirectory(dirname(dirname(credentialAt)));
+      privateDirectory(dirname(credentialAt));
+    }
+    writePrivate(credentialAt, `${JSON.stringify(credential, null, 2)}\n`);
     if (handoff.kind === "codex" && !existsSync(join(directory, "config.toml"))) writePrivate(join(directory, "config.toml"), "cli_auth_credentials_store = \"file\"\n");
     writePrivate(join(directory, MARKER), `${JSON.stringify({ version: 1, kind: handoff.kind, fingerprint, deviceId: handoff.deviceId, providerAccount: provider, email: handoff.email ?? null } satisfies Marker)}\n`);
     setHeldAccount(deps.file, instanceId, null);
     const rollBack = async () => {
-      forgetFiles(directory, handoff.kind);
+      forgetFiles(instanceId, directory, handoff.kind);
       const now = deps.instances();
       if (created) delete now[instanceId];
       else if (existing) now[instanceId] = existing;
