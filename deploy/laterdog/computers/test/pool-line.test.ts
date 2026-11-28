@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OWNER_KEY, type World, apiRequest, body, world } from "./fakes";
+import { ENGINES_PER_HOST } from "../src/pool-policy";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -162,8 +163,8 @@ describe("the warm engine pool", () => {
     expect(agent.evictions).toEqual([{ chat: "chat-1", reason: "idle" }]);
   });
 
-  it("lets a host close its least recently used idle engine under memory pressure and forgets that chat's route", async () => {
-    const w = await world();
+  it("lets a host close its least recently used idle engine under memory pressure at the pool's largest size and forgets that chat's route", async () => {
+    const w = await world({ POOL_HOSTS_MAX: "1" });
     const made = agents(w, () => new FakeAgent(4096 * MIB, 400 * MIB, 1000 * MIB));
     await open(w, "chat-1");
     await tick(w, 1_000);
@@ -192,6 +193,16 @@ describe("the warm engine pool", () => {
     expect(third.body.host).toBe([...made.keys()][1]);
     expect(third.body.scaledOut).toBe(true);
   });
+
+  it("spreads a burst of new chats over enough new hosts instead of piling them onto the one that is starting", async () => {
+    const w = await world();
+    const made = agents(w);
+    const opened = await Promise.all(Array.from({ length: 40 }, (_, n) => open(w, `burst-${n}`)));
+    expect(opened.every((answer) => answer.status === 201)).toBe(true);
+    const perHost = [...made.values()].map((agent) => agent.engines.size);
+    expect(Math.max(...perHost)).toBeLessThanOrEqual(ENGINES_PER_HOST);
+    expect(made.size).toBeGreaterThanOrEqual(Math.ceil(40 / ENGINES_PER_HOST));
+  }, 60_000);
 
   it("adds a host after two minutes above 80% and drains back to one after fifteen quiet minutes", async () => {
     const w = await world();
