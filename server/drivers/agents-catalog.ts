@@ -4,6 +4,7 @@ import { OPTIONS_CARD_LIMITS, WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared/o
 import { TAKEOVER_REASONS } from "../../shared/takeover.ts";
 import { agentToolAnnotations } from "../agent-tool-policy.ts";
 import { COMPUTER_RULE } from "../laterdog/mac-computer.ts";
+import { MACHINE_SIZE_HINT, MACHINE_SIZES } from "../laterdog/machine-size-words.ts";
 
 export interface CatalogProfile {
   skillAuthoring: boolean;
@@ -333,6 +334,7 @@ const TOOL_DEFINITIONS = [
       tasks: { type: "array", minItems: 1, maxItems: 5, items: { type: "object", additionalProperties: false, properties: {
         title: { type: "string", minLength: 1, maxLength: 60 },
         instruction: { type: "string", minLength: 1, maxLength: 4000 },
+        machine: { type: "string", enum: [...MACHINE_SIZES], description: MACHINE_SIZE_HINT },
       }, required: ["title", "instruction"] } },
     }, required: ["tasks"] },
   },

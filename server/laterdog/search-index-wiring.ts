@@ -194,6 +194,14 @@ export class SearchIndexWiring {
     this.setMode("off");
   }
 
+  refeed(): void {
+    this.deps.coverage.clear();
+    this.covered.clear();
+    this.queued.clear();
+    this.lastScanAt = null;
+    if (this.feed) this.wake();
+  }
+
   private get shadowClient(): SearchIndexClient {
     return this.deps.shadowClient ?? this.deps.client;
   }

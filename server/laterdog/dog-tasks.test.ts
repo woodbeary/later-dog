@@ -5,13 +5,13 @@ import type { BatteryAccount } from "./account-battery.ts";
 const OLIVE = { id: "dog-olive", name: "Olive" };
 
 function fakeStarter(options: { refuse?: string; fail?: string } = {}) {
-  const opened: { title: string; openedBy: unknown; threadId: string }[] = [];
+  const opened: { title: string; openedBy: unknown; threadId: string; machine?: string }[] = [];
   const ran: { threadId: string; instruction: string }[] = [];
   const starter: TaskStarter = {
-    open: (title, openedBy) => {
+    open: (title, openedBy, machine) => {
       if (title === options.refuse) return null;
       const threadId = `task-${opened.length + 1}`;
-      opened.push({ title, openedBy, threadId });
+      opened.push({ title, openedBy, threadId, ...(machine ? { machine } : {}) });
       return threadId;
     },
     run: async (threadId, instruction) => {
@@ -23,6 +23,14 @@ function fakeStarter(options: { refuse?: string; fail?: string } = {}) {
 }
 
 describe("a dog starting tasks of its own", () => {
+  it("passes the machine size the dog picked for each task, and none when it left it out", async () => {
+    const { starter, opened } = fakeStarter();
+    const input = startTasksInput.parse({ tasks: [{ title: "Fix the build", instruction: "Make pnpm build pass.", machine: "large" }, { title: "Reply to Sam", instruction: "Say yes to Friday.", machine: "small" }, { title: "Plan the trip", instruction: "Three options." }] });
+    await startTasks(starter, OLIVE, "main-thread", input);
+    expect(opened.map((task) => [task.title, task.machine])).toEqual([["Fix the build", "large"], ["Reply to Sam", "small"], ["Plan the trip", undefined]]);
+    expect(startTasksInput.safeParse({ tasks: [{ title: "x", instruction: "y", machine: "huge" }] }).success).toBe(false);
+  });
+
   it("opens each piece of work as its own conversation, marked as started by the dog from this one, and starts it", async () => {
     const { starter, opened, ran } = fakeStarter();
     const input = startTasksInput.parse({ tasks: [{ title: "Book the flights", instruction: "Find flights to Tokyo for Nov 12-19." }, { title: "Find a hotel", instruction: "Find a hotel near Shibuya." }] });

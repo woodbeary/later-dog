@@ -230,6 +230,24 @@ describe("switching the index off and on", () => {
       wiring.setMode("shadow");
     }
   });
+
+  it("feeds every chat again when asked, answering from the home's database until each chat is fed", async () => {
+    const chats = ["dog-a-main", "dog-a-task"];
+    wiring.setMode("remote");
+    try {
+      wiring.refeed();
+      expect(wiring.status().backfill.chatsCovered).toBe(0);
+      const before = wiring.status().remote;
+      expect(await wiring.recall({ dog: "dog-a", query: "invoice", chats, limit: 12 }, async () => [])).toEqual([]);
+      expect(wiring.status().remote).toEqual(before);
+      await wiring.settled();
+      expect(wiring.status().backfill.chatsCovered).toBeGreaterThanOrEqual(CHATS.length);
+      expect(indexOutbox.all()).toEqual([]);
+      expect(await wiring.recall({ dog: "dog-a", query: "invoice", chats, limit: 12 }, async () => [])).toEqual(shard("dog-a").recall({ query: "invoice", chats, limit: 12 }));
+    } finally {
+      wiring.setMode("shadow");
+    }
+  });
 });
 
 const queries = [...WORDS.slice(0, 30), "dentist invoice", "flights lisbon booking", "the", "remind me about my passport and visa", "Taxes receipts", "garden-fence"];
