@@ -111,15 +111,17 @@ export class DurableFolderRead {
   async directory(leaf: Leaf, cursor: unknown): Promise<FsReply> {
     if (leaf.item.kind !== "dir") throw folderError("ENOTDIR");
     const prefix = leaf.item.path ? leaf.item.path + "/" : "";
-    const start = cursor ? String(cursor) : prefix;
-    if (!start.startsWith(prefix)) throw folderError("EINVAL");
+    const position = cursor === undefined || cursor === "" ? 0 : Number(cursor);
+    if (!Number.isSafeInteger(position) || position < 0) throw folderError("EINVAL");
     if (!leaf.revision) return { ok: true, entries: [] };
     const root = await this.root(leaf.revision);
     const entries = [];
-    for await (const entry of this.entries(root.entries, start, prefix ? prefix.slice(0, -1) + "0" : null, 0, prefix)) {
+    let seen = 0;
+    for await (const entry of this.entries(root.entries, prefix, prefix ? prefix.slice(0, -1) + "0" : null, 0, prefix)) {
       const name = entry.path.slice(prefix.length);
       if (!name || name.includes("/")) continue;
-      if (entries.length === 64) return { ok: true, entries, next: entry.path };
+      if (seen++ < position) continue;
+      if (entries.length === 64) return { ok: true, entries, next: String(position + entries.length) };
       const { mode, ino } = this.attr(entry);
       entries.push({ name, mode, ino });
     }

@@ -241,6 +241,29 @@ describe("assigned working folders on guest computers", () => {
     expect(readFileSync(join(f.right, "kept-150.txt"), "utf8")).toBe("changed during a turn");
   });
 
+  it("writes a listing page only after the pages it lists are stored, however slowly storage answers", async () => {
+    const f = await fixture();
+    for (let n = 0; n < 300; n++) writeFileSync(join(f.src, `kept-${String(n).padStart(3, "0")}.txt`), `kept ${n}`);
+    await publishInitialWorkFolder(f.src, f.store);
+    await f.syncA();
+    for (let n = 0; n < 300; n += 40) writeFileSync(join(f.left, `kept-${String(n).padStart(3, "0")}.txt`), `changed ${n}`);
+    const reach = globalThis.fetch;
+    const refused: number[] = [];
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      if (url.endsWith("/publish")) return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
+      const leaf = options?.method === "PUT" && url.includes("/manifests/") && !Buffer.from(options.body as Uint8Array).toString("utf8").includes('"kind":"pages"');
+      if (leaf) await new Promise((resolve) => setTimeout(resolve, 40));
+      const response = await reach(url, options);
+      if (response.status === 422) refused.push(response.status);
+      return response;
+    });
+    await f.syncA();
+    vi.stubGlobal("fetch", reach);
+    expect(refused).toEqual([]);
+    await f.syncB();
+    expect(readFileSync(join(f.right, "kept-120.txt"), "utf8")).toBe("changed 120");
+  });
+
   it("falls back to page writes and a commit when the home does not offer one-request saves yet", async () => {
     const f = await fixture();
     await publishInitialWorkFolder(f.src, f.store);
