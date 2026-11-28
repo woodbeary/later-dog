@@ -337,6 +337,7 @@ import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
 import { historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
 import { DogObjectCalls, ObjectRoutines } from "./laterdog/object-routines.ts";
+import { ObjectInbox } from "./laterdog/object-inbox.ts";
 import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
 import { SkillsPromptCache, skillsPromptWorker } from "./skills-prompt-cache.ts";
 import { readMessageText, recallMemoryOffThread, recallMessagesOffThread, recentMessagesOffThread, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
@@ -1128,6 +1129,22 @@ const objectRoutines = dogObjectCalls ? new ObjectRoutines({
   dogs: () => store.bots.map((bot) => bot.id),
   timeZone: () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   admitted: () => void routines?.tick(),
+}) : null;
+const inboxInObject = (botId: string) => Boolean(dogObjectCalls) && dogPartModeFor(coordinatorSetting.inbox, botId) === "object";
+const objectInbox = dogObjectCalls ? new ObjectInbox({
+  calls: dogObjectCalls,
+  owned: inboxInObject,
+  dogs: () => store.bots.map((bot) => bot.id),
+  book: () => ({
+    delivery: (id) => roomHandoffs.delivery(id),
+    redeliver: async (dog, letter) => {
+      const bot = store.bot(dog);
+      if (!bot) return;
+      const threadId = letter.toChat && store.taskByThread(dog, letter.toChat) ? letter.toChat : bot.threadId;
+      const from = store.bot(letter.from)?.name ?? "Another of your dogs";
+      await acceptDirectSend({ botId: dog, threadId, text: `${from} sent you this: ${letter.text}`, sendId: `inbox-${letter.clientId}`, trigger: { kind: "bot", botId: letter.from }, personPresent: false });
+    },
+  }),
 }) : null;
 const objectRowOf = (item: SteerQueueItem, status: "accepted" | "pending") =>
   ({ id: item.messageId, sendId: item.sendId ?? null, status, payload: item, at: item.queuedAt });
@@ -5247,6 +5264,7 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
       if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
     }
     if (directThreadIds.size > 0) drainQueuedSends();
+    objectInbox?.changed();
   },
   activity: node => node.groupId ? undefined : handoffActivity(watchdog.snapshot(node.threadId)),
   turnRunning: node => threadBusy(node.botId, node.threadId) || directTurnDispatchClaims.has(node.threadId) || pendingComputerResumes.has(node.threadId),
@@ -14349,8 +14367,8 @@ const workspaceBackupAccess = {
       teamComputers.list().every(computer => !teamComputerInUse(computer)) &&
       store.bots.every((bot) => !botHasActiveTurn(bot.id) && !routines?.activeRunForBot(bot.id) && !botComputerControlSnapshot(bot.id).held) &&
       store.groups.every((group) => !groupIsWorking(group)),
-    pause: () => { routines?.stop(); objectRoutines?.stop(); calendarCalls?.stop(); watchdog.stop(); memoryUpkeep.pause(); },
-    resume: () => { routines?.start(); objectRoutines?.start(); calendarCalls?.start(); watchdog.start(); memoryUpkeep.resume(); },
+    pause: () => { routines?.stop(); objectRoutines?.stop(); objectInbox?.stop(); calendarCalls?.stop(); watchdog.stop(); memoryUpkeep.pause(); },
+    resume: () => { routines?.start(); objectRoutines?.start(); objectInbox?.start(); calendarCalls?.start(); watchdog.start(); memoryUpkeep.resume(); },
     flush: async () => {
       if (assignedJobFolders) await checkpointAssignedFolders(process.env.LATERDOG_WORK_FOLDER_CHECKPOINT_SOCKET);
       await Promise.all([flushAllProfileHistory(), flushAllMemoryJournals(), flushUsageLedger(DATA_DIR), flushDecisionLog(DATA_DIR), flushAdminActivity(DATA_DIR)]);
@@ -14449,7 +14467,7 @@ ROUTES.push(createSearchIndexRoutes({
 if (searchIndex) searchIndex.setMode(readSearchIndexMode(DATA_DIR));
 ROUTES.push(createCoordinatorRoutes({
   available: () => Boolean(CLOUD_HOME),
-  read: () => ({ ...coordinatorSetting, routineClient: objectRoutines ? objectRoutines.state : null, historyWriter: historyWriter ? historyWriter.state() : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
+  read: () => ({ ...coordinatorSetting, routineClient: objectRoutines ? objectRoutines.state : null, inboxClient: objectInbox ? { pending: objectInbox.pending(), ...objectInbox.state } : null, historyWriter: historyWriter ? historyWriter.state() : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
   change: async (change) => {
     const before = coordinatorSetting;
     coordinatorSetting = mergeCoordinatorSetting(coordinatorSetting, change);
@@ -16519,6 +16537,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 requestId: node.id,
                 ...(destination ? {} : { threadId: node.threadId }),
               }));
+              if (!duplicate && !destination) {
+                void objectInbox?.sent(target.botId, { clientId: node.id, from: internalSender.id, fromChat: address.threadId, toChat: node.threadId, text: parsed.data.message, replyTo: null });
+              }
               if (!duplicate) {
                 const recipient = store.bot(target.botId)!;
                 const exchange = destination ? undefined : openPeerExchange(internalSender, recipient, parsed.data.message);
@@ -22888,6 +22909,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   routines!.start();
   objectRoutines?.start();
+  objectInbox?.start();
   memoryUpkeep.start();
   const waiting = limitHold.resume();
   if (waiting.length) console.log(`token battery: ${waiting.length} conversation(s) waiting on a usage limit from a previous run`);
@@ -22919,6 +22941,7 @@ const gracefulShutdown = createGracefulShutdown({
       watchdog.stop();
       routines?.stop();
       objectRoutines?.stop();
+      objectInbox?.stop();
       calendarCalls?.stop();
       memoryUpkeep.stop();
       webhookIngress?.server.close();
