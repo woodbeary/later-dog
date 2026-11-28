@@ -1,5 +1,6 @@
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { commsTokenFromEnv } from "../laterdog/comms-token-file.ts";
 
 export type Json = Record<string, unknown>;
 
@@ -34,7 +35,8 @@ export function postAndWait(url: string, token: string, body: string, waitMs: nu
   });
 }
 
-export function createHarnessClient(baseUrl: string, token: string): HarnessClient {
+export function createHarnessClient(baseUrl: string, tokenSource: string | (() => string)): HarnessClient {
+  const token = typeof tokenSource === "string" ? () => tokenSource : tokenSource;
   async function api(path: string, init?: RequestInit): Promise<Json> {
     const { ok, status, body } = await apiResponse(path, init);
     if (!ok) throw new Error(String(body.error ?? `HTTP ${status}`));
@@ -44,17 +46,17 @@ export function createHarnessClient(baseUrl: string, token: string): HarnessClie
   async function apiResponse(path: string, init?: RequestInit): Promise<{ ok: boolean; status: number; body: Json }> {
     const res = await fetch(baseUrl + path, {
       ...init,
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...init?.headers },
+      headers: { "content-type": "application/json", authorization: `Bearer ${token()}`, ...init?.headers },
     });
     const body = (await res.json().catch(() => ({}))) as Json;
     return { ok: res.ok, status: res.status, body };
   }
 
-  const apiWait = (path: string, body: string, waitMs: number, signal?: AbortSignal) => postAndWait(baseUrl + path, token, body, waitMs, signal);
+  const apiWait = (path: string, body: string, waitMs: number, signal?: AbortSignal) => postAndWait(baseUrl + path, token(), body, waitMs, signal);
 
   return { api, apiResponse, apiWait };
 }
 
 export function harnessClientFromEnv(env: NodeJS.ProcessEnv): HarnessClient {
-  return createHarnessClient(env.LATERDOG_HARNESS_URL ?? "http://127.0.0.1:8799", env.LATERDOG_COMMS_TOKEN ?? "");
+  return createHarnessClient(env.LATERDOG_HARNESS_URL ?? "http://127.0.0.1:8799", commsTokenFromEnv(env));
 }

@@ -1172,8 +1172,9 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.mcpConfig.mcpServers.agents).toMatchObject({
       alwaysLoad: true,
       args: ["/fake/agents-proxy.js"],
-      env: { LATERDOG_BOT_ID: "b1", LATERDOG_COMMS_TOKEN: "tok" },
+      env: { LATERDOG_BOT_ID: "b1" },
     });
+    expect(readFileSync(seen.mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN_FILE, "utf8")).toBe("tok");
     expect(JSON.stringify(seen.argv)).not.toContain("tok");
     const allowed = seen.argv[seen.argv.indexOf("--allowedTools") + 1];
     expect(allowed).toContain("mcp__agents");
@@ -1475,6 +1476,28 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     };
     const first = await send("one", "Sam runs a shop.", false);
     expect(await send("two", "Sam runs a shop and has a dog called Biscuit.", true)).toBe(first);
+  });
+
+  it("keeps the same engine when only the turn's teammate capability changes, and hands each turn its own capability through a file", async () => {
+    await create();
+    const dump = join(scratch, "comms-token.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const send = async (text: string, token: string) => {
+      recorder.events.length = 0;
+      await instance.adapter.sendTurn({ threadId: "t-comms-token", text, system: "You are Testy.", systemStable: "You are Testy.",
+        integrations: { agents: { command: process.execPath, args: ["agents-fixture"], env: { LATERDOG_THREAD_ID: "t-comms-token", LATERDOG_COMMS_TOKEN: token } } } });
+      await recorder.until((e) => e.type === "turn.completed");
+      const seen = JSON.parse(readFileSync(dump, "utf8"));
+      const env = seen.mcpConfig.mcpServers.agents.env;
+      return { pid: seen.pid, env, token: readFileSync(env.LATERDOG_COMMS_TOKEN_FILE, "utf8") };
+    };
+    const first = await send("one", "capability-one");
+    expect(first.env.LATERDOG_COMMS_TOKEN).toBeUndefined();
+    expect(first.token).toBe("capability-one");
+    const second = await send("two", "capability-two");
+    expect(second.pid).toBe(first.pid);
+    expect(second.token).toBe("capability-two");
+    expect(statSync(first.env.LATERDOG_COMMS_TOKEN_FILE).mode & 0o777).toBe(0o600);
   });
 
   it("still relaunches when the stable half of the prompt changes", async () => {
