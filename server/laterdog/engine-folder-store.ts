@@ -264,7 +264,8 @@ export class FolderStore extends FolderTreeReader {
       const bytes = Buffer.from(JSON.stringify(node)), hash = folderHash(bytes);
       if (this.cachedPages.has(hash)) return Promise.resolve(hash);
       this.cachedPages.set(hash, node);
-      writes.push(slot().then(() => this.put("manifests", bytes)).catch((error) => { this.cachedPages.delete(hash); throw error; }).finally(done));
+      const children = node.kind === "pages" ? Promise.all(writes.slice()) : Promise.resolve();
+      writes.push(children.then(slot).then(() => this.put("manifests", bytes).finally(done)).catch((error) => { this.cachedPages.delete(hash); throw error; }));
       return Promise.resolve(hash);
     });
     await Promise.all(writes);
