@@ -12,6 +12,8 @@ export const FOLDER_SEARCH_FILE_BYTES = 1024 * 1024;
 export const FOLDER_SEARCH_MATCHES = 100;
 export const FOLDER_SEARCH_MS = 20_000;
 const SKIPPED = new Set([".git", "node_modules"]);
+const CHANGES = new Set(["write", "edit", "delete"]);
+export const FOLDER_NOT_SAVED = "Not saved: your folder is not answering, so nothing was written to it. A file in your scratch folder is not saved to your folder. Tell the person it was not saved, and try again in a minute.";
 
 export type FolderRun = <T>(path: string, op: () => Promise<T>) => Promise<T>;
 
@@ -58,13 +60,13 @@ export async function folderAction(request: FolderRequest, roots: readonly strin
   try {
     return { status: 200, text: await act(request, roots.map((root) => resolve(root)), run) };
   } catch (error) {
-    if (error instanceof FolderRefusal) return { status: error.status, error: error.message };
+    if (error instanceof FolderRefusal) return { status: error.status, error: `${CHANGES.has(String(request.action)) ? "Not saved: " : ""}${error.message}` };
     const code = (error as NodeJS.ErrnoException | null)?.code;
-    if (code === "EMOUNTDOWN") return { status: 503, error: (error as Error).message };
+    if (code === "EMOUNTDOWN") return { status: 503, error: CHANGES.has(String(request.action)) ? FOLDER_NOT_SAVED : "Your folder is not answering right now, so it could not be read. Try again in a minute." };
     if (code === "ENOENT") return { status: 404, error: "Nothing is at that path in your folder." };
     if (code === "EISDIR") return { status: 400, error: "That path is a folder; use action list." };
     if (code === "ENOTDIR") return { status: 400, error: "That path is a file, not a folder." };
-    return { status: 500, error: `The folder could not do that: ${(error as Error).message}` };
+    return { status: 500, error: `${CHANGES.has(String(request.action)) ? "Not saved: nothing was written to your folder. " : ""}The folder could not do that: ${(error as Error).message}` };
   }
 }
 

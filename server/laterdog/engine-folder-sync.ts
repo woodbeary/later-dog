@@ -332,7 +332,10 @@ export async function syncFolder(
     if (!current.manifest) throw new Error("Working folder head disappeared");
     if (purpose === "save" && !equalTree(local.tree, next))
       return { revision: current.revision, manifest: current.manifest, changed: current.revision !== head.revision };
-    await applyFolder(store, binding.path, local, next, linkFor);
+    const arrivals = join(dir, "arrived");
+    mkdirSync(arrivals, { recursive: true, mode: 0o700 });
+    await applyFolder(store, binding.path, local, next, linkFor, arrivals);
+    rmSync(arrivals, { recursive: true, force: true });
     const final = await visitFolder(binding.path, local, progress, next, aliases, linkFor);
     if (!equalTree(final.tree, next))
       throw new Error(

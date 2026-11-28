@@ -182,7 +182,7 @@ export async function runFileWork<T>(work: FileWork<T>, signal?: AbortSignal, on
   return step.value;
 }
 
-function* fileHash(root: EngineFileRoot, name: string, end?: number): FileWork<string> {
+export function* fileHash(root: EngineFileRoot, name: string, end?: number): FileWork<string> {
   const hash = createHash("sha256");
   for (const chunk of engineFileChunks(root, name, ENGINE_WINDOW_BYTES, 0, end)) { hash.update(chunk); yield; }
   return hash.digest("hex");
