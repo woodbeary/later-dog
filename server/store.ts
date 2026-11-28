@@ -105,6 +105,7 @@ export function toWireTask(task: TaskRecord, botModel: ModelSelection, bots: rea
 
 const ASK_NOW = { approvalMode: "ask" as const, autoApprove: false, alwaysAllow: [] as string[] };
 
+export const BOTS_FLUSH_MS = 250;
 const TASK_PATCH_FIELDS = [
   "title", "projectId", "modelSelection", "approvalMode", "autoApprove", "alwaysAllow",
   "unread", "rewound", "archivedAt", "pinned", "pinnedMessageId", "resumeCursors", "lastInstanceId", "cwd",
@@ -477,8 +478,8 @@ function taskCountsAsBotUnread(task: { unread?: boolean; routineRunId?: string }
   return Boolean(task.unread) && !task.routineRunId;
 }
 
-export const DEFAULT_THREAD_CACHE_MAX_THREADS = 64;
-export const DEFAULT_THREAD_CACHE_MAX_MESSAGES = 10_000;
+export const DEFAULT_THREAD_CACHE_MAX_THREADS = 256;
+export const DEFAULT_THREAD_CACHE_MAX_MESSAGES = 40_000;
 
 export interface ThreadCacheLimits {
   maxThreads?: number;
@@ -885,6 +886,28 @@ export class Store {
     };
     for (const bot of this.bots) sweep(bot.tasks, () => { botsDirty = true; });
     if (botsDirty) this.saveBots();
+  }
+
+  private botsFlush: ReturnType<typeof setTimeout> | null = null;
+
+  private saveBotsSoon(): void {
+    if (this.botsFlush) return;
+    this.botsFlush = setTimeout(() => {
+      this.botsFlush = null;
+      try {
+        this.saveBots();
+      } catch (error) {
+        console.error(`[store] could not save dogs: ${(error as Error).message}`);
+      }
+    }, BOTS_FLUSH_MS);
+    this.botsFlush.unref?.();
+  }
+
+  flushBots(): void {
+    if (!this.botsFlush) return;
+    clearTimeout(this.botsFlush);
+    this.botsFlush = null;
+    this.saveBots();
   }
 
   private saveBots(bots: BotRecord[] = this.bots, registerSections = true) {
@@ -2043,7 +2066,7 @@ export class Store {
     const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
     if (task) task.resumeCursors[instanceId] = cursor;
     if (!threadId || bot.threadId === threadId) bot.resumeCursors[instanceId] = cursor;
-    this.saveBots();
+    this.saveBotsSoon();
     this.emit({ type: "bot", botId });
   }
 
@@ -2051,7 +2074,7 @@ export class Store {
     const task = this.taskByThread(botId, threadId);
     if (!task || task.lastInstanceId === instanceId) return;
     task.lastInstanceId = instanceId;
-    this.saveBots();
+    this.saveBotsSoon();
   }
 
   setHandedMessages(botId: string, threadId: string, instanceId: string, state: HandedState) {
@@ -2060,7 +2083,7 @@ export class Store {
     const live = Object.entries(task.handedMessages ?? {})
       .filter(([id, record]) => id !== instanceId && record.session !== undefined && record.session === task.resumeCursors[id]);
     task.handedMessages = { ...Object.fromEntries(live), [instanceId]: state };
-    this.saveBots();
+    this.saveBotsSoon();
   }
 
   addTaskUsage(
@@ -2096,7 +2119,7 @@ export class Store {
         ? { context: { tokens: contextTokens, ...(contextWindow > 0 ? { window: contextWindow, ...(turn.context?.windowSource ? { windowSource: turn.context.windowSource } : {}) } : {}) } }
         : prev.context ? { context: prev.context } : {}),
     };
-    this.saveBots();
+    this.saveBotsSoon();
     this.emit({ type: "bot", botId });
     return task.usage;
   }

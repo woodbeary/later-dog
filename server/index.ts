@@ -334,6 +334,7 @@ import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
+import { BOT_BROADCAST_MS, coalescedBroadcasts } from "./laterdog/coalesced-broadcasts.ts";
 import { historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
 import { DogObjectCalls, ObjectRoutines } from "./laterdog/object-routines.ts";
 import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
@@ -5670,6 +5671,10 @@ function pageIfThreadChanged(id: string, threadId: string) {
   sentThreads.set(id, threadId);
   return messagePage(threadId, DEFAULT_PAGE);
 }
+const botBroadcasts = coalescedBroadcasts(BOT_BROADCAST_MS, (botId) => {
+  const bot = store.bot(botId);
+  if (bot) broadcast({ kind: "bot", bot: { ...wireBot(bot), ...pageIfThreadChanged(bot.id, bot.threadId) } });
+});
 store.onChange((change) => {
   if (change.type !== "message" && change.type !== "message.patch" && change.type !== "thread" && change.type !== "sections") forgetVisibility();
   switch (change.type) {
@@ -5693,7 +5698,7 @@ store.onChange((change) => {
       break;
     case "bot": {
       const bot = store.bot(change.botId);
-      if (bot) broadcast({ kind: "bot", bot: { ...wireBot(bot), ...pageIfThreadChanged(bot.id, bot.threadId) } });
+      if (bot) botBroadcasts.soon(bot.id);
       if (bot) for (const group of store.groups.filter((candidate) => candidate.memberIds.includes(bot.id))) settleRoomFloor(group);
       break;
     }
@@ -22858,6 +22863,7 @@ server.listen(PORT, "127.0.0.1", async () => {
 const gracefulShutdown = createGracefulShutdown({
   cleanup: [
     () => {
+      store.flushBots();
       followupsReady = false;
       companyShutdown = true;
       inflightTurns.markPlanned();

@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, workspaceRecovery, decodeEngineChunk, engineFileChunks, engineFileKey, inventoryWork, runFileWork, transcriptPrefixWork, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 import { createHash } from "node:crypto";
 import { inProcessProxy, type ProxyHandle } from "./in-process-proxies.ts";
+import { answerHook, hookBudget, laterdogHookTarget } from "../hooks/hook-answer.ts";
 
 export interface EngineLink extends EventEmitter {
   opening?: boolean;
@@ -372,6 +373,13 @@ export class RemoteSession extends EventEmitter {
   async #runHook(id: string, index: number, payload: unknown): Promise<void> {
     const command = this.#launch.hooks[index];
     if (!command) { this.#send({ type: "hook_result", id, body: { stdout: "", code: 0 } }); return; }
+    const target = laterdogHookTarget(command);
+    if (target) {
+      const env = this.#launch.hookEnv;
+      const answer = await answerHook({ ...target, payload, budgetMs: hookBudget(env), requireReply: env.LATERDOG_REQUIRE_HOOK_REPLY === "1" });
+      if (!this.#closed) this.#send({ type: "hook_result", id, body: { stdout: answer.stdout, stderr: "", code: answer.code } });
+      return;
+    }
     const child = spawn("/bin/sh", ["-c", command], { cwd: this.#launch.homeCwd ?? this.#launch.cwd, env: this.#launch.hookEnv, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = ""; let stderr = "";
     child.stdout.on("data", (bytes) => { if (stdout.length < 1024 * 1024) stdout += bytes; });
