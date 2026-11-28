@@ -97,3 +97,11 @@ it("matches globs by name or by path", () => {
   expect(folderGlob("src/**/*.md").test("src/a/b/c.md")).toBe(true);
   expect(folderGlob("src/*.md").test("src/a/c.md")).toBe(false);
 });
+
+it("answers that a chat's new folder is empty and names the dog's other folders", async () => {
+  const f = folder();
+  const fresh = join(f.base, "chat");
+  const answer = await folderAction({ action: "list" }, [fresh, f.work], f.run);
+  expect(answer).toEqual({ status: 200, text: `. is empty.\nYour other folders: ${f.work}` });
+  expect((await folderAction({ action: "list" }, [f.work, fresh], f.run)).text).toContain(`Your other folders: ${fresh}`);
+});
