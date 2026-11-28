@@ -111,6 +111,7 @@ export class HistoryWriter {
     this.current = mode;
     this.options.keepOutbox(mode !== "off");
     if (mode === "off") {
+      this.options.database.write((db) => clearCoverageOutside(db, () => false));
       if (before === "object-writer") void this.reconcileAll("reverse");
       return;
     }
@@ -324,7 +325,7 @@ export class HistoryWriter {
 
   private covered(threadId: string, stats: { count: number; bytes: number }): boolean {
     this.mismatched.delete(threadId);
-    this.options.database.write((database) => markCovered(database, threadId, stats, this.now()));
+    if (this.current !== "off") this.options.database.write((database) => markCovered(database, threadId, stats, this.now()));
     return true;
   }
 
