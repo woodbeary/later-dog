@@ -17,6 +17,7 @@ beforeAll(async () => {
     seen.push({ url: req.url ?? "", auth: req.headers.authorization });
     res.setHeader("content-type", "application/json");
     if (req.url?.startsWith("/api/internal/agents")) return void res.end(JSON.stringify({ bots: [{ id: "bot-helper", name: "Helper ünïcode", model: "m", busy: false }] }));
+    if (req.url === "/api/internal/computer/mcp") return void res.end(JSON.stringify({ result: { tools: [{ name: "screenshot" }] } }));
     res.statusCode = 404;
     res.end("{}");
   });
@@ -49,6 +50,23 @@ describe("agents tools served in the home process", () => {
     expect(servedInProcess({ command: process.execPath, args: [SPAWNED_PROXIES.permission, "/tmp/s.sock"] })).toBe(true);
     expect(servedInProcess({ command: process.execPath, args: [SPAWNED_PROXIES.mcpGate, SPAWNED_PROXIES.agents] })).toBe(false);
     expect(servedInProcess({ command: "npx", args: ["some-server"] })).toBe(false);
+    expect(servedInProcess({ command: process.execPath, args: [SPAWNED_PROXIES.harnessMcp, "computer"] })).toBe(true);
+    expect(servedInProcess({ command: process.execPath, args: [SPAWNED_PROXIES.harnessMcp, "browser"] })).toBe(true);
+    expect(servedInProcess({ command: process.execPath, args: [SPAWNED_PROXIES.harnessMcp, "desktop"] })).toBe(false);
+  });
+
+  it("serves a pool engine's cloud computer tools without starting a process on the home", async () => {
+    const { proxy, exits, reply } = served({ command: process.execPath, args: [SPAWNED_PROXIES.harnessMcp, "computer"] }, { LATERDOG_MCP_TOKEN: "computer-capability" });
+    proxy.write(Buffer.from([
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+    ].map((frame) => JSON.stringify(frame)).join("\n") + "\n"));
+    expect((await reply(1)).result.serverInfo.name).toBe("laterdog-computer");
+    expect((await reply(2)).result.tools).toEqual([{ name: "screenshot" }]);
+    expect(seen.some((call) => call.url === "/api/internal/computer/mcp" && call.auth === "Bearer computer-capability")).toBe(true);
+    proxy.end();
+    expect(exits).toEqual([0]);
   });
 
   it("asks the chat's permission broker over its socket and answers the engine", async () => {
