@@ -237,6 +237,7 @@ describe("assigned working folders on guest computers", () => {
     await f.syncA();
     vi.stubGlobal("fetch", reach);
     expect(calls.filter((call) => call === "PUT manifests").length).toBeLessThanOrEqual(4);
+    expect(calls.filter((call) => call === "HEAD manifests").length).toBeLessThanOrEqual(4);
     await f.syncB();
     expect(readFileSync(join(f.right, "kept-150.txt"), "utf8")).toBe("changed during a turn");
   });
