@@ -55,6 +55,7 @@ import { canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../sh
 import { gateServer } from "../../mcp-gate-config.ts";
 import { readEngineModels } from "../../laterdog/wait-at-most.ts";
 import { ENGINE_BYTES, engineIdleLimit, warmEngines } from "../../laterdog/warm-engines.ts";
+import type { UsageLimit } from "../../laterdog/usage-limit.ts";
 import { readCliVersion, unreadCli } from "../../laterdog/cli-version.ts";
 
 export type AccountErrorCode = Extract<ProviderErrorCode,
@@ -223,6 +224,7 @@ export interface AcpSupport {
   ): boolean | Promise<boolean>;
   requireAuthenticationBeforeSpawn?: boolean;
   classifyError?(error: unknown): ProviderErrorCode | undefined;
+  usageLimit?(error: { message?: unknown; code?: unknown; data?: unknown }): UsageLimit | null;
   describeAccountError?(code: AccountErrorCode, model?: string): string;
   buildPromptText?(turn: SendTurnInput): string;
   resolveTurnModel?(
@@ -1659,10 +1661,12 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 : typeof result?.message === "string" && result.message
                   ? result.message
                   : `Model turn failed: ${reason ?? "unknown error"}`;
+              const limit = support.usageLimit?.({ message: errorMessage, code: result?.code, data: result });
               emit({
                 ...base(threadId, turnId),
                 type: "runtime.error",
                 message: errorMessage,
+                ...(limit ? { terminal: true, quota: limit } : {}),
               });
               settle(threadId, session, false, reason ?? "failed");
             }
@@ -1701,11 +1705,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                   stopReason: state.stopped ? "cancelled" : "rpc_error", cost: null });
                 return;
               }
+              const limit = needsAuth || accountError ? null
+                : support.usageLimit?.({ message, code: (e as any)?.code, data: (e as any)?.data }) ?? null;
               emit({
                 ...base(threadId, turnId),
                 type: "runtime.error",
                 message: accountError ? support.describeAccountError?.(code, cliTurn.model) ?? message : message,
                 ...(needsAuth ? { setup: true } : {}),
+                ...(limit ? { terminal: true, quota: limit } : {}),
               });
               if (!needsAuth && !accountError && ((e as any)?.acpPromptStall === true || (e as any)?.acpSessionFailure === true
                   || code === "upstream_outage") && session.child.exitCode === null && !session.closing) {
