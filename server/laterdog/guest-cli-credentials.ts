@@ -76,8 +76,9 @@ export async function guestCliCredentials(driver: string, instanceId: string, en
     if (!login) throw new Error("Antigravity needs a sign-in for the selected account.");
     const nested = login.token && typeof login.token === "object" && !Array.isArray(login.token) ? login.token as Record<string, unknown> : null;
     if (nested) {
-      if (!text(nested.access_token) || !fresh(nested.expiry, now)) throw new Error("Antigravity needs a current access token for the selected account.");
-      out.files.antigravity = JSON.stringify({ ...selected(login, ["auth_method", "id_token_email"]), token: selected(nested, ["access_token", "token_type", "expiry", "expires_in"]) });
+      const renewable = text(nested.refresh_token);
+      if (!text(nested.access_token) || (!renewable && !fresh(nested.expiry, now))) throw new Error("Antigravity needs a current access token for the selected account.");
+      out.files.antigravity = JSON.stringify({ ...selected(login, ["auth_method", "id_token_email"]), token: selected(nested, ["access_token", "token_type", "refresh_token", "expiry", "expires_in"]) });
     } else {
       const key = ["access_token", "accessToken", "token"].find(key => text(login[key]));
       if (!key || !fresh(login.expiry_date ?? login.expires_at ?? login.expiresAt, now)) throw new Error("Antigravity needs a current access token for the selected account.");
