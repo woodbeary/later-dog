@@ -25,7 +25,7 @@ it("holds upstream credentials on the home and enforces the selected tool on the
       toolScope: { allow: ["native:*", "mcp:agents:lookup", "mcp:computer:lookup", "mcp:custom:lookup"] },
       integrations: { agents: spec, browser: spec, localComputer: { ...spec, scope: "local-computer" },
         custom: { agents: spec, custom: spec, unused: { type: "http", url: "https://example.invalid", headers: {} } } } };
-    const prepared = guestProviderPlan(dir, "grokAgent", profile, turn, opener);
+    const prepared = await guestProviderPlan(dir, "grokAgent", profile, turn, opener);
     const home = prepared.plan.launch.mcp;
     expect(Object.keys(home).sort()).toEqual(["agents", "custom-1", "localComputer"]);
     expect(home["custom-1"].env?.LATERDOG_GATE_NAME).toBe("custom");
@@ -47,6 +47,6 @@ it("holds upstream credentials on the home and enforces the selected tool on the
       expect((await request(2, "tools/call", { name: "lookup" })).result.content[0].text).toBe("lookup-home-fixture");
       expect((await request(3, "tools/call", { name: "update" })).error).toBeDefined();
     } finally { gate.stdin.end(); gate.kill(); }
-    expect(() => guestProviderPlan(dir, "grokAgent", profile, { ...turn, toolScope: { allow: ["invalid"] } }, opener)).toThrow("Tool selection");
+    await expect(guestProviderPlan(dir, "grokAgent", profile, { ...turn, toolScope: { allow: ["invalid"] } }, opener)).rejects.toThrow("Tool selection");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

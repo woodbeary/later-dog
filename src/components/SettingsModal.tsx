@@ -19,6 +19,7 @@ import { HelpRows } from "./SettingsHelp";
 import { CloudComputerRows } from "./CloudComputerRows";
 import { CloudAccountSettings, cloudAccountShown } from "./CloudAccountSettings";
 import { ThisComputerRow } from "./ComputerSettings";
+import { MachinesPanel } from "./MachinesPanel";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { SettingRow, SettingsGroup, SettingsRows, Switch } from "./SettingsPrimitives";
 import { CloudLending } from "./CloudLending";
@@ -28,6 +29,7 @@ import { DefaultModelRow } from "./DefaultModelSettings";
 import { CallButtonRow } from "./CallButtonSettings";
 import { MacAccessGroup } from "./MacAccessGroup";
 import { FullAccessAllGroup } from "./FullAccessAllGroup";
+import { RecentlyDeletedGroup } from "./RecentlyDeletedGroup";
 import { PhoneGroup } from "./PhoneGroup";
 import { DevicesGroup } from "./DevicesGroup";
 import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
@@ -304,6 +306,7 @@ function ComputerPage({ mac }: { mac: boolean }) {
   return (
     <>
       {state.config?.cloudHome === true && <FullAccessAllGroup />}
+      <RecentlyDeletedGroup />
       {state.config?.cloudHome === true && <MacAccessGroup />}
       {state.config?.cloudHome === true && <PhoneGroup />}
       <DevicesGroup />
@@ -319,6 +322,11 @@ function ComputerPage({ mac }: { mac: boolean }) {
       <SettingsGroup label={t("vm.cloud.title")} testId="cloud-computers">
         <CloudComputerRows />
       </SettingsGroup>
+      {state.config?.cloudHome === true && (
+        <SettingsGroup label={t("machines.group")} testId="task-machines">
+          <MachinesPanel />
+        </SettingsGroup>
+      )}
     </>
   );
 }

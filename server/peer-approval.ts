@@ -195,19 +195,18 @@ function peerCardThreads(bus: ApprovalBus): Set<string> {
   return threadIds;
 }
 
+const PEER_CARD_TOOLS = ["ask_bot", "delegate_bot", "post_to_room"] as const;
+
 export function dismissStalePeerCards(bus: ApprovalBus): number {
+  const threads = peerCardThreads(bus);
   let dismissed = 0;
-  for (const threadId of peerCardThreads(bus)) {
-    for (const message of bus.store.messagesFor(threadId)) {
-      const card = message.card;
-      if (!card?.requestId || card.answered || card.dismissed) continue;
-      if (card.tool !== "ask_bot" && card.tool !== "delegate_bot" && card.tool !== "post_to_room") continue;
-      if (pendingComms.has(card.requestId)) continue;
-      const patched = bus.store.patchMessage(threadId, message.id, {
-        card: { ...card, answered: "deny", dismissed: true },
-      });
-      if (patched) dismissed += 1;
-    }
+  for (const { threadId, message } of bus.store.openRequestCards(PEER_CARD_TOOLS)) {
+    const card = message.card;
+    if (!threads.has(threadId) || !card?.requestId || pendingComms.has(card.requestId)) continue;
+    const patched = bus.store.patchMessage(threadId, message.id, {
+      card: { ...card, answered: "deny", dismissed: true },
+    });
+    if (patched) dismissed += 1;
   }
   return dismissed;
 }

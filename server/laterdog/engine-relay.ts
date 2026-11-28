@@ -9,11 +9,12 @@ import { createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, decodeEngineChunk, engineFileChunks, engineFileKey, engineFilePath, engineInventory, inventoryWork, runFileWork, matchingTranscriptPrefix, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, decodeEngineChunk, engineFileChunks, engineFileKey, engineFilePath, engineInventory, fileHash, inventoryWork, runFileWork, matchingTranscriptPrefix, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 
 const TEST_ROOT = process.env.LATERDOG_ENGINE_TEST_ROOT ?? "";
 let homeRoots: string[] = [];
 const mirrored = (value: string) => TEST_ROOT && homeRoots.some((root) => value === root || value.startsWith(`${root}/`)) ? `${TEST_ROOT}${value}` : value;
+const placedRoot = (root: EngineFileRoot) => TEST_ROOT && typeof root.remotePath === "string" && root.remotePath.startsWith(`${TEST_ROOT}/`) && !root.remotePath.split("/").includes("..") ? root.remotePath : mirrored(root.path);
 let roots: EngineFileRoot[] = [];
 let outputs: EngineFileRoot[] = [];
 let workFolders: EngineWorkFolder[] = [];
@@ -48,12 +49,23 @@ async function send(frame: unknown): Promise<void> {
   if (transportLost) throw new Error("Engine transport ended");
   if (!process.stdout.write(`${JSON.stringify(frame)}\n`)) await once(process.stdout, "drain");
 }
+const requestedAckMs = Number(process.env.LATERDOG_ENGINE_ACK_MS);
+const ACK_SILENCE_MS = Number.isFinite(requestedAckMs) && requestedAckMs > 0 ? requestedAckMs : 30_000;
+const ACK_LONGEST_MS = 20 * ACK_SILENCE_MS;
+let homeHeardAt = Date.now();
 async function acknowledged(type: "checkpoint" | "file_window", required = false): Promise<void> {
   const id = ++sequence;
+  const askedAt = Date.now();
   const settled = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`Engine ${type} was not acknowledged`)), 30_000);
+    const watch = setInterval(() => {
+      const now = Date.now();
+      if (now - Math.max(askedAt, homeHeardAt) > ACK_SILENCE_MS || now - askedAt > ACK_LONGEST_MS) {
+        clearInterval(watch);
+        reject(new Error(`Engine ${type} was not acknowledged`));
+      }
+    }, Math.min(1_000, Math.max(50, ACK_SILENCE_MS / 4)));
     acknowledgements.set(id, reason => {
-      clearTimeout(timer);
+      clearInterval(watch);
       if (reason) reject(new Error(reason));
       else resolve();
     });
@@ -227,6 +239,38 @@ function takeLock(path: string): boolean {
   }
   return false;
 }
+const PREVIOUS_RELAY_WAIT_MS = 20_000;
+const ENGINE_START_WAIT_MS = 60_000;
+const ENGINE_START_HOLD_MS = 5_000;
+async function holdEngineStart(path: string): Promise<() => void> {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const giveUpAt = Date.now() + ENGINE_START_WAIT_MS;
+  for (;;) {
+    try {
+      mkdirSync(path, { mode: 0o700 });
+      writeFileSync(join(path, "pid"), String(process.pid), { mode: 0o600 });
+      let held = true;
+      return () => { if (held) { held = false; rmSync(path, { recursive: true, force: true }); } };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      let holder = 0;
+      try { holder = Number(readFileSync(join(path, "pid"), "utf8")); } catch {}
+      let alive = false;
+      try { if (Number.isSafeInteger(holder) && holder > 1) { process.kill(holder, 0); alive = true; } } catch {}
+      if (!alive && holder > 1) rmSync(path, { recursive: true, force: true });
+      if (Date.now() >= giveUpAt) return () => {};
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+}
+async function takeLockWithin(path: string, waitMs: number): Promise<boolean> {
+  const giveUpAt = Date.now() + waitMs;
+  while (!takeLock(path)) {
+    if (Date.now() >= giveUpAt) return false;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  return true;
+}
 process.on("exit", () => { if (lockFile) try { if (readFileSync(lockFile, "utf8").split(" ")[0] === String(process.pid)) unlinkSync(lockFile); } catch {} });
 
 async function launch(frame: any): Promise<void> {
@@ -278,16 +322,21 @@ async function launch(frame: any): Promise<void> {
   saveTranscriptReceipts();
   receiver.baseline.clear();
   for (const file of installed) receiver.baseline.set(engineFileKey(file), file);
+  const startLock = await holdEngineStart(join(dirname(frame.lockFile), "engine-start"));
   try {
     const env = Object.fromEntries(Object.entries(frame.env as Record<string, string>).map(([key, value]) => [key, mirrored(value)]));
     child = spawn(frame.cli, (frame.args as string[]).map(mirrored), { cwd: mirrored(frame.cwd), env: { ...env, LATERDOG_ENGINE_SOCKET: socketPath }, stdio: ["pipe", "pipe", "pipe"], detached: true });
     await Promise.race([once(child, "spawn"), once(child, "error").then(([error]) => { throw error; })]);
   } catch (error) {
+    startLock();
     child = null;
     server?.close();
     await reply(frame.id, { refused: "spawn_failed", code: (error as NodeJS.ErrnoException).code ?? null });
     return;
   }
+  child.stdout.once("data", startLock);
+  child.once("close", startLock);
+  setTimeout(startLock, ENGINE_START_HOLD_MS).unref();
   child.stdin.on("error", () => {});
   try { writeFileSync(lockFile, `${process.pid} ${child.pid}`, { mode: 0o600 }); } catch {}
   const nativeLines = createInterface({ input: child.stdout });
@@ -336,14 +385,14 @@ async function handle(frame: any): Promise<void> {
     }
     case "configure":
       if (receiver || child) throw new Error("Engine already configured");
-      if (!takeLock(frame.lockFile)) { await reply(frame.id, { refused: "busy" }); return; }
+      if (!await takeLockWithin(frame.lockFile, PREVIOUS_RELAY_WAIT_MS)) { await reply(frame.id, { refused: "busy" }); return; }
       stateFile = frame.stateFile;
       const bindings: EngineWorkFolder[] = frame.workFolders ?? [];
       homeRoots = [...frame.roots.map((root: EngineFileRoot) => root.path), ...bindings.map(folder => folder.path)];
       workFolders = bindings.map(folder => ({...folder,path:mirrored(folder.path)}));
       try { await syncWorkFolders("hydrate"); }
       catch (error) { await reply(frame.id,{refused: (error as Error).message}); return; }
-      roots = frame.roots.map((root: EngineFileRoot) => ({ ...root, logicalPath: root.path, path: mirrored(root.path) }));
+      roots = frame.roots.map((root: EngineFileRoot) => ({ ...root, logicalPath: root.path, path: placedRoot(root) }));
       outputs = roots.filter(root => frame.outputIds.includes(root.id));
       if (frame.ephemeralCodexHome) bindEphemeralCodexHome(frame.ephemeralCodexHome);
       for (const root of outputs) for (const name of root.files ?? []) {
@@ -396,6 +445,24 @@ async function handle(frame: any): Promise<void> {
       await reply(frame.id, { recovered: true });
       return;
     }
+    case "transcript_prefix": {
+      const root = outputs.find(root => root.id === frame.root);
+      if (child || !root || !selectedTranscript(root, frame.path) || !Number.isSafeInteger(frame.size) || frame.size < 0) throw new Error("Invalid transcript selection");
+      await reply(frame.id, { hash: await runFileWork(fileHash(root, frame.path, frame.size)) });
+      return;
+    }
+    case "set_aside_transcript": {
+      const root = outputs.find(root => root.id === frame.root);
+      if (child || !receiver || !root || !selectedTranscript(root, frame.path)) throw new Error("Invalid transcript selection");
+      const file = engineInventory([root]).find(file => file.path === frame.path);
+      if (!file || file.hash !== frame.hash) throw new Error("Native transcript changed before it was set aside");
+      const kept = `${frame.path}.computer-${Date.now()}.preserved`;
+      renameSync(engineFilePath(root, frame.path), join(dirname(engineFilePath(root, frame.path)), kept.split("/").at(-1)!));
+      rmSync(transcriptReceipt(root, frame.path), { force: true });
+      receiver.baseline.delete(engineFileKey(file));
+      await reply(frame.id, { setAside: kept });
+      return;
+    }
     case "select_transcript": {
       if (!child) throw new Error("Native process is not running");
       const root = outputs.find(root => root.id === frame.root);
@@ -427,6 +494,7 @@ async function handle(frame: any): Promise<void> {
     case "end": child?.stdin.end(); return;
     case "stop": kill(); setTimeout(() => kill("SIGKILL"), 3_000).unref(); return;
     case "ack": acknowledgements.get(frame.id)?.(frame.error); acknowledgements.delete(frame.id); return;
+    case "working": return;
     case "checkpoint_request":
       await checkpoint();
       await reply(frame.id, { saved: true });
@@ -448,6 +516,7 @@ const lines = createInterface({ input: process.stdin });
 lines.on("error", fail);
 lines.on("line", line => {
   if (line.length > 2 * 1024 * 1024) { fail(); return; }
+  homeHeardAt = Date.now();
   try { void handle(JSON.parse(line)).catch(fail); } catch (error) { fail(error); }
 });
 process.stdin.on("end", fail);
@@ -455,4 +524,4 @@ process.stdin.on("error", fail);
 process.stdout.on("error", fail);
 process.on("SIGTERM", fail);
 process.on("SIGINT", fail);
-void send({ type: "ready" });
+void send({ type: "ready", working: true });

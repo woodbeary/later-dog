@@ -49,7 +49,7 @@ try {
     });
   }
   for (const size of [100, 1000]) {
-    const id = `memory-${size}`, workspace = memory.ensureWorkspace(id);
+    const id = `memory-${size}`, workspace = await memory.ensureWorkspaceReady(id);
     for (let i = 0; i < size; i++) writeFileSync(join(workspace, "memory", `topic-${i}.md`), text.repeat(4));
     await delay(1000);
     await measure(`memory-cold-${size}-files`, () => { memory.syncMemoryIndex(id); assert.equal(db.indexedMemoryFiles(id).length, size + 1); });

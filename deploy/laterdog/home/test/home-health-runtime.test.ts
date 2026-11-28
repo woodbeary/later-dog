@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { HOME_HEALTH_FILE, lastError, noteHomeHealth, outputTail, pushedCodeFellBack, shouldFallBackFromPushed } from "../runtime/home-health.mjs";
+import { CLOUD_HOME_MARKER, HOME_HEALTH_FILE, lastError, noteHomeHealth, outputTail, pushedCodeFellBack, shouldFallBackFromPushed } from "../runtime/home-health.mjs";
 
 it("says in home-health.log that a crashed pushed server left the home on the image's server, with its last error", () => {
   const dir = mkdtempSync(join(tmpdir(), "home-health-"));
@@ -40,4 +40,18 @@ it("falls back only when pushed code crashes right after start, never on contain
   expect(shouldFallBackFromPushed({ stopping: true, code: null, signal: "SIGTERM", elapsedMs: 11_000, graceMs: 30_000 })).toBe(false);
   expect(shouldFallBackFromPushed({ stopping: false, code: null, signal: "SIGTERM", elapsedMs: 11_000, graceMs: 30_000 })).toBe(false);
   expect(shouldFallBackFromPushed({ stopping: false, code: null, signal: "SIGINT", elapsedMs: 11_000, graceMs: 30_000 })).toBe(false);
+});
+
+it("writes nothing into a home the server has not adopted yet, so a brand-new home still passes the server's first-start check", () => {
+  const home = mkdtempSync(join(tmpdir(), "laterdog-new-home-"));
+  expect(noteHomeHealth(join(home, ".laterdog"), "a new home: nothing to restore", { home })).toBe(false);
+  expect(readdirSync(home)).toEqual([]);
+  writeFileSync(join(home, CLOUD_HOME_MARKER), JSON.stringify({ version: 1, machine: "home-7f3k2" }));
+  expect(noteHomeHealth(join(home, ".laterdog"), "restored 3 files", { home })).toBe(true);
+  expect(readFileSync(join(home, ".laterdog", HOME_HEALTH_FILE), "utf8")).toContain("restored 3 files");
+});
+
+it("uses the same adoption marker name as the server", () => {
+  const server = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", "server", "cloud-home.ts"), "utf8");
+  expect(server).toContain(`export const CLOUD_HOME_MARKER = "${CLOUD_HOME_MARKER}";`);
 });

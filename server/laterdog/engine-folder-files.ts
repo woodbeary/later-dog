@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, createReadStream } from "node:fs";
 import {
   chmod,
+  copyFile,
   lstat,
   lchmod,
   mkdir,
@@ -40,6 +41,12 @@ const statPhysical = (path: string) => lstat(path, { bigint: true });
 const stamp = (s: Stat) => [s.dev, s.ino, s.size, s.mode, s.mtimeNs, s.ctimeNs].join(":");
 const mode = (s: Stat) => Number(s.mode & 0o7777n);
 const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === "ENOENT";
+async function fileSha256(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  return hash.digest("hex");
+}
+
 async function existing(path: string): Promise<Stat | null> {
   try {
     return await statPhysical(path);
@@ -168,7 +175,13 @@ export async function visitFolder(
   async function walk(at: string): Promise<void> {
     const directory = at ? await diskPath(folder, at) : folder;
     const names = await readdir(directory, { encoding: "buffer" });
-    for (const raw of names) {
+    const found = await Promise.all(names.map(async (raw) => {
+      const filename = raw.toString("utf8");
+      const name = at ? at + "/" + filename : filename;
+      if ((!at && aliases?.has(filename)) || !Buffer.from(filename).equals(raw) || !safeWorkFolderPath(name)) return undefined;
+      return statPhysical(join(directory, filename));
+    }));
+    for (const [index, raw] of names.entries()) {
       progress();
       const filename = raw.toString("utf8");
       if (!at && aliases?.has(filename)) {
@@ -179,9 +192,10 @@ export async function visitFolder(
       }
       if (!Buffer.from(filename).equals(raw))
         throw new Error("The working folder has a filename that cannot be represented in UTF-8");
-      const name = at ? at + "/" + filename : filename,
-        path = await diskPath(folder, name),
-        s = await statPhysical(path);
+      const name = at ? at + "/" + filename : filename;
+      if (!safeWorkFolderPath(name)) throw new Error("Invalid working folder path");
+      const path = join(directory, filename),
+        s = found[index] ?? await statPhysical(path);
       let e: WorkFolderEntry;
       if (s.isDirectory()) {
         e = { path: name, kind: "dir", mode: mode(s) };
@@ -338,6 +352,7 @@ export async function applyFolder(
   local: FolderVisit,
   wanted: FolderTree,
   linkFor = materializedWorkFolderLink,
+  arrivals?: string,
 ): Promise<void> {
   const changed = [...wanted.entries.values()].filter(
     (e) => local.rematerialize?.has(e.path) || !sameFolderEntry(e, local.tree.entries.get(e.path)),
@@ -374,6 +389,14 @@ export async function applyFolder(
           await symlink(linkFor(e), tmp);
           if (e.mtimeMs !== undefined) await lutimes(tmp, fileTime(e.mtimeMs), fileTime(e.mtimeMs));
         } else if (e.kind === "file") {
+          const kept = arrivals ? join(arrivals, e.sha256) : null;
+          if (kept && (await existing(kept))?.size === BigInt(e.size) && (await fileSha256(kept)) === e.sha256) {
+            await copyFile(kept, tmp, constants.COPYFILE_FICLONE);
+            await chmod(tmp, e.mode);
+            if (e.mtimeMs !== undefined) await utimes(tmp, fileTime(e.mtimeMs), fileTime(e.mtimeMs));
+            material.set(e.path, tmp);
+            return;
+          }
           const hash = createHash("sha256");
           let bytes = 0;
           const out = await open(tmp, "wx", 0o600);
@@ -387,6 +410,7 @@ export async function applyFolder(
             }
             if (bytes !== e.size || hash.digest("hex") !== e.sha256)
               throw new Error("Working folder file checksum mismatch");
+            if (kept) await copyFile(tmp, kept, constants.COPYFILE_FICLONE).catch(() => undefined);
             await out.chmod(e.mode);
             if (e.mtimeMs !== undefined) await out.utimes(fileTime(e.mtimeMs), fileTime(e.mtimeMs));
             await out.sync();

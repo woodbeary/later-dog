@@ -160,8 +160,8 @@ export async function antigravityProfileAuthenticated(profile: AntigravityProfil
   try {
     const info = await stat(profile.tokenPath);
     if (!info.isFile() || info.size <= 0 || info.size > 1024 * 1024) return false;
-    await readFile(profile.tokenPath, { encoding: "utf8" });
-    return true;
+    const saved = JSON.parse(await readFile(profile.tokenPath, { encoding: "utf8" })) as Record<string, unknown> | null;
+    return typeof saved?.refresh_token === "string" && saved.refresh_token.length > 0 && typeof saved.client_id === "string" && saved.client_id.length > 0;
   } catch {
     return false;
   }

@@ -47,6 +47,19 @@ describe("addressed room request tree", () => {
     expect(hooks.run).toHaveBeenCalledWith(child, true, expect.anything());
     expect(child.status).toBe("completed");
   }));
+  it("starts one direct handoff per chat at a time even when the chat does not look busy yet", () => fixture(async (engine, hooks) => {
+    let release: () => void = () => {};
+    hooks.run = vi.fn(() => new Promise<HandoffRunResult>(resolve => { release = () => resolve({ ok: true, text: "done" }); }));
+    const target = { botId: "builder", threadId: "builder-chat" };
+    const first = engine.enqueue({ botId: "chief", threadId: "chief-chat" }, "turn-1", undefined, target, "one", "First").node;
+    const second = engine.enqueue({ botId: "scout", threadId: "scout-chat" }, "turn-2", undefined, target, "two", "Second").node;
+    engine.tick(); await flush();
+    expect(hooks.run).toHaveBeenCalledTimes(1);
+    expect([first.status, second.status]).toEqual(["running", "queued"]);
+    release(); await flush(); engine.tick(); await flush();
+    expect(hooks.run).toHaveBeenCalledTimes(2);
+    expect(second.status).toBe("running");
+  }));
   it("starts independent work before its author settles, but resumes only after settlement", () => fixture(async (engine, hooks) => {
     const source = { botId: "chief", threadId: "chief-chat" };
     const child = engine.enqueue(source, "turn", undefined, { botId: "builder", threadId: "builder-chat" }, "build", "Build it").node;

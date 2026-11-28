@@ -10,6 +10,15 @@ const configDir = process.env.CLAUDE_CONFIG_DIR!;
 const sessionFile = join(configDir, "projects", process.env.FAKE_ENGINE_SLUG ?? "slug", `${sessionId}.jsonl`);
 if (process.env.FAKE_ENGINE_LAUNCHES) appendFileSync(process.env.FAKE_ENGINE_LAUNCHES, `${process.pid}\n`);
 const emit = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
+if (process.env.FAKE_ENGINE_CONFIG_RACE) {
+  const file = join(configDir, ".claude.json");
+  let config: { starts?: number } = {};
+  try { config = JSON.parse(readFileSync(file, "utf8")); } catch { process.stderr.write("config corrupted; restoring from backup\n"); process.exit(1); }
+  const next = JSON.stringify({ ...config, starts: (config.starts ?? 0) + 1, padding: "x".repeat(4096) });
+  writeFileSync(file, next.slice(0, next.length / 2));
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  writeFileSync(file, next);
+}
 
 function line(command: string, args: string[], input: string, env: NodeJS.ProcessEnv = process.env): Promise<{ out: string; code: number | null }> {
   return new Promise((resolve) => {

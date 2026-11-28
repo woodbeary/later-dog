@@ -10,8 +10,11 @@ import type { UsageTrigger } from "./usage-ledger.ts";
 import { ReplyDiskReserve } from "./laterdog/reply-disk-reserve.ts";
 import { rollbackQuietly } from "./laterdog/safe-rollback.ts";
 import { ensureNativeRuns, deleteNativeRuns } from "./laterdog/native-run-store.ts";
-import { MessageSearchWorker } from "./message-search-worker.ts";
+import { ensureHistoryOutbox, noteHistoryChat, noteHistoryMessage } from "./laterdog/history-outbox-db.ts";
+import { MessageSearchWorker, WITHIN_BUDGET, type ReadQuery } from "./message-search-worker.ts";
 import { searchMessagesInDatabase, type SearchHit } from "./message-search-query.ts";
+import { ftsQuery, rangeClause, type RecallRange, type SearchMode } from "../shared/search-index-query.ts";
+export { recallMatchTerm, recallTerms, type RecallRange, type SearchMode } from "../shared/search-index-query.ts";
 export type { SearchHit } from "./message-search-query.ts";
 
 const DB_FILE = () => join(DATA_DIR, "messages.db");
@@ -20,6 +23,25 @@ const replyReserve = new ReplyDiskReserve();
 let handle: DatabaseSync | null = null;
 let handlePath: string | null = null;
 let searchWorker: MessageSearchWorker | null = null;
+let recallWorker: MessageSearchWorker | null = null;
+let indexWorker: MessageSearchWorker | null = null;
+
+export interface MessageWrites {
+  message(threadId: string, id: string): void;
+  chat(threadId: string): void;
+  memory(botId: string, path: string): void;
+}
+
+let writes: MessageWrites | null = null;
+let historyOutbox = false;
+
+export function keepHistoryOutbox(on: boolean): void {
+  historyOutbox = on;
+}
+
+export function watchMessageWrites(next: MessageWrites | null): void {
+  writes = next;
+}
 let closingSearch: Promise<void> = Promise.resolve();
 
 function open(): DatabaseSync {
@@ -44,6 +66,7 @@ function open(): DatabaseSync {
       PRIMARY KEY (thread_id, id)
     );
     CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id);
+    CREATE INDEX IF NOT EXISTS messages_cards ON messages(thread_id) WHERE kind = 'options';
     CREATE TABLE IF NOT EXISTS thread_state (
       thread_id TEXT PRIMARY KEY,
       active_leaf_id TEXT
@@ -58,6 +81,18 @@ function open(): DatabaseSync {
       payload TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS chat_followups_receipt ON chat_followups(kind, owner_id, thread_id, send_id);
+    CREATE TABLE IF NOT EXISTS search_index_outbox (
+      kind TEXT NOT NULL,
+      a TEXT NOT NULL,
+      b TEXT NOT NULL,
+      PRIMARY KEY (kind, a, b)
+    );
+    CREATE TABLE IF NOT EXISTS search_index_coverage (
+      home TEXT NOT NULL,
+      chat TEXT NOT NULL,
+      target TEXT NOT NULL,
+      PRIMARY KEY (home, chat, target)
+    );
     CREATE TABLE IF NOT EXISTS command_receipts (
       kind TEXT NOT NULL,
       key TEXT NOT NULL,
@@ -69,6 +104,7 @@ function open(): DatabaseSync {
   ensureRecallIndex(db);
   ensureMemoryIndex(db);
   ensureNativeRuns(db);
+  ensureHistoryOutbox(db);
   return db;
 }
 
@@ -380,9 +416,12 @@ function importLegacy(threadId: string, legacyFile: string): ThreadRows {
 }
 
 export function insertMessage(threadId: string, message: Message): void {
-  db()
+  const database = db();
+  database
     .prepare(UPSERT_MESSAGE)
     .run(threadId, message.id, message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message));
+  if (historyOutbox) noteHistoryMessage(database, threadId, message.id);
+  writes?.message(threadId, message.id);
 }
 
 export function importThread(threadId: string, messages: Message[], activeLeafId: string | null): void {
@@ -410,9 +449,14 @@ export function appendMessage(threadId: string, message: Message): void {
 }
 
 export function updateMessage(threadId: string, message: Message): void {
-  writeMessage(message, () => db()
-    .prepare("UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
-    .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id));
+  writeMessage(message, () => {
+    const database = db();
+    database
+      .prepare("UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
+      .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id);
+    if (historyOutbox) noteHistoryMessage(database, threadId, message.id);
+  });
+  writes?.message(threadId, message.id);
 }
 
 export function openPermissionCards(): Array<{ threadId: string; message: Message }> {
@@ -428,6 +472,20 @@ export function openPermissionCards(): Array<{ threadId: string; message: Messag
   return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
 }
 
+export function openRequestCards(tools: readonly string[]): Array<{ threadId: string; message: Message }> {
+  if (!tools.length) return [];
+  const rows = db()
+    .prepare(
+      "SELECT thread_id, json FROM messages " +
+      `WHERE kind = 'options' AND json_extract(json, '$.card.tool') IN (${tools.map(() => "?").join(", ")}) ` +
+      "AND COALESCE(json_extract(json, '$.card.requestId'), '') <> '' " +
+      "AND json_extract(json, '$.card.answered') IS NULL " +
+      "AND COALESCE(json_extract(json, '$.card.dismissed'), 0) = 0",
+    )
+    .all(...tools) as Array<{ thread_id: string; json: string }>;
+  return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
+}
+
 export function questionCardsCountingDown(): Array<{ threadId: string; message: Message }> {
   const rows = db()
     .prepare(
@@ -439,7 +497,9 @@ export function questionCardsCountingDown(): Array<{ threadId: string; message: 
 }
 
 export function setActiveLeaf(threadId: string, leafId: string | null): void {
-  db()
+  const database = db();
+  if (historyOutbox) noteHistoryChat(database, threadId, false);
+  database
     .prepare(
       "INSERT INTO thread_state (thread_id, active_leaf_id) VALUES (?, ?) " +
         "ON CONFLICT(thread_id) DO UPDATE SET active_leaf_id = excluded.active_leaf_id",
@@ -478,8 +538,15 @@ export function deleteThread(threadId: string): void {
     connection.prepare("DELETE FROM chat_followups WHERE thread_id = ?").run(threadId);
     connection.prepare("DELETE FROM messages WHERE thread_id = ?").run(threadId);
     connection.prepare("DELETE FROM thread_state WHERE thread_id = ?").run(threadId);
+    if (historyOutbox) noteHistoryChat(connection, threadId, true);
   });
+  writes?.chat(threadId);
 }
+
+export const historyDatabase = {
+  read: <T>(read: (database: DatabaseSync) => T): T => read(db()),
+  write: <T>(write: (database: DatabaseSync) => T): T => transaction(write),
+};
 
 export const nativeRunDatabase = {
   read: <T>(read: (database: DatabaseSync) => T): T => read(db()),
@@ -520,49 +587,6 @@ function peerAuthor(peerName: string | null, text: string): string | null {
 
 const PEER_NOTE_HEAD_CHARS = 160;
 
-const STOP_WORDS = new Set(
-  "a an and are as at be by did do for from had has have how i in is it its of on or that the this to was we were what when where which who why with you your".split(" "),
-);
-
-function ftsQuery(query: string, mode: SearchMode = "all"): string | null {
-  const tokens = query
-    .split(/\s+/)
-    .map((token) => token.replace(/"/g, "").trim())
-    .filter(Boolean);
-  if (!tokens.length) return null;
-  const content = tokens.filter((token) => !STOP_WORDS.has(token.toLowerCase()));
-  if (mode === "any") {
-    const terms = recallTerms(query).map(recallMatchTerm).filter(Boolean);
-    return terms.length ? terms.join(" OR ") : null;
-  }
-  return (content.length ? content : tokens).map((token) => `"${token}"`).join(" ");
-}
-
-export function recallMatchTerm(term: string): string | null {
-  if (!/^[\p{L}\p{N}]+$/u.test(term)) return null;
-  if (!/^\p{L}{4,}$/u.test(term)) return `"${term}"`;
-  const stem = term.length > 4 && term.endsWith("s") && !term.endsWith("ss") ? term.slice(0, -1) : term;
-  return `"${stem}"*`;
-}
-
-export type SearchMode = "all" | "any";
-
-const RECALL_FILLER = new Set(
-  "about again also any anything can could does don't know me my please remember remind should tell there they us would hi hello hey thanks thank ok okay yes yeah no i'm im i've i'll i'd you're quick just".split(" "),
-);
-
-export function recallTerms(query: string): string[] {
-  const out: string[] = [];
-  for (const raw of query.split(/\s+|(?<=\p{L})[/,;:.—–-]+(?=\p{L})/u)) {
-    const token = raw.replace(/"/g, "").replace(/^[\s.,;:!?()[\]{}'`“”‘’]+|[\s.,;:!?()[\]{}'`“”‘’]+$/g, "").toLowerCase();
-    if (token.length < 2 && !/\d/.test(token)) continue;
-    if (!/[\p{L}\p{N}]/u.test(token)) continue;
-    if (STOP_WORDS.has(token) || RECALL_FILLER.has(token)) continue;
-    if (!out.includes(token)) out.push(token);
-  }
-  return out.slice(0, 16);
-}
-
 const SNIPPET_TOKENS = 48;
 
 export function readMessageText(
@@ -591,50 +615,36 @@ export function readMessageText(
   };
 }
 
-export interface RecallRange {
-  since?: number;
-  until?: number;
-}
+type RecallRow = {
+  thread_id: string;
+  id: string;
+  at: number;
+  role: string;
+  kind: string;
+  from_name: string | null;
+  peer_name: string | null;
+  head: string;
+  snippet: string;
+};
 
-function rangeClause(range: RecallRange | undefined, column: string): { sql: string; params: number[] } {
-  const parts: string[] = [];
-  const params: number[] = [];
-  if (range?.since !== undefined) {
-    parts.push(`${column} >= ?`);
-    params.push(range.since);
-  }
-  if (range?.until !== undefined) {
-    parts.push(`${column} <= ?`);
-    params.push(range.until);
-  }
-  return { sql: parts.map((part) => ` AND ${part}`).join(""), params };
-}
-
-export function recallMessages(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): RecallHit[] {
+function recallRead(query: string, threadIds: readonly string[], limit: number, range: RecallRange | undefined, mode: SearchMode, guard = ""): ReadQuery | null {
   const match = ftsQuery(query, mode);
-  if (!match || !threadIds.length) return [];
+  if (!match || !threadIds.length) return null;
   const placeholders = threadIds.map(() => "?").join(", ");
   const window = rangeClause(range, "m.at");
-  const rows = db()
-    .prepare(
+  return {
+    sql:
       "SELECT m.thread_id, m.id, m.at, m.role, m.kind, json_extract(m.json, '$.from.name') AS from_name, " +
-        `json_extract(m.json, '$.peerAsk.name') AS peer_name, substr(m.text, 1, ${PEER_NOTE_HEAD_CHARS}) AS head, ` +
-        `snippet(messages_fts, 0, '[', ']', '…', ${SNIPPET_TOKENS}) AS snippet ` +
-        "FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid " +
-        `WHERE messages_fts MATCH ? AND m.kind IN ('text', 'digest') AND m.thread_id IN (${placeholders})${window.sql} ` +
-        "ORDER BY (m.kind = 'digest'), bm25(messages_fts), m.at DESC LIMIT ?",
-    )
-    .all(match, ...threadIds, ...window.params, limit) as Array<{
-    thread_id: string;
-    id: string;
-    at: number;
-    role: string;
-    kind: string;
-    from_name: string | null;
-    peer_name: string | null;
-    head: string;
-    snippet: string;
-  }>;
+      `json_extract(m.json, '$.peerAsk.name') AS peer_name, substr(m.text, 1, ${PEER_NOTE_HEAD_CHARS}) AS head, ` +
+      `snippet(messages_fts, 0, '[', ']', '…', ${SNIPPET_TOKENS}) AS snippet ` +
+      "FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid " +
+      `WHERE messages_fts MATCH ? AND m.kind IN ('text', 'digest') AND m.thread_id IN (${placeholders})${window.sql}${guard} ` +
+      "ORDER BY (m.kind = 'digest'), bm25(messages_fts), m.at DESC LIMIT ?",
+    params: [match, ...threadIds, ...window.params, limit],
+  };
+}
+
+function recallHits(rows: RecallRow[]): RecallHit[] {
   return rows.map((row) => {
     const peer = peerAuthor(row.peer_name, row.head);
     return {
@@ -650,28 +660,51 @@ export function recallMessages(query: string, threadIds: readonly string[], limi
   });
 }
 
+function readHere<T>(read: ReadQuery | null): T[] {
+  return read ? db().prepare(read.sql).all(...read.params) as T[] : [];
+}
+
+export const RECALL_BUDGET_MS = 3_000;
+
+async function readOffThread<T>(read: ReadQuery | null): Promise<T[]> {
+  if (!read) return [];
+  return (await readAllOffThread([read]))[0] as T[];
+}
+
+function readAllOffThread(reads: ReadQuery[]): Promise<unknown[][]> {
+  if (!reads.length) return Promise.resolve([]);
+  db();
+  recallWorker ??= new MessageSearchWorker(DB_FILE(), RECALL_BUDGET_MS);
+  return recallWorker.read(reads);
+}
+
+export function recallMessages(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): RecallHit[] {
+  return recallHits(readHere<RecallRow>(recallRead(query, threadIds, limit, range, mode)));
+}
+
+export async function recallMessagesOffThread(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): Promise<RecallHit[]> {
+  return recallHits(await readOffThread<RecallRow>(recallRead(query, threadIds, limit, range, mode, WITHIN_BUDGET)));
+}
+
 const RECENT_HEAD_CHARS = 240;
 
-export function recentMessages(threadIds: readonly string[], range: RecallRange, limit = 12): RecallHit[] {
-  if (!threadIds.length) return [];
+type RecentRow = { thread_id: string; id: string; at: number; role: string; from_name: string | null; peer_name: string | null; head: string };
+
+function recentRead(threadIds: readonly string[], range: RecallRange, limit: number, guard = ""): ReadQuery | null {
+  if (!threadIds.length) return null;
   const placeholders = threadIds.map(() => "?").join(", ");
   const window = rangeClause(range, "m.at");
-  const rows = db()
-    .prepare(
+  return {
+    sql:
       "SELECT m.thread_id, m.id, m.at, m.role, json_extract(m.json, '$.from.name') AS from_name, " +
-        `json_extract(m.json, '$.peerAsk.name') AS peer_name, substr(m.text, 1, ${Math.max(PEER_NOTE_HEAD_CHARS, RECENT_HEAD_CHARS)}) AS head ` +
-        `FROM messages m WHERE m.kind = 'text' AND m.text IS NOT NULL AND m.thread_id IN (${placeholders})${window.sql} ` +
-        "ORDER BY m.at DESC LIMIT ?",
-    )
-    .all(...threadIds, ...window.params, limit) as Array<{
-    thread_id: string;
-    id: string;
-    at: number;
-    role: string;
-    from_name: string | null;
-    peer_name: string | null;
-    head: string;
-  }>;
+      `json_extract(m.json, '$.peerAsk.name') AS peer_name, substr(m.text, 1, ${Math.max(PEER_NOTE_HEAD_CHARS, RECENT_HEAD_CHARS)}) AS head ` +
+      `FROM messages m WHERE m.kind = 'text' AND m.text IS NOT NULL AND m.thread_id IN (${placeholders})${window.sql}${guard} ` +
+      "ORDER BY m.at DESC LIMIT ?",
+    params: [...threadIds, ...window.params, limit],
+  };
+}
+
+function recentHits(rows: RecentRow[]): RecallHit[] {
   return rows.map((row) => {
     const peer = peerAuthor(row.peer_name, row.head);
     const folded = row.head.replace(/\s+/g, " ").trim();
@@ -685,6 +718,14 @@ export function recentMessages(threadIds: readonly string[], range: RecallRange,
       ...(peer ? { peer } : {}),
     };
   });
+}
+
+export function recentMessages(threadIds: readonly string[], range: RecallRange, limit = 12): RecallHit[] {
+  return recentHits(readHere<RecentRow>(recentRead(threadIds, range, limit)));
+}
+
+export async function recentMessagesOffThread(threadIds: readonly string[], range: RecallRange, limit = 12): Promise<RecallHit[]> {
+  return recentHits(await readOffThread<RecentRow>(recentRead(threadIds, range, limit, WITHIN_BUDGET)));
 }
 
 export interface ThreadLatest {
@@ -729,11 +770,53 @@ export function indexMemoryFile(botId: string, path: string, text: string, stat:
         "ON CONFLICT(bot_id, path) DO UPDATE SET text = excluded.text, mtime_ms = excluded.mtime_ms, bytes = excluded.bytes",
     )
     .run(botId, path, text, Math.trunc(stat.mtimeMs), stat.bytes);
+  writes?.memory(botId, path);
 }
 
 export function removeMemoryFile(botId: string, path: string): void {
   db().prepare("DELETE FROM memory_files WHERE bot_id = ? AND path = ?").run(botId, path);
+  writes?.memory(botId, path);
 }
+
+export function readForIndex(reads: ReadQuery[]): Promise<unknown[][]> {
+  if (!reads.length) return Promise.resolve([]);
+  db();
+  indexWorker ??= new MessageSearchWorker(DB_FILE(), 10_000);
+  return indexWorker.read(reads);
+}
+
+export type IndexOutboxKey = { kind: "message"; chat: string; id: string } | { kind: "chat"; chat: string } | { kind: "memory"; dog: string; path: string };
+
+function outboxRow(key: IndexOutboxKey): [string, string, string] {
+  if (key.kind === "message") return ["m", key.chat, key.id];
+  if (key.kind === "chat") return ["c", key.chat, ""];
+  return ["f", key.dog, key.path];
+}
+
+export const indexOutbox = {
+  put: (key: IndexOutboxKey): void => void db().prepare("INSERT OR IGNORE INTO search_index_outbox (kind, a, b) VALUES (?, ?, ?)").run(...outboxRow(key)),
+  all: (): IndexOutboxKey[] => (db().prepare("SELECT kind, a, b FROM search_index_outbox").all() as Array<{ kind: string; a: string; b: string }>)
+    .map((row) => row.kind === "m" ? { kind: "message" as const, chat: row.a, id: row.b } : row.kind === "c" ? { kind: "chat" as const, chat: row.a } : { kind: "memory" as const, dog: row.a, path: row.b }),
+  remove: (keys: readonly IndexOutboxKey[]): void => {
+    if (!keys.length) return;
+    transaction((database) => {
+      const remove = database.prepare("DELETE FROM search_index_outbox WHERE kind = ? AND a = ? AND b = ?");
+      for (const key of keys) remove.run(...outboxRow(key));
+    });
+  },
+  clear: (): void => void db().prepare("DELETE FROM search_index_outbox").run(),
+};
+
+export const indexCoverageTable = {
+  read: (home: string): Array<{ chat: string; target: string }> =>
+    db().prepare("SELECT chat, target FROM search_index_coverage WHERE home = ?").all(home) as Array<{ chat: string; target: string }>,
+  add: (home: string, chat: string, targets: readonly string[]): void => transaction((database) => {
+    const insert = database.prepare("INSERT OR IGNORE INTO search_index_coverage (home, chat, target) VALUES (?, ?, ?)");
+    for (const target of targets) insert.run(home, chat, target);
+  }),
+  drop: (home: string, chat: string): void => void db().prepare("DELETE FROM search_index_coverage WHERE home = ? AND chat = ?").run(home, chat),
+  clear: (home: string): void => void db().prepare("DELETE FROM search_index_coverage WHERE home = ?").run(home),
+};
 
 export function indexedMemoryFiles(botId: string): MemoryFileStat[] {
   const rows = db()
@@ -748,26 +831,43 @@ export interface MemoryHit {
   at: number;
 }
 
-export function recallMemory(query: string, botId: string, limit = 12, mode: SearchMode = "all"): MemoryHit[] {
+type MemoryRow = { path: string; mtime_ms: number; snippet: string };
+
+function memoryRead(query: string, botId: string, limit: number, mode: SearchMode, guard = ""): ReadQuery | null {
   const match = ftsQuery(query, mode);
-  if (!match) return [];
-  const rows = db()
-    .prepare(
+  if (!match) return null;
+  return {
+    sql:
       "SELECT f.path, f.mtime_ms, " +
-        `snippet(memory_fts, 0, '[', ']', '…', ${SNIPPET_TOKENS}) AS snippet ` +
-        "FROM memory_fts JOIN memory_files f ON f.rowid = memory_fts.rowid " +
-        "WHERE memory_fts MATCH ? AND f.bot_id = ? " +
-        (mode === "any" ? "AND f.path NOT IN ('MEMORY.md', 'memory/archive.md') AND f.path NOT LIKE 'memory/log/%' " : "") +
-        "ORDER BY bm25(memory_fts), f.mtime_ms DESC LIMIT ?",
-    )
-    .all(match, botId, limit) as Array<{ path: string; mtime_ms: number; snippet: string }>;
+      `snippet(memory_fts, 0, '[', ']', '…', ${SNIPPET_TOKENS}) AS snippet ` +
+      "FROM memory_fts JOIN memory_files f ON f.rowid = memory_fts.rowid " +
+      `WHERE memory_fts MATCH ? AND f.bot_id = ?${guard} ` +
+      (mode === "any" ? "AND f.path NOT IN ('MEMORY.md', 'memory/archive.md') AND f.path NOT LIKE 'memory/log/%' " : "") +
+      "ORDER BY bm25(memory_fts), f.mtime_ms DESC LIMIT ?",
+    params: [match, botId, limit],
+  };
+}
+
+function memoryHits(rows: MemoryRow[]): MemoryHit[] {
   return rows.map((row) => ({ file: row.path, at: row.mtime_ms, snippet: row.snippet.replace(/\s+/g, " ").trim() }));
 }
 
+export function recallMemory(query: string, botId: string, limit = 12, mode: SearchMode = "all"): MemoryHit[] {
+  return memoryHits(readHere<MemoryRow>(memoryRead(query, botId, limit, mode)));
+}
+
+export async function recallMemoryOffThread(query: string, botIds: readonly string[], limit = 12, mode: SearchMode = "all"): Promise<MemoryHit[][]> {
+  const reads = botIds.map((botId) => memoryRead(query, botId, limit, mode, WITHIN_BUDGET));
+  if (reads.some((read) => !read)) return botIds.map(() => []);
+  return (await readAllOffThread(reads as ReadQuery[])).map((rows) => memoryHits(rows as MemoryRow[]));
+}
+
 export async function closeMessageSearch(): Promise<void> {
-  const worker = searchWorker;
+  const workers = [searchWorker, recallWorker, indexWorker].filter((worker) => worker !== null);
   searchWorker = null;
-  if (worker) closingSearch = Promise.all([closingSearch, worker.close()]).then(() => {});
+  recallWorker = null;
+  indexWorker = null;
+  if (workers.length) closingSearch = Promise.all([closingSearch, ...workers.map((worker) => worker.close())]).then(() => {});
   await closingSearch;
 }
 

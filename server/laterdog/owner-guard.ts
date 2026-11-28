@@ -1,3 +1,4 @@
+import { onMountedFolder } from "./dog-mounts.ts";
 import { execFile } from "node:child_process";
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -1041,7 +1042,7 @@ function withRealpaths(paths: readonly string[]): string[] {
   for (const path of paths) {
     const given = resolve(path);
     out.add(given);
-    out.add(join(realPath(dirname(given)), basename(given)));
+    if (!onMountedFolder(dirname(given))) out.add(join(realPath(dirname(given)), basename(given)));
     const system = SYSTEM_LINKS[given];
     if (system && isSymlink(given) && realPath(given) === system) out.add(system);
   }

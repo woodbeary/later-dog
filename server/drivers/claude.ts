@@ -8,9 +8,12 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { acceptedEnginePlacement, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { onPool, POOL_LOST_REASON, POOL_WARM_MS, poolChosen, takePoolLoss } from "../laterdog/pool-opener.ts";
+import { acceptedEnginePlacement, botFolderPresent, engineOpener, lendableClaudeSignIn, notePlacement, recordEngineTurn, planClaudeRemote, remoteEngineChoice, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { dogFiles } from "../laterdog/dog-mounts.ts";
 import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
+import { RELAY_SELF_STOP_MS } from "../laterdog/engine-remote.ts";
 import { createTurnPhases } from "../laterdog/turn-head-start.ts";
 import { keepWarm } from "../laterdog/keep-warm.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
@@ -250,10 +253,10 @@ export function readClaudeAuthSettings(
   }
 }
 
-function projectMcpServers(cwd: string): Record<string, unknown> {
+async function projectMcpServers(cwd: string): Promise<Record<string, unknown>> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(join(cwd, ".mcp.json"), "utf8"));
+    parsed = JSON.parse(await dogFiles.readText(join(cwd, ".mcp.json")) ?? "");
   } catch {
     return {};
   }
@@ -273,6 +276,12 @@ export function autoCompactWindow(env: NodeJS.ProcessEnv, tuned = false): string
   const parsed = raw ? Number(raw) : NaN;
   if (!Number.isFinite(parsed) || parsed <= 0) return String(tuned ? DOG_COMPACT_WINDOW_TOKENS : STANDARD_WINDOW_TOKENS);
   return String(Math.min(1_000_000, Math.max(100_000, Math.floor(parsed))));
+}
+
+export function turnCompactWindow(standing: string | null, handoff: number | undefined): string | null {
+  if (standing === null || handoff === undefined || !Number.isFinite(handoff)) return standing;
+  const asked = Math.min(1_000_000, Math.max(100_000, Math.floor(handoff)));
+  return standing === "auto" || asked < Number(standing) ? String(asked) : standing;
 }
 
 export function nativeCompactWindow(env: NodeJS.ProcessEnv, tuned = false): number | undefined {
@@ -296,6 +305,7 @@ export const CLAUDE_FLAG_FLOORS = {
   "--setting-sources": [1, 0, 122],
   "--autocompact": [2, 1, 122],
   "--system-prompt-snapshot": [2, 1, 267],
+  "--exclude-dynamic-system-prompt-sections": [2, 1, 316],
   "--restricted": [2, 1, 257],
   "--forward-subagent-text": [2, 1, 211],
   [SUBAGENT_PROMPT_FLAG]: [2, 1, 316],
@@ -502,7 +512,7 @@ export interface NativeTurnResult {
   ok: boolean;
   stopReason: string | null;
   cost: number | null;
-  usage?: { input: number; output: number; cachedInput?: number };
+  usage?: { input: number; output: number; cachedInput?: number; cachedWrite?: number };
 }
 
 export function sumNativeTurnResults(earlier: NativeTurnResult | null, latest: NativeTurnResult): NativeTurnResult {
@@ -513,6 +523,9 @@ export function sumNativeTurnResults(earlier: NativeTurnResult | null, latest: N
         output: earlier.usage.output + latest.usage.output,
         ...(earlier.usage.cachedInput !== undefined || latest.usage.cachedInput !== undefined
           ? { cachedInput: (earlier.usage.cachedInput ?? 0) + (latest.usage.cachedInput ?? 0) }
+          : {}),
+        ...(earlier.usage.cachedWrite !== undefined || latest.usage.cachedWrite !== undefined
+          ? { cachedWrite: (earlier.usage.cachedWrite ?? 0) + (latest.usage.cachedWrite ?? 0) }
           : {}),
       }
     : latest.usage ?? earlier.usage;
@@ -1163,7 +1176,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (!s || s.helpers.running()) return;
       warmEngines.rest(s, {
         pid: s.child.pid,
-        idleMs: placedThreads.has(threadId) ? keepWarm.idleMs(threadId, sessionIdlePolicy("CLAUDE").idleMs) : SESSION_IDLE_MS,
+        idleMs: onPool(threadId) ? POOL_WARM_MS : placedThreads.has(threadId) ? keepWarm.idleMs(threadId, sessionIdlePolicy("CLAUDE").idleMs) : SESSION_IDLE_MS,
         close: (why) => { if (sessions.get(threadId) === s) closeSession(threadId, why); },
       });
     };
@@ -1290,12 +1303,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!turn.mcpFromUserConfig && claudeCliSupports(cliVersion, "--strict-mcp-config")) args.push("--strict-mcp-config");
         if (claudeCliSupports(cliVersion, "--setting-sources")) args.push("--setting-sources", "project");
       }
-      const compactWindow = autoCompactWindow(turnEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed));
+      const compactWindow = turnCompactWindow(autoCompactWindow(turnEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed)), turn.compactWindow);
       if (compactWindow && cliHasAutocompact === true) {
         args.push("--autocompact", compactWindow);
       }
       if (cliVersionChecked && claudeCliSupports(cliVersion, "--system-prompt-snapshot")) {
         args.push("--system-prompt-snapshot", "off");
+      }
+      if (cliVersionChecked && claudeCliSupports(cliVersion, "--exclude-dynamic-system-prompt-sections")) {
+        args.push("--exclude-dynamic-system-prompt-sections");
       }
       const turnModel = config.managed ? turn.model : await resolveClaudeTurnModel(turn.model, turnEnvironment);
       startPhases.mark(turn.threadId, "model");
@@ -1339,7 +1355,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         botOwned.add(name);
       }
       if (isolated && turn.cwd && !turn.guestConfined) {
-        for (const [name, server] of Object.entries(projectMcpServers(turn.cwd))) {
+        for (const [name, server] of Object.entries(await projectMcpServers(turn.cwd))) {
           if (Object.hasOwn(mcpServers, name)) continue;
           mcpServers[name] = server;
           botOwned.add(name);
@@ -1524,7 +1540,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 input: askedFields(ask.input),
                 wholeInput: ask.kind === "permission" && ask.tool === "WebSearch" && ask.input && typeof ask.input === "object" && !Array.isArray(ask.input) ? ask.input : undefined,
                 command: ask.kind === "permission" && ask.tool === "Bash"
-                  ? permissionCommand(ask.input.command, commandCwd) : undefined,
+                  ? permissionCommand(ask.input.command, commandCwd()) : undefined,
                 requiresExplicitApproval: ask.kind === "permission" && ask.tool === "Bash" && ask.input.dangerouslyDisableSandbox === true || undefined,
                 nativeReview,
                 approvalScope:
@@ -1578,7 +1594,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       let child: ReturnType<typeof spawnCli>;
       try {
         checkStart();
-        warmEngines.assertVacant(ownershipKey(threadId));
+        await warmEngines.vacated(ownershipKey(threadId), RELAY_SELF_STOP_MS + 4_000);
         const local = () => {
           warmEngines.makeRoom(ENGINE_BYTES);
           return spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
@@ -1595,8 +1611,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             checkStart();
           }
           try {
-            remote = planClaudeRemote({ botId: botId!, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand,
-              args, cwd, env, managed: Boolean(config.managed), required, dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase });
+            const botFolder = await botFolderPresent(DATA_DIR, botId!);
+            remote = planClaudeRemote({ botId: botId!, botFolder, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand,
+              args, cwd, env, managed: Boolean(config.managed), required, dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase, freshWhenMissing: poolChosen(DATA_DIR, botId!) });
           } catch (error) { remote = { stay: `launch could not be mirrored: ${(error as Error).message}` }; }
           if (required && "stay" in remote) throw new Error(`Claude could not start on this dog's computer. ${remote.stay}. No prompt was sent.`);
           if ("stay" in remote) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`);
@@ -1604,7 +1621,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         child = remote && "plan" in remote
           ? spawnPlacedEngine(remote.plan, (plan, signal) => opener!.open(botId!, plan, signal), required ? undefined : local, (where, why) =>
             notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`), undefined,
-            { openBudgetMs: opener!.openBudgetMs, onWaiting: (wait) => emit({ ...base(threadId, turnId), ...engineWaitEvent(wait) }) }) as unknown as ReturnType<typeof spawnCli>
+            { openBudgetMs: opener!.openBudgetMs, onWaiting: (wait) => emit({ ...base(threadId, turnId), ...engineWaitEvent(wait) }), onNotice: (message) => emit({ ...base(threadId, turnId), type: "runtime.notice", message }) }) as unknown as ReturnType<typeof spawnCli>
           : local();
       } catch (error) {
         cleanupUnownedLaunch();
@@ -1647,7 +1664,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         ok: boolean,
         stopReason: string | null,
         total: number | null = null,
-        usage?: { input: number; output: number; cachedInput?: number },
+        usage?: { input: number; output: number; cachedInput?: number; cachedWrite?: number },
       ) => {
         const t = session.turn;
         if (!t || t.settled) return;
@@ -1930,6 +1947,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 ...(typeof msg.usage.cache_read_input_tokens === "number"
                   ? { cachedInput: msg.usage.cache_read_input_tokens }
                   : {}),
+                ...(typeof msg.usage.cache_creation_input_tokens === "number"
+                  ? { cachedWrite: msg.usage.cache_creation_input_tokens }
+                  : {}),
                 contextTokens,
               });
             }
@@ -2001,6 +2021,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                       output: o.usage.output_tokens || 0,
                       ...(typeof o.usage.cache_read_input_tokens === "number"
                         ? { cachedInput: o.usage.cache_read_input_tokens }
+                        : {}),
+                      ...(typeof o.usage.cache_creation_input_tokens === "number"
+                        ? { cachedWrite: o.usage.cache_creation_input_tokens }
                         : {}),
                     },
                   }
@@ -2114,11 +2137,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const endedBeforeTurn = session.turn.awaitingInit === true;
           const refusedResume = Boolean(session.resumeRefused);
           const refusedHelperFlag = !session.sawInit && helperFlagRefused(config.cli, cliVersion?.join(".") ?? null, session.stderr, session.passedHelperFlag);
+          const lostPool = Boolean(turn.botId) && takePoolLoss(turn.botId!, threadId) && retry.attempt < RETRY_MAX_ATTEMPTS - 1;
           if (
             !refusedResume &&
-            (!required || refusedHelperFlag) &&
+            (!required || refusedHelperFlag || lostPool) &&
             !retry.cancelled &&
-            (endedBeforeTurn || refusedHelperFlag || (
+            (endedBeforeTurn || refusedHelperFlag || lostPool || (
               code !== 0 &&
               verdict.transient &&
               !session.turn.sawStreamDelta &&
@@ -2144,13 +2168,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             let delayMs = 0;
             if (!endedBeforeTurn && !refusedHelperFlag) {
               retry.attempt++;
-              delayMs = computeBackoff(retry.attempt - 1);
+              delayMs = lostPool ? 0 : computeBackoff(retry.attempt - 1);
               emit({
                 ...base(threadId, turnId),
                 type: "turn.retrying",
                 attempt: retry.attempt,
                 delayMs,
-                reason: verdict.reason,
+                reason: lostPool ? POOL_LOST_REASON : verdict.reason,
               });
             }
             void (async () => {
@@ -2516,7 +2540,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
           const inherited = inheritsUserConfig(env) ? read(join(resolveClaudeConfigDir(undefined, env), "settings.json")) : undefined;
           const folder = taskFolder ?? (threadId ? workFolders.get(threadId) : undefined);
-          const project = folder ? read(join(folder, ".claude", "settings.json")) : undefined;
+          const projectText = folder ? await dogFiles.readText(join(folder, ".claude", "settings.json")).catch(() => null) : null;
+          const project = projectText === null ? undefined : (() => { try { return JSON.parse(projectText) as unknown; } catch { return undefined; } })();
           return {
             switchedOff: claudeCompactionSwitchedOff(env, inherited) || claudeCompactionSwitchedOff({}, project),
             customEndpoint: !config.managed && localModelEndpoint(env.ANTHROPIC_BASE_URL),

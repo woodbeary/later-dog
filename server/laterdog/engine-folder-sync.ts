@@ -236,6 +236,7 @@ export async function syncFolder(
   signal?: AbortSignal,
   progress = () => {},
   dataRoot = "/data",
+  purpose: "checkout" | "save" = "checkout",
 ): Promise<{ revision: string; manifest: string; changed: boolean }> {
   const dir = guestFolderDir(binding.path, state);
   ensureRealDirectory(dir);
@@ -302,10 +303,9 @@ export async function syncFolder(
           ? "The assigned working folder was deleted in durable storage. The computer's files were preserved."
           : "The assigned working folder has not been published yet",
       );
-    const remote =
-      saved?.revision === head.revision && saved.manifest === head.manifest && before
-        ? before.tree
-        : await store.tree(head.manifest);
+    const known = saved?.revision === head.revision && saved.manifest === head.manifest && before;
+    const remote = known ? before.tree : await store.tree(head.manifest);
+    if (known) await store.rememberStored(remote, head.manifest);
     validateLinks(remote);
     reconcileAliases(binding.path, previousAliases, aliases, remote);
     write(identity, { ...binding, grant: store.grant });
@@ -328,13 +328,18 @@ export async function syncFolder(
       if (!committed) continue;
       current = committed;
     }
-    await applyFolder(store, binding.path, local, next, linkFor);
+    if (!current.manifest) throw new Error("Working folder head disappeared");
+    if (purpose === "save" && !equalTree(local.tree, next))
+      return { revision: current.revision, manifest: current.manifest, changed: current.revision !== head.revision };
+    const arrivals = join(dir, "arrived");
+    mkdirSync(arrivals, { recursive: true, mode: 0o700 });
+    await applyFolder(store, binding.path, local, next, linkFor, arrivals);
+    rmSync(arrivals, { recursive: true, force: true });
     const final = await visitFolder(binding.path, local, progress, next, aliases, linkFor);
     if (!equalTree(final.tree, next))
       throw new Error(
         "Working folder changed while the durable checkout was arriving. Its current contents are retained.",
       );
-    if (!current.manifest) throw new Error("Working folder head disappeared");
     write(snapshot, {
       version: 1,
       uri: binding.grant.baseUrl,

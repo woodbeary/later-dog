@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { EventEmitter } from "node:events";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createServer, type Server } from "node:http";
 import { createInterface } from "node:readline";
@@ -17,7 +17,7 @@ import type { EngineWait } from "./engine-waiting.ts";
 import { placedThreads, preToolGuardDecision } from "./placed-threads.ts";
 import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
 import { ENGINE_WINDOW_BYTES, engineFileChunks, engineInventory } from "./engine-files.ts";
-import { commandLink, EngineProcess, RemoteSession, type EngineLink } from "./engine-remote.ts";
+import { commandLink, EngineProcess, RELAY_SELF_STOP_MS, RemoteSession, type EngineLink } from "./engine-remote.ts";
 import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
@@ -70,7 +70,7 @@ function world(sessionId = "s-1", options: { preToolUse?: string; env?: Record<s
   const args = (resume: boolean) => ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--mcp-config", mcpPath, "--settings", settingsPath, resume ? "--resume" : "--session-id", sessionId];
   const plan = (resume = false) => {
     const planned = planClaudeRemote({ botId: "bot-1", threadId: "thread-1", sessionId, cliCommand: join(pkg, "bin", "claude"), args: args(resume), cwd, env,
-      managed: false, dataDir: join(base, "data"), proxyPath: PROXY, remoteBase });
+      managed: false, dataDir: join(base, "data"), proxyPath: PROXY, remoteBase, botFolder: existsSync(join(base, "data", "workspaces", "bot-1")) });
     if (!("plan" in planned)) throw new Error(planned.stay);
     Object.assign(planned.plan.launch.env, { FAKE_ENGINE_SLUG: env.FAKE_ENGINE_SLUG, FAKE_ENGINE_LAUNCHES: env.FAKE_ENGINE_LAUNCHES });
     return planned.plan;
@@ -157,6 +157,35 @@ it("runs a turn on the computer with home-held tools, hooks and authority, and r
   expect(w.localLaunches()).toBe(0);
   expect(w.launches()).toHaveLength(1);
 }, 60_000);
+
+function slowHome(inner: EngineLink, delayMs: number): EngineLink {
+  const link = new EventEmitter() as EngineLink;
+  let queue = Promise.resolve();
+  const later = (deliver: () => void) => { queue = queue.then(() => new Promise<void>((resolve) => setTimeout(resolve, delayMs))).then(deliver); };
+  inner.on("line", (line: string) => later(() => link.emit("line", line)));
+  inner.on("diagnostic", (text: string) => link.emit("diagnostic", text));
+  inner.on("close", (why: string) => later(() => link.emit("close", why)));
+  link.send = (line) => inner.send(line);
+  link.close = () => inner.close();
+  return link;
+}
+
+it("keeps saving a turn's files to a home that is slow but still working, past the relay's quiet limit", async () => {
+  const w = world();
+  const relay = () => slowHome(commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: w.remoteRoot, LATERDOG_ENGINE_ACK_MS: "1500" }), 80);
+  const { engine, placed } = w.start(w.plan(), async () => relay());
+  const stderr: string[] = [];
+  engine.stderr.on("data", (bytes) => stderr.push(String(bytes)));
+  await turn(engine, "one", undefined, 60_000);
+  const big = Buffer.alloc(ENGINE_WINDOW_BYTES * 2, 7);
+  writeFileSync(w.mirror(join(w.cwd, "big.bin")), big);
+  await turn(engine, "two", undefined, 60_000);
+  expect(placed).toEqual(["computer"]);
+  expect(stderr.join("")).not.toContain("was not acknowledged");
+  expect(readFileSync(join(w.cwd, "big.bin")).equals(big)).toBe(true);
+  engine.stdin.end();
+  expect(await closed(engine)).toBe(0);
+}, 120_000);
 
 it("keeps a progressing checkpoint open beyond its original reply deadline and times out after progress stops", async () => {
   const w = world();
@@ -248,7 +277,7 @@ it("parks a selected rollout after loss and recovers only that file into the nex
   await done;
 }, 30_000);
 
-it("recovers a later guest transcript before dispatch and preserves both copies on a two-sided edit", async () => {
+it("recovers a later guest transcript, continues the home copy over an older restored one, takes the computer copy when it extends the home's, and keeps a diverged computer copy beside it with a note", async () => {
   const w = world();
   const first = w.start(w.plan());
   await turn(first.engine, "first turn");
@@ -266,17 +295,44 @@ it("recovers a later guest transcript before dispatch and preserves both copies 
   const closedAgain = closed(resumed.engine);
   resumed.engine.stdin.end();
   await closedAgain;
-  writeFileSync(w.sessionFile, "home revision");
-  writeFileSync(guest, "computer revision");
-  const conflict = w.start(w.plan(true));
-  const diagnostics: string[] = [];
-  conflict.engine.stderr.on("data", chunk => diagnostics.push(String(chunk)));
-  expect(await closed(conflict.engine)).toBe(1);
-  expect(diagnostics.join("")).toContain("Both copies were preserved");
-  expect(readFileSync(w.sessionFile, "utf8")).toBe("home revision");
-  expect(readFileSync(guest, "utf8")).toBe("computer revision");
+  const settled = readFileSync(w.sessionFile);
+  writeFileSync(guest, Buffer.concat([settled, Buffer.from("restored computer line\n")]));
+  writeFileSync(w.sessionFile, Buffer.concat([settled, Buffer.from("restored computer line\n"), Buffer.from("later home line\n")]));
+  const notices: string[] = [];
+  const restored = w.start(w.plan(true), undefined, false, undefined, { onNotice: (text) => notices.push(text) });
+  await turn(restored.engine, "after a restore from an older snapshot");
+  expect(readFileSync(w.sessionFile, "utf8")).toContain("later home line");
+  expect(notices).toEqual([]);
+  const restoredClosed = closed(restored.engine);
+  restored.engine.stdin.end();
+  await restoredClosed;
+  const shared = readFileSync(w.sessionFile);
+  writeFileSync(w.sessionFile, Buffer.concat([shared, Buffer.from("home took the first part\n")]));
+  writeFileSync(guest, Buffer.concat([shared, Buffer.from("home took the first part\n"), Buffer.from("computer kept working\n")]));
+  const ahead = w.start(w.plan(true), undefined, false, undefined, { onNotice: (text) => notices.push(text) });
+  await turn(ahead.engine, "after the computer kept working past the home's copy");
+  expect(readFileSync(w.sessionFile, "utf8")).toContain("computer kept working");
+  expect(notices).toEqual([]);
+  const aheadClosed = closed(ahead.engine);
+  ahead.engine.stdin.end();
+  await aheadClosed;
+  const agreed = readFileSync(w.sessionFile);
+  writeFileSync(w.sessionFile, Buffer.concat([agreed, Buffer.from("home revision\n")]));
+  writeFileSync(guest, Buffer.concat([agreed, Buffer.from("computer revision\n")]));
+  const conflict = w.start(w.plan(true), undefined, false, undefined, { onNotice: (text) => notices.push(text) });
+  await turn(conflict.engine, "after the two copies diverged");
+  const kept = readdirSync(dirname(guest)).filter((name) => name.endsWith(".preserved"));
+  expect(kept).toHaveLength(1);
+  expect(readFileSync(join(dirname(guest), kept[0]!), "utf8")).toContain("computer revision");
+  expect(readFileSync(w.sessionFile, "utf8")).toContain("home revision");
+  expect(readFileSync(w.sessionFile, "utf8")).not.toContain("computer revision");
+  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain(kept[0]);
+  const conflictClosed = closed(conflict.engine);
+  conflict.engine.stdin.end();
+  await conflictClosed;
   expect(w.localLaunches()).toBe(0);
-  expect(w.launches()).toHaveLength(2);
+  expect(w.launches()).toHaveLength(5);
 });
 
 it("resumes a large Claude transcript on the computer and checkpoints its exact bytes back to the home", async () => {
@@ -394,7 +450,7 @@ it("reports an engine crash and keeps what it wrote, without running it again", 
   expect(w.localLaunches()).toBe(0);
 }, 60_000);
 
-it("fails a turn whose connection drops after launch, never re-runs it, and stops the orphan before the chat starts again", async () => {
+it("fails a turn whose connection drops after launch, never re-runs it, reclaims its stop once the relay has had time to end it, and no orphan survives the next start", async () => {
   const w = world();
   let relayProcess: ChildProcess | undefined;
   const link = async () => {
@@ -414,12 +470,40 @@ it("fails a turn whose connection drops after launch, never re-runs it, and stop
   const orphan = Number(w.launches()[0]);
   relayProcess!.kill("SIGKILL");
   expect(await closed(engine)).toBe(1);
-  expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(false);
+  const reclaimedAt = Date.now();
+  expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(true);
+  expect(Date.now() - reclaimedAt).toBeLessThan(RELAY_SELF_STOP_MS + 2_000);
   expect(w.localLaunches()).toBe(0);
-  expect(() => process.kill(orphan, 0)).not.toThrow();
   const again = w.start(w.plan(true), undefined, true);
   await turn(again.engine, "after");
   expect(() => process.kill(orphan, 0)).toThrow();
+  again.engine.stdin.end();
+  await closed(again.engine);
+}, 60_000);
+
+it("reclaims a placed engine stopped during a steered turn whose stop is never confirmed, so the chat's next turn starts", async () => {
+  const w = world();
+  let relayProcess: ChildProcess | undefined;
+  const link = async () => {
+    const child = spawn(process.execPath, [RELAY], { env: { ...process.env, LATERDOG_ENGINE_TEST_ROOT: w.remoteRoot }, stdio: ["pipe", "pipe", "pipe"] });
+    relayProcess = child;
+    const out = new EventEmitter() as EngineLink;
+    createInterface({ input: child.stdout }).on("line", (line) => out.emit("line", line));
+    child.on("close", () => out.emit("close", "killed"));
+    out.send = (line) => child.stdin.write(`${line}\n`);
+    out.close = () => child.kill("SIGKILL");
+    return out;
+  };
+  const { engine } = w.start(w.plan(), link);
+  engine.stdin.write(message("hang"));
+  await expect.poll(() => w.launches().length, { timeout: 30_000 }).toBe(1);
+  engine.stdin.write(message("one more thing while you work"));
+  relayProcess!.kill("SIGKILL");
+  const stopped = killCliTree(engine as unknown as ChildProcess, 2_000);
+  expect(await closed(engine)).toBe(1);
+  expect(await stopped).toBe(true);
+  const again = w.start(w.plan(true), undefined, true);
+  expect((await turn(again.engine, "after the steer")).cwd).toBe(w.mirror(w.cwd));
   again.engine.stdin.end();
   await closed(again.engine);
 }, 60_000);
@@ -611,9 +695,33 @@ it.each(["exit", "disconnect"] as const)("settles a remote %s delivered alongsid
     expect(stderr.join("")).toBe("native startup failure\n");
   } else {
     expect(stderr.join("")).toContain("ended before the engine could be used");
-    expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(false);
+    expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(true);
   }
 });
+
+it("starts two chats' engines on one computer at once without either finding the shared account settings half written", async () => {
+  const w = world();
+  const plans = [w.plan(), w.plan()];
+  const other = plans[1]!.launch, otherCwd = join(w.base, "home", "other-chat");
+  mkdirSync(otherCwd, { recursive: true });
+  other.lockFile = other.lockFile.replace(/\.lock$/, "-other.lock");
+  other.stateFile = other.stateFile.replace(/\.json$/, "-other.json");
+  other.cwd = otherCwd;
+  other.args = other.args.map((arg) => (arg === "s-1" ? "s-2" : arg));
+  other.roots = other.roots.map((root) =>
+    root.id === "workspace" ? { ...root, path: otherCwd }
+      : root.id === "session" ? { ...root, files: ["s-2.jsonl"] }
+        : root.id === "session-extra" || root.id === "file-history" ? { ...root, path: root.path.replace(/s-1$/, "s-2") }
+          : root);
+  for (const plan of plans) plan.launch.env.FAKE_ENGINE_CONFIG_RACE = "1";
+  const started = plans.map((plan) => w.start(plan));
+  const stderr: string[] = [];
+  for (const { engine } of started) engine.stderr.on("data", (bytes) => stderr.push(String(bytes)));
+  const results = await Promise.all(started.map(({ engine }, n) => turn(engine, `chat ${n}`, undefined, 45_000)));
+  expect(results).toHaveLength(2);
+  expect(stderr.join("")).not.toContain("restoring from backup");
+  for (const { engine } of started) { const ended = closed(engine); engine.stdin.end(); await ended; }
+}, 90_000);
 
 it("refuses a second engine for a chat whose engine still runs on the computer", async () => {
   const w = world();

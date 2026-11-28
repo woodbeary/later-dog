@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, chmod, lchown, link, lstat, mkdir, open, readdir, readFile, readlink, rename, rm, stat, statfs, symlink, utimes } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { access, lstat, mkdir, open, readdir, readFile, readlink, rm, stat, statfs } from "node:fs/promises";
+import { join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 
 export const CHUNK_BYTES = 8 * 1024 * 1024;
@@ -74,6 +74,7 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
     return fetcher(`${base}/${path}`, { ...init, signal, headers: { ...headers, ...init.headers } });
   };
   return {
+    ...(fetcher === globalThis.fetch ? { pieces: { url: `${base}/blobs/`, token } } : {}),
     async verifyPreviousBackup(descriptor) {
       const response = await call("work-folders/verify-previous-backup", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(descriptor)
@@ -436,7 +437,7 @@ export function resumeOrder(waiting, resumeAfter) {
   return start <= 0 ? waiting : [...waiting.slice(start), ...waiting.slice(0, start)];
 }
 
-export async function snapshot(root, store, previous, { scratch, memoryScratch, now = Date.now, clock = () => performance.now(), app, budgetMs = Infinity, freeBytes = diskFree, availableMemory = memoryAvailable, memoryMarginBytes = MEMORY_MARGIN_BYTES, onCopy, resumeAfter, parallel = SAVE_PARALLEL, exclude, exactScope } = {}) {
+export async function snapshot(root, store, previous, { scratch, memoryScratch, now = Date.now, clock = () => performance.now(), app, budgetMs = Infinity, freeBytes = diskFree, availableMemory = memoryAvailable, memoryMarginBytes = MEMORY_MARGIN_BYTES, onCopy, resumeAfter, parallel = SAVE_PARALLEL, exclude, exactScope, carry } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
   const unsaved = [];
   let unsavedReason;
@@ -535,6 +536,11 @@ export async function snapshot(root, store, previous, { scratch, memoryScratch, 
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(parallel, order.length)) }, worker));
   const entries = slots.filter(Boolean);
+  if (carry?.size) {
+    const present = new Set(entries.map((entry) => entry.path));
+    for (const [path, entry] of carry) if (!present.has(path)) entries.push(entry);
+    entries.sort((left, right) => walkOrder(left.path, right.path));
+  }
   const carryOn = deferred > 0 ? lastStarted : undefined;
   const manifest = { version: MANIFEST_VERSION, createdAt: now(), ...(app ? { app } : {}), entries };
   if (uploaded > 0 || !previous || (app && previous.app !== app) || previous.entries.length !== entries.length || changedShape(previous.entries, entries)) {
@@ -559,174 +565,6 @@ function changedShape(before, after) {
   return false;
 }
 
-const RESTORE_PARALLEL = 16;
-export const CHUNK_ATTEMPTS = 5;
-export const CHUNK_RETRY_MS = 1_000;
-
-function sha256(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-async function writeAll(handle, bytes, position) {
-  let written = 0;
-  while (written < bytes.length) {
-    const { bytesWritten } = await handle.write(bytes, written, bytes.length - written, position + written);
-    written += bytesWritten;
-  }
-  return position + written;
-}
-
-function waitUnlessStopped(ms, stop) {
-  return new Promise((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      stop.removeEventListener("abort", done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    stop.addEventListener("abort", done, { once: true });
-  });
-}
-
-async function readChunk(store, hash, stop, { attempts, retryMs }) {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      const bytes = await store.get(hash, { signal: stop });
-      if (sha256(bytes) !== hash) throw new Error(`a piece arrived damaged (${bytes.length} bytes)`);
-      return bytes;
-    } catch (error) {
-      if (stop.aborted || attempt >= attempts) throw error;
-      await waitUnlessStopped(attempt * retryMs, stop);
-      if (stop.aborted) throw error;
-    }
-  }
-}
-
-async function alreadyRestored(path, entry) {
-  const existing = await lstat(path).catch(() => null);
-  return existing?.isFile() === true && existing.size === entry.size && Math.round(existing.mtimeMs) === Math.trunc(entry.mtimeMs);
-}
-
-async function download(entry, store, staging, stop, retries) {
-  const handle = await open(staging, "wx", 0o600);
-  try {
-    let position = 0;
-    for (const hash of entry.chunks) {
-      if (stop.aborted) return false;
-      const bytes = await readChunk(store, hash, stop, retries);
-      if (sha256(bytes) !== hash) throw new Error(`corrupt chunk for ${entry.path}`);
-      position = await writeAll(handle, bytes, position);
-    }
-  } finally {
-    await handle.close();
-  }
-  return !stop.aborted;
-}
-
-async function clearForFile(path) {
-  const existing = await lstat(path).catch(() => null);
-  if (existing?.isDirectory()) await rm(path, { recursive: true, force: true });
-}
-
-export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMPTS, chunkRetryMs = CHUNK_RETRY_MS, finished = new Set(), exclude, exactScope } = {}) {
-  const retries = { attempts: chunkAttempts, retryMs: chunkRetryMs };
-  const manifest = await store.manifest();
-  if (!manifest) return { manifest: null, files: 0 };
-  const kept = manifest.entries.filter(entry => !exclude?.(entry.path) && (exactScope?.(entry.path) || !transient(entry)));
-  const hardLinks = kept.filter(entry => entry.hardlink !== undefined);
-  const byPath = new Map(kept.map(entry => [entry.path, entry]));
-  for (const entry of hardLinks) {
-    const original = byPath.get(entry.hardlink);
-    if (!exactScope?.(entry.path) || exactScope(entry.path) !== exactScope(entry.hardlink) ||
-        !original || original.type !== "file" || entry.type !== "file" || original.hardlink !== undefined ||
-        original.mode !== entry.mode || original.mtimeMs !== entry.mtimeMs || original.size !== entry.size ||
-        JSON.stringify(original.chunks) !== JSON.stringify(entry.chunks)) throw new Error("Invalid working folder hard link");
-    for (const name of [entry.path, original.path]) {
-      const fields = name.split("/");
-      if (fields.some(part => !part || part === "." || part === "..")) throw new Error("Invalid working folder hard link path");
-      for (let i = 1; i < fields.length; i++) {
-        if (byPath.get(fields.slice(0, i).join("/"))?.type !== "dir") throw new Error("Invalid hard link parent");
-      }
-    }
-  }
-  let files = 0;
-  const own = async (path) => {
-    if (owner) await lchown(path, owner.uid, owner.gid);
-  };
-  for (const entry of kept) {
-    if (entry.type !== "dir") continue;
-    const path = join(root, entry.path);
-    await mkdir(path, { recursive: true, mode: entry.mode });
-    await own(path);
-  }
-  for (const entry of kept) {
-    if (entry.type !== "link") continue;
-    const path = join(root, entry.path);
-    await rm(path, { force: true, recursive: true });
-    await symlink(entry.target, path);
-    await own(path);
-  }
-  const pending = kept.filter(entry => entry.type === "file" && entry.hardlink === undefined);
-  const stopping = new AbortController();
-  const failures = [];
-  const writeOne = async (entry) => {
-    const path = join(root, entry.path);
-    if (finished.has(entry.path) && (await alreadyRestored(path, entry))) {
-      files += 1;
-      return;
-    }
-    const staging = join(dirname(path), `${RESTORING_PREFIX}${sha256(entry.path).slice(0, 24)}`);
-    await rm(staging, { force: true, recursive: true });
-    try {
-      if (!(await download(entry, store, staging, stopping.signal, retries))) return;
-      await chmod(staging, entry.mode);
-      await own(staging);
-      const moment = new Date(entry.mtimeMs);
-      await utimes(staging, moment, moment);
-      if (stopping.signal.aborted) return;
-      await clearForFile(path);
-      await rename(staging, path);
-      finished.add(entry.path);
-      files += 1;
-    } finally {
-      await rm(staging, { force: true });
-    }
-  };
-  let next = 0;
-  const worker = async () => {
-    while (!stopping.signal.aborted && next < pending.length) {
-      try {
-        await writeOne(pending[next++]);
-      } catch (error) {
-        failures.push(error);
-        stopping.abort(error);
-      }
-    }
-  };
-  await Promise.allSettled(Array.from({ length: Math.min(RESTORE_PARALLEL, pending.length) }, worker));
-  if (failures.length > 0) throw failures[0];
-  for (const entry of hardLinks) {
-    const path = join(root, entry.path), original = join(root, entry.hardlink);
-    const info = await lstat(original);
-    if (!info.isFile() || info.size !== entry.size) throw new Error("Working folder hard link target changed");
-    const temporary = join(dirname(path), RESTORING_PREFIX + sha256(entry.path).slice(0, 24));
-    await rm(temporary, { force: true });
-    try {
-      await link(original, temporary);
-      await clearForFile(path);
-      await rename(temporary, path);
-    } finally { await rm(temporary, { force: true }); }
-    files++;
-  }
-  for (const entry of [...kept].reverse()) {
-    if (entry.type !== "dir") continue;
-    const moment = new Date(entry.mtimeMs);
-    await utimes(join(root, entry.path), moment, moment).catch(() => undefined);
-    await chmod(join(root, entry.path), entry.mode).catch(() => undefined);
-  }
-  return { manifest, files };
-}
-
 export function referencedBlobs(manifest) {
   const keep = new Set();
   for (const entry of manifest?.entries ?? []) if (entry.type === "file") for (const hash of entry.chunks) keep.add(hash);
@@ -741,20 +579,21 @@ export async function keptRestorePoints(store) {
 
 export const CLEANUP_PARALLEL = 8;
 
-export async function collectGarbageWithin(store, manifest, { pending = [], budgetMs = Infinity, now = Date.now, parallel = CLEANUP_PARALLEL } = {}) {
+export async function collectGarbageWithin(store, manifest, { pending = [], budgetMs = Infinity, now = Date.now, parallel = CLEANUP_PARALLEL, stopped = () => false } = {}) {
   if (!manifest) return { removed: 0, finished: true };
   const keep = referencedBlobs(manifest);
   for (const kept of [...pending, ...(await keptRestorePoints(store))]) for (const hash of referencedBlobs(kept)) keep.add(hash);
   const unused = [];
   let cursor;
   do {
+    if (stopped()) return { removed: 0, finished: false };
     const page = await store.listBlobs(cursor);
     for (const hash of page.hashes) if (!keep.has(hash)) unused.push(hash);
     cursor = page.cursor;
   } while (cursor);
   const deadline = now() + budgetMs;
   let removed = 0;
-  while (removed < unused.length && (removed === 0 || now() < deadline)) {
+  while (removed < unused.length && !stopped() && (removed === 0 || now() < deadline)) {
     const batch = unused.slice(removed, removed + parallel);
     await Promise.all(batch.map((hash) => store.deleteBlob(hash)));
     removed += batch.length;

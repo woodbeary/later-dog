@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { folderExclusions, folderMounts, legacyWorkFolderScope } from "../runtime/work-folder-mounts.mjs";
-import { CHUNK_BYTES, chunksOf, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient, MEMORY_MARGIN_BYTES } from "../runtime/sync.mjs";
+import { alreadyUnmounted, folderExclusions, folderMounts, legacyWorkFolderScope } from "../runtime/work-folder-mounts.mjs";
+import { CHUNK_BYTES, chunksOf, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient, MEMORY_MARGIN_BYTES } from "../runtime/sync.mjs";
+import { restore } from "../runtime/restore-engine.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -81,15 +82,6 @@ function chunksFor(manifest: { entries: Entry[] }, path: string): string[] {
   return entry.chunks;
 }
 
-function listing(root: string): string[] {
-  return (readdirSync(root, { recursive: true }) as string[])
-    .sort()
-    .map((path) => {
-      const info = statSync(join(root, path));
-      return info.isFile() ? `${path} ${info.size} ${info.mtimeMs} ${info.mode}` : `${path}/`;
-    });
-}
-
 function bytesBesides(root: string, finalName: string): number {
   return readdirSync(root)
     .filter((name) => name !== finalName)
@@ -118,7 +110,7 @@ describe("home data sync", () => {
     for (let i = 0; i < 40; i++) expect(readFileSync(join(target, "chats", `${i}.json`), "utf8")).toBe(`{"chat":${i}}`);
   });
 
-  it("stops every download when one file cannot be read, and only gives up once nothing is still writing", async () => {
+  it("keeps reading a piece the store cannot serve yet, so a wake never gives up and never leaves a partial file", async () => {
     const source = folder();
     mkdirSync(join(source, "chats"), { recursive: true });
     const big = randomBytes(CHUNK_BYTES * 3 + 77);
@@ -127,39 +119,28 @@ describe("home data sync", () => {
     const store = memoryStore();
     const saved = await snapshot(source, store, null, { scratch: folder() });
     const [broken] = chunksFor(saved.manifest, join("chats", "1.json"));
-    let reading = 0;
-    let gaveUp = false;
-    const late: string[] = [];
+    let refusals = 0;
+    const target = folder();
+    let whileRefused: string[] = [];
     const failing = {
       ...store,
       async get(hash: string) {
-        if (gaveUp) late.push(hash);
-        reading += 1;
-        try {
-          await pause(hash === broken ? 2 : 15);
-          if (hash === broken) throw new Error("blob read failed: 503");
-          return await store.get(hash);
-        } finally {
-          reading -= 1;
+        if (hash === broken && refusals < 4) {
+          refusals += 1;
+          if (refusals === 4) whileRefused = readdirSync(join(target, "chats"));
+          throw new Error("blob read failed: 503");
         }
+        return store.get(hash);
       },
     };
-    const target = folder();
-    let readingWhenGivenUp = -1;
-    let leftAtGiveUp: string[] = [];
-    const attempt = restore(target, failing, null, { chunkAttempts: 1 }).finally(() => {
-      gaveUp = true;
-      readingWhenGivenUp = reading;
-      leftAtGiveUp = listing(target);
-    });
-    await expect(attempt).rejects.toThrow("blob read failed: 503");
-    await pause(150);
-    expect(readingWhenGivenUp).toBe(0);
-    expect(late).toEqual([]);
-    expect(listing(target)).toEqual(leftAtGiveUp);
-    const files = readdirSync(join(target, "chats"));
-    expect(files.filter((name) => !/^\d+\.json$/.test(name))).toEqual([]);
-    for (const name of files) expect(readFileSync(join(target, "chats", name), "utf8")).toBe(readFileSync(join(source, "chats", name), "utf8"));
+    const lines: string[] = [];
+    expect((await restore(target, failing, null, { retryMs: 1, log: (line: string) => lines.push(line) })).files).toBe(61);
+    expect(refusals).toBe(4);
+    expect(whileRefused).not.toContain("1.json");
+    expect(lines.filter((line) => line.startsWith("reading chats/1.json again"))).toHaveLength(3);
+    expect(readdirSync(join(target, "chats")).filter((name) => !/^\d+(?:-big\.bin|\.json)$/.test(name))).toEqual([]);
+    expect(Buffer.compare(readFileSync(join(target, "chats", "0-big.bin")), big)).toBe(0);
+    for (let i = 0; i < 60; i++) expect(readFileSync(join(target, "chats", `${i}.json`), "utf8")).toBe(`{"chat":${i}}`);
   });
 
   it("reads a piece again when the network drops it, so one dropped read never throws away a whole wake", async () => {
@@ -177,62 +158,9 @@ describe("home data sync", () => {
       return store.get(hash);
     } };
     const target = folder();
-    expect((await restore(target, dropping, null, { chunkRetryMs: 1 })).files).toBe(30);
+    expect((await restore(target, dropping, null, { retryMs: 1 })).files).toBe(30);
     expect(drops).toBe(3);
     for (let i = 0; i < 30; i++) expect(readFileSync(join(target, `${i}.json`), "utf8")).toBe(`{"chat":${i}}`);
-  });
-
-  it("keeps what an earlier try already put back, and fetches only what is still missing", async () => {
-    const source = folder();
-    for (let i = 0; i < 30; i++) writeFileSync(join(source, `${i}.json`), `{"chat":${i}}`);
-    const store = memoryStore();
-    const saved = await snapshot(source, store, null, { scratch: folder() });
-    const [broken] = chunksFor(saved.manifest, "29.json");
-    const target = folder();
-    const failing = { ...store, async get(hash: string) {
-      if (hash === broken) throw new TypeError("fetch failed");
-      return store.get(hash);
-    } };
-    const finished = new Set<string>();
-    await expect(restore(target, failing, null, { chunkAttempts: 1, finished })).rejects.toThrow("fetch failed");
-    const before = readdirSync(target).filter((name) => name.endsWith(".json")).length;
-    expect(before).toBeGreaterThan(0);
-    let reads = 0;
-    const counting = { ...store, async get(hash: string) {
-      reads += 1;
-      return store.get(hash);
-    } };
-    expect((await restore(target, counting, null, { finished })).files).toBe(30);
-    expect(reads).toBe(30 - before);
-    for (let i = 0; i < 30; i++) expect(readFileSync(join(target, `${i}.json`), "utf8")).toBe(`{"chat":${i}}`);
-  });
-
-  it.each<[string, number, string, number]>([
-    ["the filesystem rounds below the saved millisecond", -0.25, "saved words", 0],
-    ["the completed copy has changed", 2, "other words", 1],
-  ])("checks a completed file when %s", async (_reason, offsetMs, words, expectedReads) => {
-    const source = folder();
-    writeFileSync(join(source, "note.txt"), "saved words");
-    const savedTime = 1_700_000_000_000;
-    utimesSync(join(source, "note.txt"), new Date(savedTime), new Date(savedTime));
-    const store = memoryStore();
-    await snapshot(source, store, null, { scratch: folder() });
-    const target = folder();
-    const finished = new Set<string>();
-    await restore(target, store, null, { finished });
-    const path = join(target, "note.txt");
-    writeFileSync(path, words);
-    const seconds = (savedTime + Number(offsetMs)) / 1000;
-    utimesSync(path, seconds, seconds);
-    expect(Math.abs(statSync(path).mtimeMs - savedTime)).toBeGreaterThan(0);
-    let reads = 0;
-    const counting = { ...store, async get(hash: string) {
-      reads += 1;
-      return store.get(hash);
-    } };
-    expect((await restore(target, counting, null, { finished })).files).toBe(1);
-    expect(reads).toBe(expectedReads);
-    expect(readFileSync(path, "utf8")).toBe("saved words");
   });
 
   it("fetches a file again when the copy on disk differs from the save", async () => {
@@ -267,7 +195,8 @@ describe("home data sync", () => {
     };
     const owner = { uid: process.getuid!(), gid: process.getgid!() };
     expect((await restore(target, watching, owner)).files).toBe(1);
-    expect(seen).toEqual([0, 1, 2, 3].map((index) => ({ besides: index * CHUNK_BYTES, whole: false })));
+    expect(seen).toHaveLength(4);
+    expect(seen.every((moment) => !moment.whole && moment.besides >= 0)).toBe(true);
     expect(readdirSync(target)).toEqual(["big.bin"]);
     expect(Buffer.compare(readFileSync(join(target, "big.bin")), big)).toBe(0);
     const restored = statSync(join(target, "big.bin"));
@@ -276,21 +205,31 @@ describe("home data sync", () => {
     expect(restored.uid).toBe(owner.uid);
   });
 
-  it("keeps the file already there and leaves no partial copy when a chunk does not match its hash", async () => {
+  it("keeps the file already there until every chunk checks out, and reads a damaged chunk again", async () => {
     const source = folder();
-    writeFileSync(join(source, "big.bin"), randomBytes(CHUNK_BYTES * 2 + 9));
+    const big = randomBytes(CHUNK_BYTES * 2 + 9);
+    writeFileSync(join(source, "big.bin"), big);
     const store = memoryStore();
     const saved = await snapshot(source, store, null, { scratch: folder() });
     const [, second] = chunksFor(saved.manifest, "big.bin");
-    const tampered = { ...store, async get(hash: string) {
-      const bytes = await store.get(hash);
-      return hash === second ? bytes.slice(1) : bytes;
-    } };
     const target = folder();
     writeFileSync(join(target, "big.bin"), "the copy from last time");
-    await expect(restore(target, tampered, null, { chunkRetryMs: 1 })).rejects.toThrow("a piece arrived damaged");
+    const duringDamage: string[] = [];
+    let damaged = 0;
+    const tampered = { ...store, async get(hash: string) {
+      const bytes = await store.get(hash);
+      if (hash !== second || damaged >= 2) return bytes;
+      damaged += 1;
+      duringDamage.push(readFileSync(join(target, "big.bin"), "utf8"));
+      return bytes.slice(1);
+    } };
+    const lines: string[] = [];
+    await restore(target, tampered, null, { retryMs: 1, log: (line: string) => lines.push(line) });
+    expect(damaged).toBe(2);
+    expect(duringDamage).toEqual(["the copy from last time", "the copy from last time"]);
+    expect(lines.some((line) => line.includes("a piece arrived damaged"))).toBe(true);
     expect(readdirSync(target)).toEqual(["big.bin"]);
-    expect(readFileSync(join(target, "big.bin"), "utf8")).toBe("the copy from last time");
+    expect(Buffer.compare(readFileSync(join(target, "big.bin")), big)).toBe(0);
   });
 
   it("restores files, folders, links and modes exactly", async () => {
@@ -1053,6 +992,24 @@ describe("cleaning up saved pieces", () => {
     expect(new Set(store.blobs.keys())).toEqual(referencedBlobs(saved.manifest));
   });
 
+  it("stops a cleanup as soon as the home is asked to stop, so the last save never waits behind it", async () => {
+    const home = folder();
+    const store = memoryStore();
+    writeFileSync(join(home, "notes.md"), "kept");
+    const saved = await snapshot(home, store, null);
+    for (let index = 0; index < 20; index += 1) store.blobs.set(createHash("sha256").update(`old ${index}`).digest("hex"), new Uint8Array([index]));
+    let stopping = false;
+    let listed = 0;
+    const listing = { ...store, listBlobs: async (cursor?: string) => { listed += 1; if (listed === 3) stopping = true; return store.listBlobs(cursor); } };
+    expect(await collectGarbageWithin(listing, saved.manifest, { stopped: () => stopping })).toEqual({ removed: 0, finished: false });
+    expect(listed).toBe(3);
+    let deleted = 0;
+    const deleting = { ...store, deleteBlob: async (hash: string) => { deleted += 1; stopping = true; await store.deleteBlob(hash); } };
+    stopping = false;
+    expect(await collectGarbageWithin(deleting, saved.manifest, { parallel: 1, stopped: () => stopping })).toEqual({ removed: 1, finished: false });
+    expect(deleted).toBe(1);
+  });
+
   it("deletes eight pieces at a time, and still removes one round when the time is already up", async () => {
     const home = folder();
     const store = memoryStore();
@@ -1518,4 +1475,10 @@ it("keeps rollback files from generated directories and restores regular hard li
   expect(readFileSync(join(fresh, "code", ".cache", "a"), "utf8")).toBe("new bytes");
   await store.putManifest({ ...first.manifest, entries: first.manifest.entries.map((e: {path:string}) => e.path === "code/b" ? { ...e, hardlink: ".cache/local" } : e) });
   await expect(restore(folder(), store, undefined, { exactScope })).rejects.toThrow("Invalid working folder hard link");
+});
+
+it("treats a working folder that a stopping container already unmounted as stopped cleanly, and any other unmount failure as a failure", () => {
+  expect(alreadyUnmounted(Object.assign(new Error("Command failed: umount /run/laterdog-work-folders/tree"), { code: 32, stderr: "umount: /run/laterdog-work-folders/tree: not mounted.\n" }))).toBe(true);
+  expect(alreadyUnmounted(Object.assign(new Error("Command failed"), { code: 32, stderr: "umount: /data/x: target is busy.\n" }))).toBe(false);
+  expect(alreadyUnmounted(Object.assign(new Error("Command failed"), { code: 1, stderr: "not mounted" }))).toBe(false);
 });

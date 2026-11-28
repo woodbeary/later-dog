@@ -256,6 +256,13 @@ describe("the edge files", () => {
     }
     expect(ruleMatches(r4.expression, { host: "accounts.later.dog", method: "POST", path: "/mcp" })).toBe(false);
     expect(ruleMatches(r5.expression, { host: "jacob-home.later.dog", method: "GET", path: "/" })).toBe(true);
+    for (const path of ["/api/work-folders/v1/dog/task-chat/blobs/abc", "/api/work-folders/v1/dog/dog/head"]) {
+      expect(ruleMatches(r5.expression, { host: "jacob-home.later.dog", method: "GET", path }), path).toBe(false);
+    }
+    expect(ruleMatches(r5.expression, { host: "jacob-home.later.dog", method: "POST", path: "/api/bots/x/messages" })).toBe(true);
+    for (const path of ["/api/internal/coordinator/history", "/api/internal/coordinator/queue", "/api/internal/coordinator/routines", "/api/internal/coordinator/inbox"]) {
+      expect(ruleMatches(r5.expression, { host: "jacob-home.later.dog", method: "POST", path }), path).toBe(false);
+    }
     expect(ruleMatches(r5.expression, { host: "cloud.later.dog", method: "GET", path: "/" })).toBe(false);
   });
 

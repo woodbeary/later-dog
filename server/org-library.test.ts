@@ -178,7 +178,7 @@ describe("the catalog", () => {
     await library.settled();
     const readBlob = vi.spyOn(library, "readBlob");
     expect(library.list().packages[0]).toMatchObject({ blob: "unsupported", installed: null });
-    expect(library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 409, code: "newer_app_required", error: "Update later.dog to add this package." });
+    expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 409, code: "newer_app_required", error: "Update later.dog to add this package." });
     expect(readBlob).not.toHaveBeenCalled();
     expect(app.store.bots).toHaveLength(0);
   });
@@ -191,7 +191,7 @@ describe("the catalog", () => {
     library.applyRelay(relay(catalog([entry(TEAM_ID, team, { mode: "off" })])));
     await library.settled();
     expect(library.list().packages).toEqual([]);
-    expect(library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 404, code: "not_listed" });
+    expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 404, code: "not_listed" });
   });
 });
 
@@ -205,7 +205,7 @@ describe("release files", () => {
     await library.settled();
     expect(library.readBlob(team.sha256)).toBeNull();
     expect(library.list().packages[0]!.blob).toBe("unavailable");
-    expect(library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 503, code: "blob_unavailable" });
+    expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 503, code: "blob_unavailable" });
     expect(app.store.bots).toHaveLength(0);
     expect(app.posted.at(-1).packages).toEqual([{ packageId: TEAM_ID, release: "1.3.0", sha256: team.sha256, state: "failed", reason: "blob_unavailable" }]);
 
@@ -220,7 +220,7 @@ describe("release files", () => {
     app.writeBlob(forged.bytes);
     library.applyRelay(relay(catalog([entry(TEAM_ID, forged)])));
     await library.settled();
-    expect(library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 422, code: "invalid_package" });
+    expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 422, code: "invalid_package" });
     expect(app.store.bots).toHaveLength(0);
     expect(app.posted.at(-1).packages[0]).toMatchObject({ state: "failed", reason: "invalid_package" });
   });
@@ -254,7 +254,7 @@ describe("adding from the shelf", () => {
     await library.settled();
     expect(library.list().packages[0]).toMatchObject({ blob: "ready", installed: null });
 
-    const outcome = library.add(TEAM_ID, app.importDeps);
+    const outcome = await library.add(TEAM_ID, app.importDeps);
     if (!outcome.ok || outcome.value.alreadyAdded) throw new Error(JSON.stringify(outcome));
     expect(outcome.status).toBe(201);
     const result = outcome.value.result;
@@ -328,11 +328,11 @@ describe("adding from the shelf", () => {
     const body = catalog([entry(TEAM_ID, team)]);
     library.applyRelay(relay(body));
     await library.settled();
-    const first = library.add(TEAM_ID, app.importDeps);
+    const first = await library.add(TEAM_ID, app.importDeps);
     expect(first).toMatchObject({ ok: true, status: 201 });
     const bots = app.store.bots.length;
     const installId = (first as any).value.result.installId;
-    expect(library.add(TEAM_ID, app.importDeps)).toEqual({ ok: true, status: 200, value: { alreadyAdded: true, installId } });
+    expect(await library.add(TEAM_ID, app.importDeps)).toEqual({ ok: true, status: 200, value: { alreadyAdded: true, installId } });
     expect(app.store.bots).toHaveLength(bots);
     const presets = app.readState().installs[installId].presets;
     expect(Object.keys(presets)).toEqual(["support"]);
@@ -343,7 +343,7 @@ describe("adding from the shelf", () => {
     library.applyRelay(relay(body));
     await library.settled();
     expect(app.readState().installs[installId]).toMatchObject({ packageId: TEAM_ID, status: "installed", section: "Sales desk", presets });
-    expect(library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: true, status: 200, value: { alreadyAdded: true } });
+    expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: true, status: 200, value: { alreadyAdded: true } });
     expect(app.store.bots).toHaveLength(bots);
     expect(app.store.groups).toHaveLength(1);
 
@@ -362,7 +362,7 @@ describe("adding from the shelf", () => {
     app.writeBlob(team.bytes);
     library.applyRelay(relay(catalog([entry(TEAM_ID, team)])));
     await library.settled();
-    const added = library.add(TEAM_ID, app.importDeps) as any;
+    const added = (await library.add(TEAM_ID, app.importDeps)) as any;
     const scout = added.value.result.bots.find((bot: any) => bot.installedPackage.agentKey === "scout");
     const daily = app.routines.packageStamps().find((routine) => routine.stamp.key === "daily-digest")!;
     app.routines.update(daily.routineId, { enabled: true });
@@ -395,7 +395,7 @@ describe("adding from the shelf", () => {
     app.writeBlob(team.bytes);
     library.applyRelay(relay(catalog([entry(TEAM_ID, team)])));
     await library.settled();
-    const added = library.add(TEAM_ID, app.importDeps) as any;
+    const added = (await library.add(TEAM_ID, app.importDeps)) as any;
     for (const id of app.store.groups.map((group) => group.id)) app.store.deleteGroup(id);
     const [first, ...rest] = added.value.result.bots;
     app.store.deleteBot(first.id);
@@ -409,7 +409,7 @@ describe("adding from the shelf", () => {
     expect(app.posted.at(-1).packages).toEqual([
       { packageId: TEAM_ID, release: "1.3.0", sha256: team.sha256, state: "removed", reason: "removed_locally" },
     ]);
-    expect(library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: true, status: 201 });
+    expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: true, status: 201 });
   });
 
   it("marks a team removed when only an offered skill it gave another bot is left", async () => {
@@ -420,9 +420,9 @@ describe("adding from the shelf", () => {
     app.writeBlob(team.bytes);
     library.applyRelay(relay(catalog([entry(TEAM_ID, team)])));
     await library.settled();
-    const added = library.add(TEAM_ID, app.importDeps) as any;
+    const added = (await library.add(TEAM_ID, app.importDeps)) as any;
     const installId = added.value.result.installId;
-    expect(library.addOfferedSkill(own.id, installId, "objection-handling")).toMatchObject({ ok: true, status: 201 });
+    expect(await library.addOfferedSkill(own.id, installId, "objection-handling")).toMatchObject({ ok: true, status: 201 });
 
     for (const id of app.store.groups.map((group) => group.id)) app.store.deleteGroup(id);
     for (const bot of added.value.result.bots) app.store.deleteBot(bot.id);
@@ -434,7 +434,7 @@ describe("adding from the shelf", () => {
       { packageId: TEAM_ID, release: "1.3.0", sha256: team.sha256, state: "removed", reason: "removed_locally" },
     ]);
     expect(app.skills.listSkills(own.id)).toEqual([expect.objectContaining({ name: "objection-handling", enabled: true })]);
-    const again = library.add(TEAM_ID, app.importDeps) as any;
+    const again = (await library.add(TEAM_ID, app.importDeps)) as any;
     expect(again).toMatchObject({ ok: true, status: 201 });
     expect(again.value.result.bots).toHaveLength(3);
     expect(app.readState().installs[installId]).toMatchObject({ status: "installed" });
@@ -448,9 +448,9 @@ describe("adding from the shelf", () => {
     app.writeBlob(team.bytes);
     library.applyRelay(relay(catalog([entry(TEAM_ID, team)])));
     await library.settled();
-    const added = library.add(TEAM_ID, app.importDeps) as any;
+    const added = (await library.add(TEAM_ID, app.importDeps)) as any;
     const installId = added.value.result.installId;
-    library.addOfferedSkill(own.id, installId, "objection-handling");
+    await library.addOfferedSkill(own.id, installId, "objection-handling");
     for (const id of app.store.groups.map((group) => group.id)) app.store.deleteGroup(id);
     for (const bot of added.value.result.bots) app.store.deleteBot(bot.id);
     await new Promise((resolve) => setTimeout(resolve, 400));
@@ -491,7 +491,7 @@ describe("adding from the shelf", () => {
         stampInstalledPackage: (id: string, stamp: any) => app.routines.stampInstalledPackage(id, stamp),
       },
     };
-    const installId = (library.add(TEAM_ID, deps) as any).value.result.installId;
+    const installId = (await library.add(TEAM_ID, deps) as any).value.result.installId;
     library.dispose();
 
     const crashed = await installation(crash!);
@@ -515,7 +515,7 @@ describe("adding from the shelf", () => {
     ]);
     expect(restarted.list().packages[0]!.installed).toBeNull();
 
-    const again = restarted.add(TEAM_ID, crashed.importDeps) as any;
+    const again = (await restarted.add(TEAM_ID, crashed.importDeps)) as any;
     expect(again).toMatchObject({ ok: true, status: 201, value: { result: { section: "Sales desk" } } });
     expect(crashed.store.bots).toHaveLength(3);
     expect(crashed.store.groups).toHaveLength(1);
@@ -542,7 +542,7 @@ describe("adding from the shelf", () => {
       crash = snapshot();
       return stamped;
     });
-    const installId = (library.add(TEAM_ID, app.importDeps) as any).value.result.installId;
+    const installId = (await library.add(TEAM_ID, app.importDeps) as any).value.result.installId;
     library.dispose();
 
     const crashed = await installation(crash!);
@@ -560,7 +560,7 @@ describe("adding from the shelf", () => {
     restarted.applyRelay(relay(body));
     await restarted.settled();
     expect(crashed.posted.at(-1).packages).toEqual([{ packageId: TEAM_ID, release: "1.3.0", sha256: team.sha256, state: "installed" }]);
-    expect(restarted.add(TEAM_ID, crashed.importDeps)).toMatchObject({ ok: true, status: 200, value: { alreadyAdded: true } });
+    expect(await restarted.add(TEAM_ID, crashed.importDeps)).toMatchObject({ ok: true, status: 200, value: { alreadyAdded: true } });
     expect(crashed.store.bots).toHaveLength(3);
     restarted.dispose();
   });
@@ -573,37 +573,37 @@ describe("adding from the shelf", () => {
     app.writeBlob(skills.bytes);
     library.applyRelay(relay(catalog([entry(LIBRARY_ID, skills)])));
     await library.settled();
-    const outcome = library.add(LIBRARY_ID, app.importDeps) as any;
+    const outcome = (await library.add(LIBRARY_ID, app.importDeps)) as any;
     expect(outcome).toMatchObject({ ok: true, status: 201 });
     expect(outcome.value.result.offeredSkills).toEqual(["objection-handling", "follow-up"]);
     expect(app.store.bots).toHaveLength(1);
     const installId = outcome.value.result.installId;
     expect(app.readState().installs[installId]).toMatchObject({ kind: "library", status: "installed", bots: {} });
-    expect(library.add(LIBRARY_ID, app.importDeps)).toEqual({ ok: true, status: 200, value: { alreadyAdded: true, installId } });
+    expect(await library.add(LIBRARY_ID, app.importDeps)).toEqual({ ok: true, status: 200, value: { alreadyAdded: true, installId } });
 
-    expect(library.offeredSkills(bot.id)).toEqual({
+    expect(await library.offeredSkills(bot.id)).toEqual({
       organization: { id: ORG, name: "Customer Co" },
       skills: [
         expect.objectContaining({ installId, name: "objection-handling", publisher: "Acme Partners", packageName: "Sales skills", added: false }),
         expect.objectContaining({ installId, name: "follow-up", added: false }),
       ],
     });
-    const added = library.addOfferedSkill(bot.id, installId, "follow-up");
+    const added = await library.addOfferedSkill(bot.id, installId, "follow-up");
     expect(added).toMatchObject({ ok: true, status: 201, value: { name: "follow-up", enabled: true, source: "org:acme/sales-skills@2.0.1" } });
-    expect(library.addOfferedSkill(bot.id, installId, "follow-up")).toMatchObject({ ok: false, status: 409, code: "skill_exists" });
-    expect(library.addOfferedSkill(bot.id, installId, "not-offered")).toMatchObject({ ok: false, status: 404 });
-    expect(library.offeredSkills(bot.id).skills.find((skill) => skill.name === "follow-up")!.added).toBe(true);
+    expect(await library.addOfferedSkill(bot.id, installId, "follow-up")).toMatchObject({ ok: false, status: 409, code: "skill_exists" });
+    expect(await library.addOfferedSkill(bot.id, installId, "not-offered")).toMatchObject({ ok: false, status: 404 });
+    expect((await library.offeredSkills(bot.id)).skills.find((skill) => skill.name === "follow-up")!.added).toBe(true);
     app.store.deleteBot(bot.id);
     await new Promise((resolve) => setTimeout(resolve, 400));
     await library.settled();
     expect(app.readState().installs[installId].status).toBe("installed");
 
     const other = app.store.createBot({ name: "Other" });
-    library.addOfferedSkill(other.id, installId, "objection-handling");
+    await library.addOfferedSkill(other.id, installId, "objection-handling");
     library.applyRelay(relay(catalog([entry(LIBRARY_ID, skills, { release: null, withdrawnReleases: [{ version: "2.0.1", sha256: skills.sha256 }] })])));
     await library.settled();
     expect(app.skills.listSkills(other.id)).toEqual([expect.objectContaining({ name: "objection-handling", enabled: false })]);
-    expect(library.offeredSkills(other.id).skills).toEqual([]);
+    expect((await library.offeredSkills(other.id)).skills).toEqual([]);
   });
 
   it("adopts a skills-only package as a skills-only package after a lost state.json", async () => {
@@ -615,8 +615,8 @@ describe("adding from the shelf", () => {
     const body = catalog([entry(LIBRARY_ID, skills)]);
     library.applyRelay(relay(body));
     await library.settled();
-    const installId = (library.add(LIBRARY_ID, app.importDeps) as any).value.result.installId;
-    library.addOfferedSkill(bot.id, installId, "follow-up");
+    const installId = (await library.add(LIBRARY_ID, app.importDeps) as any).value.result.installId;
+    await library.addOfferedSkill(bot.id, installId, "follow-up");
     library.dispose();
     unlinkSync(app.statePath);
 
@@ -628,7 +628,7 @@ describe("adding from the shelf", () => {
     await new Promise((resolve) => setTimeout(resolve, 400));
     await library.settled();
     expect(app.readState().installs[installId]).toMatchObject({ kind: "library", status: "installed" });
-    expect(library.offeredSkills(bot.id).skills.find((skill) => skill.name === "follow-up")).toMatchObject({ added: true });
+    expect((await library.offeredSkills(bot.id)).skills.find((skill) => skill.name === "follow-up")).toMatchObject({ added: true });
   });
 });
 
@@ -641,7 +641,7 @@ describe("parts the person deleted (removedLocally)", () => {
     const body = catalog([entry(TEAM_ID, team)]);
     library.applyRelay(relay(body));
     await library.settled();
-    const installId: string = (library.add(TEAM_ID, app.importDeps) as any).value.result.installId;
+    const installId: string = (await library.add(TEAM_ID, app.importDeps) as any).value.result.installId;
     const bot = (key: string) => app.store.bots.find((candidate) => candidate.installedPackage?.agentKey === key)!;
     const install = () => app.readState().installs[installId];
     return { app, library, team, body, installId, bot, install };
@@ -717,7 +717,7 @@ describe("parts the person deleted (removedLocally)", () => {
     expect([...install().removedLocally].sort()).toEqual([
       "agent:lead", "agent:scout", "agent:writer", "room:desk", "routine:daily-digest", "routine:weekly-review",
     ]);
-    expect(library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: true, status: 201 });
+    expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: true, status: 201 });
     expect(install()).toMatchObject({ status: "installed", removedLocally: [] });
   });
 
@@ -741,9 +741,9 @@ describe("with no organization", () => {
     app.store.createBot({ name: "Solo" });
     const library = app.open();
     expect(library.list()).toEqual({ organization: null, packages: [] });
-    expect(library.offeredSkills()).toEqual({ organization: null, skills: [] });
+    expect(await library.offeredSkills()).toEqual({ organization: null, skills: [] });
     expect(library.installStatuses()).toEqual(new Map());
-    expect(library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 404 });
+    expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: false, status: 404 });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(app.posted).toEqual([]);
     expect(existsSync(join(app.DATA_DIR, "org-library"))).toBe(false);
@@ -760,11 +760,11 @@ describe("presets from the shelf", () => {
     app.writeBlob(team.bytes);
     library.applyRelay(relay(catalog([entry(TEAM_ID, team)])));
     await library.settled();
-    const added = library.add(TEAM_ID, app.importDeps) as any;
+    const added = (await library.add(TEAM_ID, app.importDeps)) as any;
     const installId = added.value.result.installId;
     const [row] = app.importDeps.presets.list();
     const made = app.store.createBot({ name: "Sky" });
-    presets.applyPresetToBot(made.id, app.importDeps.presets.resolve(row!.id)!, app.importDeps);
+    await presets.applyPresetToBot(made.id, app.importDeps.presets.resolve(row!.id)!, app.importDeps);
     expect(app.store.bot(made.id)!.installedPackage).toMatchObject({ source: "org", installId, presetKey: "support" });
     const released = team.document.package.skills.entries.find((skill: { name: string }) => skill.name === "objection-handling").instructions;
     expect(app.skills.skillPackageStamps(made.id)).toEqual([{ name: "objection-handling", enabled: true, stamp: {
@@ -778,13 +778,13 @@ describe("presets from the shelf", () => {
     await library.settled();
     expect(app.readState().installs[installId].status).toBe("removed");
 
-    const again = library.add(TEAM_ID, app.importDeps) as any;
+    const again = (await library.add(TEAM_ID, app.importDeps)) as any;
     expect(again).toMatchObject({ ok: true, status: 201 });
     expect(again.value.result.bots).toHaveLength(3);
     expect(app.store.bot(made.id)).toBeTruthy();
     expect(app.importDeps.presets.list()).toEqual([expect.objectContaining({ id: row!.id, installId, key: "support" })]);
     expect(app.readState().installs[installId]).toMatchObject({ status: "installed", presets: { support: { presetId: row!.id } } });
-    expect(library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: true, status: 200, value: { alreadyAdded: true } });
+    expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: true, status: 200, value: { alreadyAdded: true } });
     expect(app.skills.skillPackageStamps(made.id)).toEqual([expect.objectContaining({ name: "objection-handling", enabled: true })]);
   });
 
@@ -796,11 +796,11 @@ describe("presets from the shelf", () => {
     app.writeBlob(skills.bytes);
     library.applyRelay(relay(catalog([entry(LIBRARY_ID, skills)])));
     await library.settled();
-    const installId = (library.add(LIBRARY_ID, app.importDeps) as any).value.result.installId;
+    const installId = (await library.add(LIBRARY_ID, app.importDeps) as any).value.result.installId;
     const indexed = app.readState().installs[installId];
     const [row] = app.importDeps.presets.list();
     const made = app.store.createBot({ name: "Sky" });
-    presets.applyPresetToBot(made.id, app.importDeps.presets.resolve(row!.id)!, app.importDeps);
+    await presets.applyPresetToBot(made.id, app.importDeps.presets.resolve(row!.id)!, app.importDeps);
     expect(app.skills.skillPackageStamps(made.id)).toEqual([expect.objectContaining({ stamp: expect.objectContaining({ installId, release: "2.0.1", via: "preset" }) })]);
 
     library.dispose();
@@ -830,7 +830,7 @@ describe("presets from the shelf", () => {
     app.writeBlob(team.bytes);
     library.applyRelay(relay(catalog([entry(TEAM_ID, team)])));
     await library.settled();
-    const added = library.add(TEAM_ID, app.importDeps) as any;
+    const added = (await library.add(TEAM_ID, app.importDeps)) as any;
     const installId = added.value.result.installId;
     expect(library.installStatuses()).toEqual(new Map([[installId, "installed"]]));
     expect(await offered()).toEqual(["org:support"]);
@@ -845,7 +845,7 @@ describe("presets from the shelf", () => {
     expect(library.installStatuses()).toEqual(new Map([[installId, "removed"]]));
     expect(await offered()).toEqual([]);
 
-    expect(library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: true, status: 201 });
+    expect(await library.add(TEAM_ID, app.importDeps)).toMatchObject({ ok: true, status: 201 });
     writeFileSync(app.statePath, removedOnDisk);
     expect(await offered()).toEqual(["org:support"]);
     unlinkSync(app.statePath);
@@ -865,17 +865,17 @@ describe("presets from the shelf", () => {
     const body = catalog([entry(LIBRARY_ID, skills)]);
     library.applyRelay(relay(body));
     await library.settled();
-    const outcome = library.add(LIBRARY_ID, app.importDeps) as any;
+    const outcome = (await library.add(LIBRARY_ID, app.importDeps)) as any;
     expect(outcome).toMatchObject({ ok: true, status: 201 });
     const installId = outcome.value.result.installId;
     const indexed = app.readState().installs[installId];
     const [row] = app.importDeps.presets.list();
     expect(indexed.presets).toEqual({ support: { presetId: row!.id, r: app.parts.partHash(skills.document.package.presets[0]) } });
     const made = app.store.createBot({ name: "Sky" });
-    presets.applyPresetToBot(made.id, app.importDeps.presets.resolve(row!.id)!, app.importDeps);
+    await presets.applyPresetToBot(made.id, app.importDeps.presets.resolve(row!.id)!, app.importDeps);
     expect(app.skills.listSkills(made.id)).toEqual([expect.objectContaining({ name: "objection-handling", enabled: true, source: "org:acme/sales-skills@2.0.1" })]);
     const mine = app.store.createBot({ name: "Mine" });
-    presets.applyPresetToBot(mine.id, app.importDeps.presets.resolve(row!.id)!, app.importDeps);
+    await presets.applyPresetToBot(mine.id, app.importDeps.presets.resolve(row!.id)!, app.importDeps);
     app.skills.removeSkill(mine.id, "objection-handling");
     app.skills.installSkill(mine.id, "https://example.com/mine", [{ path: "SKILL.md", content: "---\nname: objection-handling\ndescription: Mine.\n---\n\nMine.\n" }]);
     app.skills.setSkillEnabled(mine.id, "objection-handling", true);
@@ -886,9 +886,9 @@ describe("presets from the shelf", () => {
     library.applyRelay(relay(body));
     await library.settled();
     expect(app.readState().installs[installId]).toEqual({ ...indexed, addedAt: expect.any(Number), updatedAt: expect.any(Number) });
-    expect(library.add(LIBRARY_ID, app.importDeps)).toEqual({ ok: true, status: 200, value: { alreadyAdded: true, installId } });
+    expect(await library.add(LIBRARY_ID, app.importDeps)).toEqual({ ok: true, status: 200, value: { alreadyAdded: true, installId } });
     expect(app.importDeps.presets.list()).toHaveLength(1);
-    expect(library.offeredSkills().skills.map((skill) => skill.name)).toEqual(["objection-handling", "follow-up"]);
+    expect((await library.offeredSkills()).skills.map((skill) => skill.name)).toEqual(["objection-handling", "follow-up"]);
 
     library.applyRelay(relay(catalog([entry(LIBRARY_ID, skills, { release: null, withdrawnReleases: [{ version: "2.0.1", sha256: skills.sha256 }] })])));
     await library.settled();

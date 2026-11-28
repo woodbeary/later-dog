@@ -192,6 +192,16 @@ export class FolderStore extends FolderTreeReader {
         await this.#renew();
         continue;
       }
+      if (response?.status === 429 && attempt < RATE_LIMITED_TRIES) {
+        const after = Number(response.headers.get("retry-after"));
+        const wait = after > 0 ? Math.min(after * 1000, RATE_LIMITED_WAIT_MS) : RATE_LIMITED_DEFAULT_MS;
+        await response.body?.cancel();
+        for (let waited = 0; waited < wait; waited += 5_000) {
+          this.progress();
+          await delay(Math.min(5_000, wait - waited), undefined, { signal: this.#signal });
+        }
+        continue;
+      }
       if (response && ((response.status < 500 && response.status !== 429) || attempt >= 2)) return response;
       await response?.body?.cancel();
       await delay(250 * (attempt + 1), undefined, { signal: this.#signal });
@@ -223,11 +233,9 @@ export class FolderStore extends FolderTreeReader {
 
   async put(kind: "manifests" | "blobs", bytes: Buffer): Promise<string> {
     const hash = folderHash(bytes);
-    if (kind === "blobs") {
-      const present = await this.#request("/blobs/" + hash, "HEAD");
-      if (present.ok) return hash;
-      if (present.status !== 404) throw new Error(`Checking working folder content returned ${present.status}`);
-    }
+    const present = await this.#request("/" + kind + "/" + hash, "HEAD");
+    if (present.ok) return hash;
+    if (present.status !== 404) throw new Error(`Checking working folder content returned ${present.status}`);
     const r = await this.#request("/" + kind + "/" + hash, "PUT", bytes);
     if (!r.ok) throw new Error(`Writing a working folder object returned ${r.status}`);
     return hash;
@@ -244,7 +252,24 @@ export class FolderStore extends FolderTreeReader {
   }
 
   async pages(of: Category, items: string[] | WorkFolderEntry[]): Promise<string> {
-    return folderManifestPages(of, items, node => this.#putPage(node));
+    const writes: Promise<unknown>[] = [];
+    let running = 0;
+    const waiting: (() => void)[] = [];
+    const slot = async () => {
+      if (running >= PAGE_WRITES) await new Promise<void>((resolve) => waiting.push(resolve));
+      running++;
+    };
+    const done = () => { running--; waiting.shift()?.(); };
+    const root = await folderManifestPages(of, items, (node) => {
+      const bytes = Buffer.from(JSON.stringify(node)), hash = folderHash(bytes);
+      if (this.cachedPages.has(hash)) return Promise.resolve(hash);
+      this.cachedPages.set(hash, node);
+      const children = node.kind === "pages" ? Promise.all(writes.slice()) : Promise.resolve();
+      writes.push(children.then(slot).then(() => this.put("manifests", bytes).finally(done)).catch((error) => { this.cachedPages.delete(hash); throw error; }));
+      return Promise.resolve(hash);
+    });
+    await Promise.all(writes);
+    return root;
   }
 
   async removeEmpty(head: WorkFolderHead): Promise<void> {
@@ -255,6 +280,20 @@ export class FolderStore extends FolderTreeReader {
     if (page.self.of !== "root" || page.self.count !== 0) throw Object.assign(new Error("Folder contains files"), { code: "ENOTEMPTY" });
     const result = await this.#request("/commit", "POST", JSON.stringify({ parent: head.revision, manifest: null }));
     if (!result.ok || (await this.head())?.state !== "tombstone") throw Object.assign(new Error("Folder changed during removal"), { code: "EBUSY" });
+  }
+
+  async rememberStored(tree: FolderTree, manifest: string): Promise<boolean> {
+    const found = new Map<string, WorkFolderNode>();
+    const collect = async (node: WorkFolderNode) => {
+      const hash = folderHash(JSON.stringify(node));
+      found.set(hash, node);
+      return hash;
+    };
+    const entries = await folderManifestPages("entries", [...tree.entries.values()].sort((a, b) => compareWorkFolderPaths(a.path, b.path)), collect);
+    const root = await collect({ v: 1, kind: "root", mode: tree.mode, ...(tree.mtimeMs === undefined ? {} : { mtimeMs: tree.mtimeMs }), entries });
+    if (root !== manifest) return false;
+    for (const [hash, node] of found) this.cachedPages.set(hash, node);
+    return true;
   }
 
   async publish(tree: FolderTree, parent: string | null): Promise<WorkFolderHead | null> {
@@ -304,6 +343,10 @@ export class FolderStore extends FolderTreeReader {
 }
 
 const PUBLISH_PAGES = 256;
+const PAGE_WRITES = 8;
+const RATE_LIMITED_TRIES = 8;
+const RATE_LIMITED_WAIT_MS = 65_000;
+const RATE_LIMITED_DEFAULT_MS = 30_000;
 
 export async function folderManifestPages(of: Category, items: string[] | WorkFolderEntry[], putPage: (node:WorkFolderNode) => Promise<string>): Promise<string> {
     let pending: string[] = [];

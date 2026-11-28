@@ -3,7 +3,7 @@ import { sha256Hex } from "../src/auth";
 import { MINUTE } from "../src/idle";
 import { DAY } from "../src/trial";
 import { FakeSocket, RFB_BANNER } from "./fake-socket";
-import worker, { ComputerRegistry, DogComputer, TrialRegistry } from "../src/index";
+import worker, { ComputerRegistry, DogComputer, PoolHost, PoolLine, TaskLine, TrialRegistry } from "../src/index";
 
 const sqliteModule = "node:sqlite";
 const { DatabaseSync } = await import(sqliteModule);
@@ -55,7 +55,7 @@ function sqlStorage() {
 }
 
 export const FAKE_IMAGE = "laterdog-desktop:test";
-export const fakeImages = { desktop: FAKE_IMAGE };
+export const fakeImages = { desktop: FAKE_IMAGE, pool: "laterdog-pool:test" };
 
 export class FakeContainer {
   running = false;
@@ -100,7 +100,10 @@ export class FakeContainer {
   rfbAnswers: () => boolean = () => true;
   readonly sockets: FakeSocket[] = [];
 
-  getTcpPort(): { fetch(): Promise<Response> } {
+  agent: { fetch(input: string, init?: RequestInit): Promise<Response> } | undefined;
+
+  getTcpPort(): { fetch(input: string, init?: RequestInit): Promise<Response> } {
+    if (this.agent) return this.agent;
     return {
       fetch: async () => {
         const socket = new FakeSocket(this.rfbAnswers() ? RFB_BANNER : undefined);
@@ -202,7 +205,22 @@ export async function world(vars: Record<string, string> = {}) {
     slot.fire = () => instance.alarm();
     return instance;
   });
-  Object.assign(env, { COMPUTER: computers, REGISTRY: registries, TRIALS: trials });
+  const taskLines = new FakeNamespace(alarms, (_name, slot) => {
+    const instance = new TaskLine(fakeState(slot), typed);
+    slot.fire = () => instance.alarm();
+    return instance;
+  });
+  const poolHosts = new FakeNamespace(alarms, (name, slot) => {
+    const container = new FakeContainer();
+    containers.set(name, container);
+    return new PoolHost(fakeState(slot, container), typed);
+  });
+  const poolLines = new FakeNamespace(alarms, (_name, slot) => {
+    const instance = new PoolLine(fakeState(slot), typed);
+    slot.fire = () => instance.alarm();
+    return instance;
+  });
+  Object.assign(env, { COMPUTER: computers, REGISTRY: registries, TRIALS: trials, TASK_LINE: taskLines, POOL_HOST: poolHosts, POOL_LINE: poolLines });
   const background: Promise<unknown>[] = [];
 
   return {
@@ -214,6 +232,9 @@ export async function world(vars: Record<string, string> = {}) {
     computers,
     registries,
     trials,
+    taskLines,
+    poolHosts,
+    poolLines,
     background,
     fetch: (request: Request) => worker.fetch(request, typed, { waitUntil: (work: Promise<unknown>) => void background.push(work), passThroughOnException: () => undefined, props: {} } as unknown as ExecutionContext),
     async advance(ms: number): Promise<void> {

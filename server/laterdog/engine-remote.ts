@@ -3,8 +3,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createInterface } from "node:readline";
-import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, workspaceRecovery, decodeEngineChunk, engineFileChunks, engineFileKey, inventoryWork, runFileWork, transcriptPrefixWork, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, workspaceRecovery, decodeEngineChunk, engineFileChunks, engineFileKey, inventoryWork, runFileWork, transcriptPrefixWork, fileHash, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 import { createHash } from "node:crypto";
+import { inProcessProxy, type ProxyHandle } from "./in-process-proxies.ts";
+import { answerHook, hookBudget, laterdogHookTarget } from "../hooks/hook-answer.ts";
 
 export interface EngineLink extends EventEmitter {
   opening?: boolean;
@@ -47,6 +49,7 @@ export interface RemoteLaunch {
   hooks: string[];
   hookEnv: Record<string, string>;
   proxyEnv?: Record<string, string>;
+  homeCwd?: string;
   socketPath: string;
   stateFile: string;
   lockFile: string;
@@ -60,6 +63,7 @@ export class NotDispatched extends Error {
 const HANDSHAKE_MS = 30_000;
 const SYNC_REPLY_MS = 10 * 60_000;
 const PUSH_EVERY_MS = 30_000;
+const WORKING_NOTE_MS = 500;
 
 type Pending = { resolve: (body: any) => void; reject: (error: Error) => void };
 
@@ -72,7 +76,15 @@ export class RemoteSession extends EventEmitter {
   #incoming: Promise<void> = Promise.resolve();
   #written: Promise<void> = Promise.resolve();
   #fileAbort = new AbortController();
-  #onFileProgress = () => { this.checkpointProgressAt = Date.now(); };
+  #relayHearsWork = false;
+  #workSaidAt = 0;
+  #onFileProgress = () => {
+    const now = Date.now();
+    this.checkpointProgressAt = now;
+    if (!this.#relayHearsWork || this.#closed || now - this.#workSaidAt < WORKING_NOTE_MS) return;
+    this.#workSaidAt = now;
+    this.#send({ type: "working" });
+  };
   #closed = false;
   #launchSent = false;
   #started = false;
@@ -84,7 +96,7 @@ export class RemoteSession extends EventEmitter {
   #fileError: string | null = null;
   #pendingFileBytes = 0;
   #inventory: { resident: EngineFile[]; previous: EngineFile[] } | null = null;
-  #proxies = new Map<string, ChildProcess>();
+  #proxies = new Map<string, ProxyHandle>();
   #pushed = new Map<string, string>();
   #pushTimer: NodeJS.Timeout | null = null;
   conflicts: string[] = [];
@@ -230,7 +242,15 @@ export class RemoteSession extends EventEmitter {
       const local = this.#receiver.baseline.get(key);
       const guest = remote.get(key);
       if (local?.hash === guest?.hash || guest?.hash === receipt.before?.hash) continue;
-      if (local?.hash !== receipt.before?.hash) throw new Error("Native transcript changed on both the home and computer. Both copies were preserved.");
+      const computerNewer = Boolean(local && guest && local.size < guest.size && (await this.#request({ type: "transcript_prefix", root: root.id, path: receipt.path, size: local.size }, SYNC_REPLY_MS, true))?.hash === local.hash);
+      if (local?.hash !== receipt.before?.hash && !computerNewer) {
+        if (!guest || local && guest.size <= local.size && await runFileWork(fileHash(root, receipt.path, guest.size), this.#fileAbort.signal) === guest.hash) continue;
+        const aside = await this.#request({ type: "set_aside_transcript", root: root.id, path: receipt.path, hash: guest.hash }, SYNC_REPLY_MS, true);
+        if (typeof aside?.setAside !== "string") throw new Error("Native transcript changed on both the home and computer. Both copies were preserved.");
+        remote.delete(key);
+        this.emit("notice", `This chat's conversation on its computer had changed apart from the home's copy, so the home's copy continues and the computer's is kept beside it as ${aside.setAside.split("/").at(-1)}.`);
+        continue;
+      }
       const recovery = await this.#request({ type: "recover_transcript", root: root.id, path: receipt.path, hash: guest?.hash }, SYNC_REPLY_MS, true);
       if (!recovery?.recovered || this.#receiver.baseline.get(key)?.hash !== guest?.hash) throw new Error("The newer computer transcript could not be recovered. Both copies were preserved.");
       home = home.filter(file => engineFileKey(file) !== key);
@@ -313,7 +333,7 @@ export class RemoteSession extends EventEmitter {
         this.#onFileProgress();
         return;
       }
-      case "ready": this.emit("relay-ready"); return;
+      case "ready": this.#relayHearsWork = frame.working === true; this.emit("relay-ready"); return;
       case "reply": { const pending = this.#pending.get(frame.id); this.#pending.delete(frame.id); pending?.resolve(frame.body); return; }
       case "stdout": this.emit("stdout", Buffer.from(frame.data, "base64")); return;
       case "stderr": this.emit("stderr", Buffer.from(frame.data, "base64")); return;
@@ -340,8 +360,8 @@ export class RemoteSession extends EventEmitter {
         this.#send({ type: "ack", id: frame.id });
         return;
       case "proxy_open": this.#openProxy(String(frame.id), String(frame.name)); return;
-      case "proxy_stdin": this.#proxies.get(String(frame.id))?.stdin?.write(Buffer.from(frame.data, "base64")); return;
-      case "proxy_end": this.#proxies.get(String(frame.id))?.stdin?.end(); return;
+      case "proxy_stdin": this.#proxies.get(String(frame.id))?.write(Buffer.from(frame.data, "base64")); return;
+      case "proxy_end": this.#proxies.get(String(frame.id))?.end(); return;
       case "proxy_close": { const proxy = this.#proxies.get(String(frame.id)); this.#proxies.delete(String(frame.id)); proxy?.kill(); return; }
       case "hook": void this.#runHook(String(frame.id), Number(frame.index) || 0, frame.payload); return;
       default: return;
@@ -351,19 +371,33 @@ export class RemoteSession extends EventEmitter {
   #openProxy(id: string, name: string): void {
     const spec = Object.hasOwn(this.#launch.mcp, name) ? this.#launch.mcp[name] : undefined;
     if (!spec) { this.#send({ type: "proxy_exit", id, code: 1 }); return; }
-    const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.cwd, env: { ...(this.#launch.proxyEnv ?? this.#launch.hookEnv), ...spec.env }, stdio: ["pipe", "pipe", "pipe"] });
-    this.#proxies.set(id, child);
+    const env = { ...(this.#launch.proxyEnv ?? this.#launch.hookEnv), ...spec.env };
+    const served: ProxyHandle | null = inProcessProxy(spec, env, (bytes) => { if (!this.#closed) this.#send({ type: "proxy_stdout", id, data: bytes.toString("base64") }); }, (code) => {
+      if (this.#proxies.get(id) === served) this.#proxies.delete(id);
+      if (!this.#closed) this.#send({ type: "proxy_exit", id, code });
+    });
+    if (served) { this.#proxies.set(id, served); return; }
+    const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.homeCwd ?? this.#launch.cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const handle: ProxyHandle = { write: (bytes) => { child.stdin?.write(bytes); }, end: () => { child.stdin?.end(); }, kill: () => { child.kill(); } };
+    this.#proxies.set(id, handle);
     child.stdin.on("error", () => {});
     child.stdout.on("data", (bytes) => this.#send({ type: "proxy_stdout", id, data: Buffer.from(bytes).toString("base64") }));
     child.stderr.on("data", (bytes) => this.#send({ type: "proxy_stderr", id, data: Buffer.from(bytes).toString("base64") }));
     child.on("error", () => { this.#proxies.delete(id); this.#send({ type: "proxy_exit", id, code: 1 }); });
-    child.on("close", (code) => { if (this.#proxies.get(id) === child) this.#proxies.delete(id); if (!this.#closed) this.#send({ type: "proxy_exit", id, code: code ?? 1 }); });
+    child.on("close", (code) => { if (this.#proxies.get(id) === handle) this.#proxies.delete(id); if (!this.#closed) this.#send({ type: "proxy_exit", id, code: code ?? 1 }); });
   }
 
   async #runHook(id: string, index: number, payload: unknown): Promise<void> {
     const command = this.#launch.hooks[index];
     if (!command) { this.#send({ type: "hook_result", id, body: { stdout: "", code: 0 } }); return; }
-    const child = spawn("/bin/sh", ["-c", command], { cwd: this.#launch.cwd, env: this.#launch.hookEnv, stdio: ["pipe", "pipe", "pipe"] });
+    const target = laterdogHookTarget(command);
+    if (target) {
+      const env = this.#launch.hookEnv;
+      const answer = await answerHook({ ...target, payload, budgetMs: hookBudget(env), requireReply: env.LATERDOG_REQUIRE_HOOK_REPLY === "1" });
+      if (!this.#closed) this.#send({ type: "hook_result", id, body: { stdout: answer.stdout, stderr: "", code: answer.code } });
+      return;
+    }
+    const child = spawn("/bin/sh", ["-c", command], { cwd: this.#launch.homeCwd ?? this.#launch.cwd, env: this.#launch.hookEnv, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = ""; let stderr = "";
     child.stdout.on("data", (bytes) => { if (stdout.length < 1024 * 1024) stdout += bytes; });
     child.stderr.on("data", (bytes) => { if (stderr.length < 64 * 1024) stderr += bytes; });
@@ -409,6 +443,8 @@ export class RemoteSession extends EventEmitter {
   get launchSent(): boolean { return this.#launchSent; }
 }
 
+export const RELAY_SELF_STOP_MS = 6_000;
+
 export class EngineProcess extends EventEmitter {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
@@ -418,6 +454,7 @@ export class EngineProcess extends EventEmitter {
   pid: number | undefined;
   notDispatched = false;
   placement: "pending" | "computer" | "home" = "pending";
+  #endedAt: number | null = null;
   #local: ChildProcess | null = null;
   #remote: RemoteSession | null = null;
   #stopRequested = false;
@@ -484,6 +521,7 @@ export class EngineProcess extends EventEmitter {
 
   #finish(code: number | null, signal: NodeJS.Signals | null): void {
     if (this.exitCode !== null || this.signalCode !== null) return;
+    this.#endedAt = Date.now();
     this.exitCode = code;
     this.signalCode = signal;
     if (code === null && signal === null) this.exitCode = 1;
@@ -505,14 +543,25 @@ export class EngineProcess extends EventEmitter {
     return this.placement === "computer" && this.#remote !== null && this.#remote.selectTranscript(id, name);
   }
 
+  #remoteGone(): boolean {
+    return !this.#remote || this.#remote.exitConfirmed || !this.#remote.launchSent;
+  }
+
+  async #reclaimed(): Promise<boolean> {
+    if (this.#remoteGone()) return true;
+    const left = (this.#endedAt ?? Date.now()) + RELAY_SELF_STOP_MS - Date.now();
+    if (left > 0) await new Promise<void>((resolve) => setTimeout(resolve, left).unref());
+    return true;
+  }
+
   async stopTree(timeoutMs: number, stopLocal: (child: ChildProcess, timeoutMs: number) => Promise<boolean>): Promise<boolean> {
-    if (this.exitCode !== null || this.signalCode !== null) return !this.#remote || this.#remote.exitConfirmed;
+    if (this.exitCode !== null || this.signalCode !== null) return this.#reclaimed();
     this.#stopRequested = true;
     if (this.#local) return stopLocal(this.#local, timeoutMs);
     if (this.#remote && !this.#remote.launchSent) {
       this.#remote.close();
       await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
-      return !this.#remote || this.#remote.exitConfirmed;
+      return this.exitCode !== null || this.signalCode !== null ? this.#reclaimed() : this.#remoteGone();
     }
     this.#remote?.stop();
     const stoppedAt = Date.now();
@@ -528,7 +577,7 @@ export class EngineProcess extends EventEmitter {
       this.#remote?.close();
       await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
     }
-    return !this.#remote || this.#remote.exitConfirmed;
+    return this.exitCode !== null || this.signalCode !== null ? this.#reclaimed() : this.#remoteGone();
   }
 
   kill(): boolean { void this.stopTree(5_000, async (child) => child.kill("SIGTERM")); return true; }

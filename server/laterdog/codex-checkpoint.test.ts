@@ -172,7 +172,7 @@ it("keeps an unconfirmed remote dispatch across restart until its own completion
   expect(first.has()).toBe(false);
 });
 
-it("places the normal task workspace and rejects other chats and linked paths", () => {
+it("places the normal task workspace and rejects other chats and linked paths", async () => {
   const data = mkdtempSync(join(tmpdir(), "codex-placement-"));
   onTestFinished(() => rmSync(data, { recursive: true, force: true }));
   const dog = join(data, "workspaces", "dog");
@@ -180,9 +180,39 @@ it("places the normal task workspace and rejects other chats and linked paths", 
   const sibling = join(data, "task-workspaces", "dog", "other");
   for (const path of [dog, task, sibling]) mkdirSync(path, { recursive: true });
   symlinkSync(sibling, join(task, "linked"), "dir");
-  expect(codexComputerWorkspace(data, "dog", "chat", dog)).toBe(true);
-  expect(codexComputerWorkspace(data, "dog", "chat", task)).toBe(true);
-  expect(codexComputerWorkspace(data, "dog", "chat", sibling)).toBe(false);
-  expect(codexComputerWorkspace(data, "dog", "chat", join(task, "linked"))).toBe(false);
-  expect(codexComputerWorkspace(data, "other", "chat", dog)).toBe(false);
+  expect(await codexComputerWorkspace(data, "dog", "chat", dog)).toBe(true);
+  expect(await codexComputerWorkspace(data, "dog", "chat", task)).toBe(true);
+  expect(await codexComputerWorkspace(data, "dog", "chat", sibling)).toBe(false);
+  expect(await codexComputerWorkspace(data, "dog", "chat", join(task, "linked"))).toBe(false);
+  expect(await codexComputerWorkspace(data, "other", "chat", dog)).toBe(false);
+});
+
+it("after a first start that never saved its session, the retry fetches it from the computer or starts fresh instead of refusing", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "codex-missing-plan-"));
+  onTestFinished(() => rmSync(scratch, { recursive: true, force: true }));
+  const workspace = join(scratch, "task-workspaces", "dog", "chat");
+  const account = join(scratch, "account");
+  const pkg = join(scratch, "node_modules", "@openai", "codex");
+  for (const path of [workspace, account, join(pkg, "bin")]) mkdirSync(path, { recursive: true });
+  const cli = join(pkg, "bin", "codex.js");
+  writeFileSync(cli, "");
+  writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.163.0" }));
+  writeFileSync(join(account, "auth.json"), JSON.stringify({ tokens: { account_id: "selected", access_token: "scoped", refresh_token: "only-home" } }));
+  const cursor = randomUUID();
+  const input = { dataDir: scratch, botId: "dog", threadId: "chat", instanceId: "provider", cli, cwd: workspace, env: { CODEX_HOME: account },
+    cursor, required: true, opener: { proxyPath: "/proxy", open: async () => { throw new Error("unnecessary"); } }, guardShell: false, refresh: async () => {} };
+  const fresh = await planCodexRemote({ ...input, recover: async () => null });
+  if (!fresh.plan) throw new Error(fresh.stay);
+  expect(fresh.fresh).toBe(true);
+  expect(fresh.plan.launch.roots.find(root => root.id === "sessions")!.files).toEqual([]);
+  const name = `2026/11/26/rollout-2026-11-26T16-34-57-${cursor}.jsonl`;
+  const bytes = Buffer.from(JSON.stringify({ type: "session_meta", payload: { id: cursor, cwd: workspace } }) + "\n");
+  const recovered = await planCodexRemote({ ...input, recover: async () => ({ name, bytes }) });
+  if (!recovered.plan) throw new Error(recovered.stay);
+  expect(recovered.fresh).toBe(false);
+  expect(recovered.plan.launch.roots.find(root => root.id === "sessions")!.files).toEqual([name]);
+  expect(readFileSync(join(account, "sessions", name))).toEqual(bytes);
+  const other = randomUUID();
+  const wrong = await planCodexRemote({ ...input, cursor: other, recover: async () => ({ name: name.replace(cursor, other), bytes }) });
+  expect(wrong.plan && wrong.fresh).toBe(true);
 });
