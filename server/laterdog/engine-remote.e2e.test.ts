@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { EventEmitter } from "node:events";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createServer, type Server } from "node:http";
 import { createInterface } from "node:readline";
@@ -17,7 +17,7 @@ import type { EngineWait } from "./engine-waiting.ts";
 import { placedThreads, preToolGuardDecision } from "./placed-threads.ts";
 import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
 import { ENGINE_WINDOW_BYTES, engineFileChunks, engineInventory } from "./engine-files.ts";
-import { commandLink, EngineProcess, RemoteSession, type EngineLink } from "./engine-remote.ts";
+import { commandLink, EngineProcess, RELAY_SELF_STOP_MS, RemoteSession, type EngineLink } from "./engine-remote.ts";
 import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
@@ -248,7 +248,7 @@ it("parks a selected rollout after loss and recovers only that file into the nex
   await done;
 }, 30_000);
 
-it("recovers a later guest transcript before dispatch and preserves both copies on a two-sided edit", async () => {
+it("recovers a later guest transcript, continues the home copy over an older restored one, takes the computer copy when it extends the home's, and keeps a diverged computer copy beside it with a note", async () => {
   const w = world();
   const first = w.start(w.plan());
   await turn(first.engine, "first turn");
@@ -266,18 +266,44 @@ it("recovers a later guest transcript before dispatch and preserves both copies 
   const closedAgain = closed(resumed.engine);
   resumed.engine.stdin.end();
   await closedAgain;
-  writeFileSync(w.sessionFile, "home revision");
-  writeFileSync(guest, "computer revision");
-  const conflict = w.start(w.plan(true));
-  const diagnostics: string[] = [];
-  conflict.engine.stderr.on("data", chunk => diagnostics.push(String(chunk)));
-  expect(await closed(conflict.engine)).toBe(1);
-  expect(await killCliTree(conflict.engine as unknown as ChildProcess, 0)).toBe(true);
-  expect(diagnostics.join("")).toContain("Both copies were preserved");
-  expect(readFileSync(w.sessionFile, "utf8")).toBe("home revision");
-  expect(readFileSync(guest, "utf8")).toBe("computer revision");
+  const settled = readFileSync(w.sessionFile);
+  writeFileSync(guest, Buffer.concat([settled, Buffer.from("restored computer line\n")]));
+  writeFileSync(w.sessionFile, Buffer.concat([settled, Buffer.from("restored computer line\n"), Buffer.from("later home line\n")]));
+  const notices: string[] = [];
+  const restored = w.start(w.plan(true), undefined, false, undefined, { onNotice: (text) => notices.push(text) });
+  await turn(restored.engine, "after a restore from an older snapshot");
+  expect(readFileSync(w.sessionFile, "utf8")).toContain("later home line");
+  expect(notices).toEqual([]);
+  const restoredClosed = closed(restored.engine);
+  restored.engine.stdin.end();
+  await restoredClosed;
+  const shared = readFileSync(w.sessionFile);
+  writeFileSync(w.sessionFile, Buffer.concat([shared, Buffer.from("home took the first part\n")]));
+  writeFileSync(guest, Buffer.concat([shared, Buffer.from("home took the first part\n"), Buffer.from("computer kept working\n")]));
+  const ahead = w.start(w.plan(true), undefined, false, undefined, { onNotice: (text) => notices.push(text) });
+  await turn(ahead.engine, "after the computer kept working past the home's copy");
+  expect(readFileSync(w.sessionFile, "utf8")).toContain("computer kept working");
+  expect(notices).toEqual([]);
+  const aheadClosed = closed(ahead.engine);
+  ahead.engine.stdin.end();
+  await aheadClosed;
+  const agreed = readFileSync(w.sessionFile);
+  writeFileSync(w.sessionFile, Buffer.concat([agreed, Buffer.from("home revision\n")]));
+  writeFileSync(guest, Buffer.concat([agreed, Buffer.from("computer revision\n")]));
+  const conflict = w.start(w.plan(true), undefined, false, undefined, { onNotice: (text) => notices.push(text) });
+  await turn(conflict.engine, "after the two copies diverged");
+  const kept = readdirSync(dirname(guest)).filter((name) => name.endsWith(".preserved"));
+  expect(kept).toHaveLength(1);
+  expect(readFileSync(join(dirname(guest), kept[0]!), "utf8")).toContain("computer revision");
+  expect(readFileSync(w.sessionFile, "utf8")).toContain("home revision");
+  expect(readFileSync(w.sessionFile, "utf8")).not.toContain("computer revision");
+  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain(kept[0]);
+  const conflictClosed = closed(conflict.engine);
+  conflict.engine.stdin.end();
+  await conflictClosed;
   expect(w.localLaunches()).toBe(0);
-  expect(w.launches()).toHaveLength(2);
+  expect(w.launches()).toHaveLength(5);
 });
 
 it("resumes a large Claude transcript on the computer and checkpoints its exact bytes back to the home", async () => {
@@ -395,7 +421,7 @@ it("reports an engine crash and keeps what it wrote, without running it again", 
   expect(w.localLaunches()).toBe(0);
 }, 60_000);
 
-it("fails a turn whose connection drops after launch, never re-runs it, and stops the orphan before the chat starts again", async () => {
+it("fails a turn whose connection drops after launch, never re-runs it, reclaims its stop once the relay has had time to end it, and no orphan survives the next start", async () => {
   const w = world();
   let relayProcess: ChildProcess | undefined;
   const link = async () => {
@@ -415,12 +441,40 @@ it("fails a turn whose connection drops after launch, never re-runs it, and stop
   const orphan = Number(w.launches()[0]);
   relayProcess!.kill("SIGKILL");
   expect(await closed(engine)).toBe(1);
-  expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(false);
+  const reclaimedAt = Date.now();
+  expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(true);
+  expect(Date.now() - reclaimedAt).toBeLessThan(RELAY_SELF_STOP_MS + 2_000);
   expect(w.localLaunches()).toBe(0);
-  expect(() => process.kill(orphan, 0)).not.toThrow();
   const again = w.start(w.plan(true), undefined, true);
   await turn(again.engine, "after");
   expect(() => process.kill(orphan, 0)).toThrow();
+  again.engine.stdin.end();
+  await closed(again.engine);
+}, 60_000);
+
+it("reclaims a placed engine stopped during a steered turn whose stop is never confirmed, so the chat's next turn starts", async () => {
+  const w = world();
+  let relayProcess: ChildProcess | undefined;
+  const link = async () => {
+    const child = spawn(process.execPath, [RELAY], { env: { ...process.env, LATERDOG_ENGINE_TEST_ROOT: w.remoteRoot }, stdio: ["pipe", "pipe", "pipe"] });
+    relayProcess = child;
+    const out = new EventEmitter() as EngineLink;
+    createInterface({ input: child.stdout }).on("line", (line) => out.emit("line", line));
+    child.on("close", () => out.emit("close", "killed"));
+    out.send = (line) => child.stdin.write(`${line}\n`);
+    out.close = () => child.kill("SIGKILL");
+    return out;
+  };
+  const { engine } = w.start(w.plan(), link);
+  engine.stdin.write(message("hang"));
+  await expect.poll(() => w.launches().length, { timeout: 30_000 }).toBe(1);
+  engine.stdin.write(message("one more thing while you work"));
+  relayProcess!.kill("SIGKILL");
+  const stopped = killCliTree(engine as unknown as ChildProcess, 2_000);
+  expect(await closed(engine)).toBe(1);
+  expect(await stopped).toBe(true);
+  const again = w.start(w.plan(true), undefined, true);
+  expect((await turn(again.engine, "after the steer")).cwd).toBe(w.mirror(w.cwd));
   again.engine.stdin.end();
   await closed(again.engine);
 }, 60_000);
@@ -612,7 +666,7 @@ it.each(["exit", "disconnect"] as const)("settles a remote %s delivered alongsid
     expect(stderr.join("")).toBe("native startup failure\n");
   } else {
     expect(stderr.join("")).toContain("ended before the engine could be used");
-    expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(false);
+    expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(true);
   }
 });
 

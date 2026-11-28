@@ -199,6 +199,48 @@ describe("assigned working folders on guest computers", () => {
     expect(readFileSync(join(f.left, "written-before-checkout.txt"), "utf8")).toBe("keep me");
   });
 
+  it("resumes a first checkout cut off part way without downloading again the files that already arrived", async () => {
+    const f = await fixture();
+    for (let n = 0; n < 30; n++) writeFileSync(join(f.src, `arrived-${String(n).padStart(2, "0")}.txt`), `arrived ${n} ${"x".repeat(n)}`);
+    await publishInitialWorkFolder(f.src, f.store);
+    const reach = globalThis.fetch;
+    let blobs = 0;
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      if (new URL(url).pathname.split("/").at(-2) === "blobs" && (options?.method ?? "GET") === "GET" && ++blobs > 12) throw new Error("the computer went to sleep");
+      return reach(url, options);
+    });
+    await expect(f.syncA()).rejects.toThrow();
+    let again = 0;
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      if (new URL(url).pathname.split("/").at(-2) === "blobs" && (options?.method ?? "GET") === "GET") again++;
+      return reach(url, options);
+    });
+    await f.syncA();
+    vi.stubGlobal("fetch", reach);
+    expect(again).toBeLessThanOrEqual(30 - 12);
+    expect(readFileSync(join(f.left, "arrived-29.txt"), "utf8")).toBe(`arrived 29 ${"x".repeat(29)}`);
+    expect(existsSync(join(f.state))).toBe(true);
+  });
+
+  it("saves one changed file in a large folder without rewriting the listing pages that durable storage already holds", async () => {
+    const f = await fixture();
+    for (let n = 0; n < 300; n++) writeFileSync(join(f.src, `kept-${String(n).padStart(3, "0")}.txt`), `kept ${n}`);
+    await publishInitialWorkFolder(f.src, f.store);
+    await f.syncA();
+    writeFileSync(join(f.left, "kept-150.txt"), "changed during a turn");
+    const reach = globalThis.fetch;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, options: RequestInit) => {
+      calls.push(`${options?.method ?? "GET"} ${new URL(url).pathname.split("/").at(-2)}`);
+      return url.endsWith("/publish") ? new Response(JSON.stringify({ error: "not_found" }), { status: 404 }) : reach(url, options);
+    });
+    await f.syncA();
+    vi.stubGlobal("fetch", reach);
+    expect(calls.filter((call) => call === "PUT manifests").length).toBeLessThanOrEqual(4);
+    await f.syncB();
+    expect(readFileSync(join(f.right, "kept-150.txt"), "utf8")).toBe("changed during a turn");
+  });
+
   it("falls back to page writes and a commit when the home does not offer one-request saves yet", async () => {
     const f = await fixture();
     await publishInitialWorkFolder(f.src, f.store);
