@@ -328,14 +328,16 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
-import { indexCoverageTable, indexOutbox, readForIndex, readMessagesJson, watchMessageWrites } from "./message-db.ts";
-import { HistoryMirror } from "./laterdog/history-mirror.ts";
+import { historyDatabase, indexCoverageTable, indexOutbox, keepHistoryOutbox, readForIndex, watchMessageWrites } from "./message-db.ts";
+import { HistoryWriter } from "./laterdog/history-writer.ts";
 import { SHADOW_INDEX_BUDGETS, SearchIndexWiring } from "./laterdog/search-index-wiring.ts";
 import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
-import { readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
+import { historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
+import { DogObjectCalls, ObjectRoutines } from "./laterdog/object-routines.ts";
+import { ObjectInbox } from "./laterdog/object-inbox.ts";
 import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
 import { SkillsPromptCache, skillsPromptWorker } from "./skills-prompt-cache.ts";
 import { readMessageText, recallMemoryOffThread, recallMessagesOffThread, recentMessagesOffThread, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
@@ -905,6 +907,7 @@ import { createVoiceStreams } from "./laterdog/voice-stream.ts";
 import { createTimeZoneRoutes, currentTimeZone, restoreTimeZone } from "./laterdog/time-zone.ts";
 import { withScheduleLabel } from "./laterdog/routine-schedule-label.ts";
 import { heldAccountReason } from "./laterdog/held-accounts.ts";
+import { boxScreenExec, createBoxScreenRoutes, screensOnBox } from "./laterdog/box-screen.ts";
 import { createAccountKeeper, createSignInRoutes, keeperRenewing, keptAccounts } from "./laterdog/account-keeper.ts";
 import { createHomeAccountRoutes, withHandedOverEmail } from "./laterdog/home-accounts.ts";
 import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
@@ -948,7 +951,8 @@ import { createLiveRoutes } from "./routes/live.ts";
 import { withScopeHint } from "./connector-scope-hint.ts";
 import { notePlacement, remoteEngineChoice, remoteEngineDefault, setRemoteEngineDefault, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
 import { preToolGuardDecision } from "./laterdog/placed-threads.ts";
-import { carryClaudeSession } from "./laterdog/session-carry.ts";
+import { carryClaudeSession, type CarriedSession } from "./laterdog/session-carry.ts";
+import { carryCodexSession } from "./laterdog/codex-session-carry.ts";
 import { createEnginePlacementRoutes } from "./routes/engine-placement.ts";
 import { ProjectAccessController, type ProjectSelection } from "./laterdog/project-access.ts";
 import { retireMemberProjects } from "./laterdog/project-member-retirement.ts";
@@ -1119,15 +1123,45 @@ if (CLOUD_HOME) watchEventLoop({ log: (line) => console.warn(line), context: () 
 let coordinatorSetting: CoordinatorSetting = readCoordinatorSetting(DATA_DIR);
 const capabilitySigner = CLOUD_HOME ? turnCapabilitySigner({ home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
 const objectQueue = CLOUD_HOME ? new ObjectQueue({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
-const historyMirror = CLOUD_HOME ? new HistoryMirror({
+const historyWriter = CLOUD_HOME ? new HistoryWriter({
   origin: CLOUD_HOME.publicOrigin,
   home: CLOUD_HOME.machineId,
   bootstrapSecret: CLOUD_HOME.bootstrapSecret,
-  read: readMessagesJson,
+  database: historyDatabase,
+  keepOutbox: keepHistoryOutbox,
   ownerOf: (threadId) => store.botByThread(threadId)?.id ?? (store.groupByThread(threadId) ? `room-${store.groupByThread(threadId)!.id}` : null),
+  knownChats: () => store.knownThreadIds(),
+  filled: (threadId) => store.forgetCachedThread(threadId),
+  inScope: (threadId) => historyCovers(coordinatorSetting, store.botByThread(threadId)?.id ?? (store.groupByThread(threadId) ? `room-${store.groupByThread(threadId)!.id}` : null)),
+  log: (line) => console.log(line),
 }) : null;
-if (historyMirror) historyMirror.enabled = coordinatorSetting.history === "shadow";
 const queuesInObject = (botId: string) => Boolean(objectQueue) && queueModeFor(coordinatorSetting, botId) === "object";
+const dogObjectCalls = CLOUD_HOME ? new DogObjectCalls({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
+const routinesInObject = (botId: string) => Boolean(dogObjectCalls) && dogPartModeFor(coordinatorSetting.routines, botId) === "object";
+const objectRoutines = dogObjectCalls ? new ObjectRoutines({
+  calls: dogObjectCalls,
+  book: () => routines,
+  owned: routinesInObject,
+  dogs: () => store.bots.map((bot) => bot.id),
+  timeZone: () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  admitted: () => void routines?.tick(),
+}) : null;
+const inboxInObject = (botId: string) => Boolean(dogObjectCalls) && dogPartModeFor(coordinatorSetting.inbox, botId) === "object";
+const objectInbox = dogObjectCalls ? new ObjectInbox({
+  calls: dogObjectCalls,
+  owned: inboxInObject,
+  dogs: () => store.bots.map((bot) => bot.id),
+  book: () => ({
+    delivery: (id) => roomHandoffs.delivery(id),
+    redeliver: async (dog, letter) => {
+      const bot = store.bot(dog);
+      if (!bot) return;
+      const threadId = letter.toChat && store.taskByThread(dog, letter.toChat) ? letter.toChat : bot.threadId;
+      const from = store.bot(letter.from)?.name ?? "Another of your dogs";
+      await acceptDirectSend({ botId: dog, threadId, text: `${from} sent you this: ${letter.text}`, sendId: `inbox-${letter.clientId}`, trigger: { kind: "bot", botId: letter.from }, personPresent: false });
+    },
+  }),
+}) : null;
 const objectRowOf = (item: SteerQueueItem, status: "accepted" | "pending") =>
   ({ id: item.messageId, sendId: item.sendId ?? null, status, payload: item, at: item.queuedAt });
 setSteerQueueSink({
@@ -1219,11 +1253,11 @@ const searchIndex = CLOUD_HOME ? new SearchIndexWiring({
   },
   log: (line) => console.log(line),
 }) : null;
-if (searchIndex || historyMirror) {
+if (searchIndex || historyWriter) {
   const index = searchIndex?.wrote;
   watchMessageWrites({
-    message: (threadId, id) => { index?.message(threadId, id); historyMirror?.wrote(threadId, id); },
-    chat: (threadId) => index?.chat(threadId),
+    message: (threadId, id) => { index?.message(threadId, id); historyWriter?.wake(); },
+    chat: (threadId) => { index?.chat(threadId); historyWriter?.wake(); },
     memory: (botId, path) => index?.memory(botId, path),
   });
 }
@@ -1315,6 +1349,7 @@ const HELD_ACCOUNTS_FILE = join(DATA_DIR, "providers", "held-accounts.json");
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId), snapshotFile: join(DATA_DIR, "account-snapshots.json") });
 const supportsApprovalMode = createApprovalModeSupport(registry);
 claudeSignInRefresh.onChange((instanceId) => registry.forgetSnapshot(instanceId));
+const BOX_SCREENS_FILE = join(DATA_DIR, "laterdog", "box-screens.json");
 const ACCOUNT_KEEPER_FILE = join(DATA_DIR, "providers", "account-keeper.json");
 const accountKeeper = createAccountKeeper({
   renewing: () => keeperRenewing(ACCOUNT_KEEPER_FILE),
@@ -5246,6 +5281,7 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
       if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
     }
     if (directThreadIds.size > 0) drainQueuedSends();
+    objectInbox?.changed();
   },
   activity: node => node.groupId ? undefined : handoffActivity(watchdog.snapshot(node.threadId)),
   turnRunning: node => threadBusy(node.botId, node.threadId) || directTurnDispatchClaims.has(node.threadId) || pendingComputerResumes.has(node.threadId),
@@ -8722,15 +8758,29 @@ function claudeConfigDirOf(instanceId: string): string | undefined {
   try { return resolveClaudeConfigDir(plan.configDir, { ...process.env, ...plan.environment }); } catch { return undefined; }
 }
 
-function carrySessionAcross(botId: string, threadId: string, instance: NonNullable<ReturnType<typeof registry.get>>): void {
+function codexHomeOf(instanceId: string): string | undefined {
+  const plan = planAccountsFromInstances(instanceConfigs(cfg)).find((account) => account.id === instanceId && account.driver === "codex");
+  return plan ? codexHome({ ...process.env, ...plan.environment }) ?? undefined : undefined;
+}
+
+async function carrySessionAcross(botId: string, threadId: string, instance: NonNullable<ReturnType<typeof registry.get>>): Promise<void> {
   const task = store.taskByThread(botId, threadId);
   const from = task?.lastInstanceId;
-  if (!task?.cwd || !from || from === instance.instanceId || task.rewound || instance.driverKind !== "claudeAgent" || registry.get(from)?.driverKind !== "claudeAgent") return;
-  const fromConfigDir = claudeConfigDirOf(from);
-  const toConfigDir = claudeConfigDirOf(instance.instanceId);
-  if (!fromConfigDir || !toConfigDir) return;
+  const kind = instance.driverKind;
+  if (!task?.cwd || !from || from === instance.instanceId || task.rewound || (kind !== "claudeAgent" && kind !== "codex") || registry.get(from)?.driverKind !== kind) return;
   try {
-    const carried = carryClaudeSession({ sessionId: task.resumeCursors[from], cwd: task.cwd, fromConfigDir, toConfigDir });
+    let carried: CarriedSession | undefined;
+    if (kind === "claudeAgent") {
+      const fromConfigDir = claudeConfigDirOf(from);
+      const toConfigDir = claudeConfigDirOf(instance.instanceId);
+      if (!fromConfigDir || !toConfigDir) return;
+      carried = carryClaudeSession({ sessionId: task.resumeCursors[from], cwd: task.cwd, fromConfigDir, toConfigDir });
+    } else {
+      const fromHome = codexHomeOf(from);
+      const toHome = codexHomeOf(instance.instanceId);
+      if (!fromHome || !toHome) return;
+      carried = await carryCodexSession({ cursor: task.resumeCursors[from], fromHome, toHome });
+    }
     if (!carried) return;
     store.setResumeCursor(botId, instance.instanceId, carried.sessionId, threadId);
     const handed = task.handedMessages?.[from];
@@ -9341,6 +9391,7 @@ async function startTurn(
   const profile = store.bot(botId);
   if (!profile) throw Object.assign(new Error("no such bot"), { status: 404 });
   const threadId = opts?.threadId ?? profile.threadId;
+  await historyWriter?.ensureChat(threadId);
   const continuingRoutine = opts?.cardContinuation ? routineRunContinuedBy(threadId, opts.routineRunId, opts.requestMessageId) : null;
   if (continuingRoutine) {
     const onDispatchError = opts?.onDispatchError;
@@ -9584,7 +9635,7 @@ async function startTurn(
         if (!readiness.ready) throw new Error(readiness.reason ?? "The cloud computer is not ready");
       }
       turnPhases.mark(threadId, "saved logs");
-      carrySessionAcross(bot.id, threadId, instance);
+      await carrySessionAcross(bot.id, threadId, instance);
       await compactConversation({ bot, threadId, generation: dispatchClaimId, instance, model,
         excludedIds: new Set([userMessage.id, ...(opts?.excludeMessageIds ?? [])]), manual: opts?.compactOnly === true });
       if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped during context setup");
@@ -10610,7 +10661,14 @@ async function stopBotForEmergencyApprovalDowngrade(botId: string): Promise<void
 
 startPhases.mark("boot", "turn handling setup");
 routines = new RoutineManager({
-  emit: broadcast,
+  emit: (payload) => {
+    broadcast(payload);
+    if (!objectRoutines) return;
+    if (payload.kind === "routine") objectRoutines.changed((payload.routine as { botId: string }).botId);
+    if (payload.kind === "routine.deleted") for (const bot of store.bots) objectRoutines.changed(bot.id);
+  },
+  objectOwned: routinesInObject,
+  beforeStart: async (run) => objectRoutines ? objectRoutines.beforeStart(run) : true,
   hasPendingDelegations: (threadId, runId) => roomHandoffs.outstandingDirect(threadId).some(node => roomHandoffs.root(node).routineRunId === runId),
   turnBelongsToRun: routineTurnBelongsToRun,
   botState: routineTargetState,
@@ -10654,6 +10712,7 @@ routines = new RoutineManager({
   },
   interruptGoal: interruptRoutineGroupGoal,
   onRunChanged: (run) => {
+    objectRoutines?.runChanged(run);
     if (run.manual && run.status === "queued" && ownerRunNowScope.active()) ownerStartedRoutineRuns.add(run.id);
     attestCloudRoutineRun(run);
     syncRoutineRunToSource(run);
@@ -14339,8 +14398,8 @@ const workspaceBackupAccess = {
       teamComputers.list().every(computer => !teamComputerInUse(computer)) &&
       store.bots.every((bot) => !botHasActiveTurn(bot.id) && !routines?.activeRunForBot(bot.id) && !botComputerControlSnapshot(bot.id).held) &&
       store.groups.every((group) => !groupIsWorking(group)),
-    pause: () => { routines?.stop(); calendarCalls?.stop(); watchdog.stop(); memoryUpkeep.pause(); },
-    resume: () => { routines?.start(); calendarCalls?.start(); watchdog.start(); memoryUpkeep.resume(); },
+    pause: () => { routines?.stop(); objectRoutines?.stop(); objectInbox?.stop(); calendarCalls?.stop(); watchdog.stop(); memoryUpkeep.pause(); },
+    resume: () => { routines?.start(); objectRoutines?.start(); objectInbox?.start(); calendarCalls?.start(); watchdog.start(); memoryUpkeep.resume(); },
     flush: async () => {
       if (assignedJobFolders) await checkpointAssignedFolders(process.env.LATERDOG_WORK_FOLDER_CHECKPOINT_SOCKET);
       await Promise.all([flushAllProfileHistory(), flushAllMemoryJournals(), flushUsageLedger(DATA_DIR), flushDecisionLog(DATA_DIR), flushAdminActivity(DATA_DIR)]);
@@ -14439,11 +14498,21 @@ ROUTES.push(createSearchIndexRoutes({
 if (searchIndex) searchIndex.setMode(readSearchIndexMode(DATA_DIR));
 ROUTES.push(createCoordinatorRoutes({
   available: () => Boolean(CLOUD_HOME),
-  read: () => ({ ...coordinatorSetting, mirror: historyMirror ? { pending: historyMirror.pending(), ...historyMirror.state } : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
-  change: (change) => {
+  read: () => ({ ...coordinatorSetting, routineClient: objectRoutines ? objectRoutines.state : null, inboxClient: objectInbox ? { pending: objectInbox.pending(), ...objectInbox.state } : null, historyWriter: historyWriter ? historyWriter.state() : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
+  change: async (change) => {
+    const before = coordinatorSetting;
     coordinatorSetting = mergeCoordinatorSetting(coordinatorSetting, change);
+    if (objectRoutines) {
+      for (const bot of store.bots) {
+        const was = dogPartModeFor(before.routines, bot.id);
+        const now = dogPartModeFor(coordinatorSetting.routines, bot.id);
+        if (was === "object" && now === "container") await objectRoutines.handBack(bot.id).catch((error) => console.warn(`object routines: hand back for ${bot.id} failed, the home's own schedule resumes: ${String(error)}`));
+        if (now === "object") objectRoutines.changed(bot.id);
+      }
+    }
     saveCoordinatorSetting(DATA_DIR, coordinatorSetting);
-    if (historyMirror) historyMirror.enabled = coordinatorSetting.history === "shadow";
+    if (change.historyDogs && historyWriter?.mode === coordinatorSetting.history) historyWriter.rescope();
+    historyWriter?.setMode(coordinatorSetting.history);
     return coordinatorSetting;
   },
 }));
@@ -14621,6 +14690,7 @@ ROUTES.push(createMacAccountRoutes({
   exclusive: withProviderConfig,
   reload: reloadProviderInstance,
 }));
+ROUTES.push(createBoxScreenRoutes({ file: BOX_SCREENS_FILE, allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth), dogExists: (id) => Boolean(store.bot(id)) }));
 ROUTES.push(createSignInRoutes({ keeper: accountKeeper, file: ACCOUNT_KEEPER_FILE, allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth) }));
 ROUTES.push(createHomeAccountRoutes({
   cloudHome: Boolean(CLOUD_HOME),
@@ -15818,7 +15888,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/computer/mcp") {
         const body = await readInternalBody();
-        if (internalCapability.boxId === undefined) return json(res, 403, { error: "this turn has no cloud computer" });
+        const screen = screensOnBox(BOX_SCREENS_FILE, internalSender.id) ? boxScreenExec(internalSender.id) : undefined;
+        if (internalCapability.boxId === undefined && !screen) return json(res, 403, { error: "this turn has no cloud computer" });
         const abort = new AbortController();
         res.once("close", () => { if (!res.writableEnded) abort.abort(); });
         return json(res, 200, { result: await cloudComputerRpc(body, {
@@ -15841,6 +15912,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           secureForms: secureForms.desk(internalSender.id, internalCapability.threadId),
           tabs: (boxId, tool) => cloudTabs.watch({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId, tool),
           vault: vaultItemsFor(internalCapability),
+          screen,
+          screenGate: async () => ({ held: botComputerControlSnapshot(internalCapability.botId, internalCapability.teamComputerId).held }),
         }) });
       }
       if (method === "GET" && path === "/api/internal/shared-computers" && lendingEnabled()) {
@@ -16499,6 +16572,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 requestId: node.id,
                 ...(destination ? {} : { threadId: node.threadId }),
               }));
+              if (!duplicate && !destination) {
+                void objectInbox?.sent(target.botId, { clientId: node.id, from: internalSender.id, fromChat: address.threadId, toChat: node.threadId, text: parsed.data.message, replyTo: null });
+              }
               if (!duplicate) {
                 const recipient = store.bot(target.botId)!;
                 const exchange = destination ? undefined : openPeerExchange(internalSender, recipient, parsed.data.message);
@@ -17421,6 +17497,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!store.botByThread(threadId) && !store.groupByThread(threadId)) {
         return json(res, 404, { error: "no such conversation" });
       }
+      await historyWriter?.ensureChat(threadId);
       const limit = requestedPageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
       const before = url.searchParams.get("before");
@@ -17437,6 +17514,24 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const view = pageViewOf(url.searchParams);
       return json(res, 200, { ...messagePage(threadId, limit ?? DEFAULT_PAGE, before, view), activeLeafId: store.activeLeaf(threadId),
         versions: branchVersions(store.messagesFor(threadId), store.activeLeaf(threadId)) });
+    }
+
+    m = path.match(/^\/api\/threads\/([\w-]+)\/history$/);
+    if (m && method === "GET") {
+      const threadId = m[1];
+      if (!store.botByThread(threadId) && !store.groupByThread(threadId)) return json(res, 404, { error: "no such conversation" });
+      if (!historyWriter || historyWriter.mode === "off") return json(res, 409, { error: "chat history is not kept in the chat object on this home" });
+      const before = url.searchParams.get("before");
+      const cursor = before === null ? null : Number(before);
+      if (cursor !== null && !Number.isSafeInteger(cursor)) return json(res, 400, { error: "before must be a whole number" });
+      const limit = requestedPageSize(url.searchParams.get("limit")) ?? DEFAULT_PAGE;
+      try {
+        const page = await historyWriter.pageBefore(threadId, cursor, limit);
+        return json(res, 200, { source: "chat-object", more: page.more, activeLeafId: page.leaf,
+          messages: page.rows.map((row) => ({ ...slimMessage(JSON.parse(row.json) as Message), ord: row.ord })) });
+      } catch (error) {
+        return json(res, 503, { error: `chat history is unavailable right now: ${(error as Error).message}` });
+      }
     }
 
     m = path.match(/^\/api\/threads\/([\w-]+)\/messages\/([\w-]+)\/image$/);
@@ -22839,6 +22934,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   const leftoverTurns = inflightTurns.takeLeftovers();
   for (const turn of leftoverTurns) if (queuesInObject(turn.botId)) awaitingPickup.add(turn.threadId);
   followupsReady = true;
+  historyWriter?.setMode(coordinatorSetting.history);
   limitHold.restorePeople();
   drainQueuedSends();
   drainQueuedChannelSends();
@@ -22847,6 +22943,8 @@ server.listen(PORT, "127.0.0.1", async () => {
     if (companyShutdown) return;
   }
   routines!.start();
+  objectRoutines?.start();
+  objectInbox?.start();
   memoryUpkeep.start();
   const waiting = limitHold.resume();
   if (waiting.length) console.log(`token battery: ${waiting.length} conversation(s) waiting on a usage limit from a previous run`);
@@ -22877,6 +22975,8 @@ const gracefulShutdown = createGracefulShutdown({
       vps.closeAllVpsDesktopTunnels();
       watchdog.stop();
       routines?.stop();
+      objectRoutines?.stop();
+      objectInbox?.stop();
       calendarCalls?.stop();
       memoryUpkeep.stop();
       webhookIngress?.server.close();

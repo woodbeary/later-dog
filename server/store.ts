@@ -1013,6 +1013,15 @@ export class Store {
     return this.groups.find((g) => g.id === id);
   }
 
+  knownThreadIds(): string[] {
+    const ids = new Set<string>();
+    for (const owner of [...this.bots, ...this.groups]) {
+      if (owner.threadId) ids.add(owner.threadId);
+      for (const task of owner.tasks ?? []) if (task.threadId) ids.add(task.threadId);
+    }
+    return [...ids];
+  }
+
   groupByThread(threadId: string): GroupRecord | undefined {
     return this.groups.find(
       (group) => group.threadId === threadId || group.tasks?.some((task) => task.threadId === threadId),
@@ -1279,6 +1288,10 @@ export class Store {
 
   cachedThreadCount(): number {
     return this.threads.size;
+  }
+
+  forgetCachedThread(threadId: string): void {
+    this.threads.delete(threadId);
   }
 
   hasCachedThread(threadId: string): boolean {
