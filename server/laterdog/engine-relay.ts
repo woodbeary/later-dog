@@ -229,6 +229,29 @@ function takeLock(path: string): boolean {
   return false;
 }
 const PREVIOUS_RELAY_WAIT_MS = 20_000;
+const ENGINE_START_WAIT_MS = 60_000;
+const ENGINE_START_HOLD_MS = 5_000;
+async function holdEngineStart(path: string): Promise<() => void> {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const giveUpAt = Date.now() + ENGINE_START_WAIT_MS;
+  for (;;) {
+    try {
+      mkdirSync(path, { mode: 0o700 });
+      writeFileSync(join(path, "pid"), String(process.pid), { mode: 0o600 });
+      let held = true;
+      return () => { if (held) { held = false; rmSync(path, { recursive: true, force: true }); } };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      let holder = 0;
+      try { holder = Number(readFileSync(join(path, "pid"), "utf8")); } catch {}
+      let alive = false;
+      try { if (Number.isSafeInteger(holder) && holder > 1) { process.kill(holder, 0); alive = true; } } catch {}
+      if (!alive && holder > 1) rmSync(path, { recursive: true, force: true });
+      if (Date.now() >= giveUpAt) return () => {};
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+}
 async function takeLockWithin(path: string, waitMs: number): Promise<boolean> {
   const giveUpAt = Date.now() + waitMs;
   while (!takeLock(path)) {
@@ -288,16 +311,21 @@ async function launch(frame: any): Promise<void> {
   saveTranscriptReceipts();
   receiver.baseline.clear();
   for (const file of installed) receiver.baseline.set(engineFileKey(file), file);
+  const startLock = await holdEngineStart(join(dirname(frame.lockFile), "engine-start"));
   try {
     const env = Object.fromEntries(Object.entries(frame.env as Record<string, string>).map(([key, value]) => [key, mirrored(value)]));
     child = spawn(frame.cli, (frame.args as string[]).map(mirrored), { cwd: mirrored(frame.cwd), env: { ...env, LATERDOG_ENGINE_SOCKET: socketPath }, stdio: ["pipe", "pipe", "pipe"], detached: true });
     await Promise.race([once(child, "spawn"), once(child, "error").then(([error]) => { throw error; })]);
   } catch (error) {
+    startLock();
     child = null;
     server?.close();
     await reply(frame.id, { refused: "spawn_failed", code: (error as NodeJS.ErrnoException).code ?? null });
     return;
   }
+  child.stdout.once("data", startLock);
+  child.once("close", startLock);
+  setTimeout(startLock, ENGINE_START_HOLD_MS).unref();
   child.stdin.on("error", () => {});
   try { writeFileSync(lockFile, `${process.pid} ${child.pid}`, { mode: 0o600 }); } catch {}
   const nativeLines = createInterface({ input: child.stdout });
