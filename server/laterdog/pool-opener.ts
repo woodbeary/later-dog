@@ -52,13 +52,15 @@ export function poolChosen(dataDir: string, botId: string): boolean {
   return poolChosenFrom(poolSetting(dataDir), botId);
 }
 
-export interface PoolSetting { enabled: boolean; bots?: string[] }
+export interface PoolSetting { enabled: boolean; bots?: string[]; skip?: string[] }
 
 export function poolSetting(dataDir: string): PoolSetting {
   try {
-    const pool = (JSON.parse(readFileSync(join(dataDir, REMOTE_ENGINES_FILE), "utf8")) as { pool?: { enabled?: unknown; bots?: unknown } }).pool;
-    const bots = Array.isArray(pool?.bots) ? pool.bots.filter((id): id is string => typeof id === "string") : undefined;
-    return { enabled: pool?.enabled === true, ...(bots ? { bots } : {}) };
+    const pool = (JSON.parse(readFileSync(join(dataDir, REMOTE_ENGINES_FILE), "utf8")) as { pool?: { enabled?: unknown; bots?: unknown; skip?: unknown } }).pool;
+    const ids = (list: unknown) => Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : undefined;
+    const bots = ids(pool?.bots);
+    const skip = ids(pool?.skip);
+    return { enabled: pool?.enabled === true, ...(bots ? { bots } : {}), ...(skip?.length ? { skip } : {}) };
   } catch { return { enabled: false }; }
 }
 
@@ -66,14 +68,14 @@ export function savePoolSetting(dataDir: string, setting: PoolSetting): PoolSett
   let saved: Record<string, unknown> = {};
   try { saved = JSON.parse(readFileSync(join(dataDir, REMOTE_ENGINES_FILE), "utf8")) as Record<string, unknown>; }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("The saved engine placement could not be read, so it was left unchanged."); }
-  const pool = { enabled: setting.enabled, ...(setting.bots ? { bots: [...new Set(setting.bots)] } : {}) };
+  const pool = { enabled: setting.enabled, ...(setting.bots ? { bots: [...new Set(setting.bots)] } : {}), ...(setting.skip?.length ? { skip: [...new Set(setting.skip)] } : {}) };
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   writeFileAtomic(join(dataDir, REMOTE_ENGINES_FILE), `${JSON.stringify({ ...saved, pool }, null, 2)}\n`, { mode: 0o600 });
   return pool;
 }
 
 export function poolChosenFrom(setting: PoolSetting, botId: string): boolean {
-  return setting.enabled && (!setting.bots || setting.bots.includes(botId));
+  return setting.enabled && (!setting.bots || setting.bots.includes(botId)) && !setting.skip?.includes(botId);
 }
 
 export function poolFits(plan: ClaudeRemotePlan): boolean {
