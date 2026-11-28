@@ -8,6 +8,7 @@ const RECORD = "box";
 const AGENT = ["/usr/bin/tini", "--", "node", "/usr/local/lib/laterdog/box-agent.mjs"];
 const AGENT_TIMEOUT_MS = 15_000;
 const RUN_TIMEOUT_MS = 320_000;
+const AGENT_START_MS = 90_000;
 const ALWAYS_ON_MS = 5 * 60 * 60_000;
 const KEEP_AWAKE_MS = 30_000;
 const SAVE_EVERY_MS = 10 * 60_000;
@@ -112,6 +113,15 @@ export class PersonalBox extends DurableObject<Env> {
     return { status: response.status, body: (await response.json()) as BoxAnswer["body"] };
   }
 
+  private async agentUp(waitMs: number): Promise<boolean> {
+    const until = Date.now() + waitMs;
+    for (;;) {
+      if (await this.status()) return true;
+      if (Date.now() > until) return false;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+
   async status(): Promise<BoxStatus | undefined> {
     const response = await this.agent("/status");
     return response?.status === 200 ? ((await response.json()) as BoxStatus) : undefined;
@@ -163,6 +173,7 @@ export class PersonalBox extends DurableObject<Env> {
   }
 
   async open(dog: string): Promise<BoxAnswer | undefined> {
+    if (!(await this.agentUp(AGENT_START_MS))) return undefined;
     const restored = await this.restore(dog);
     if (restored === "refused") return { status: 422, body: { error: { code: "profile_refused", message: "The dog's saved profile failed its checksum and was not opened." } } };
     const opened = await this.answer(`/desktops/${encodeURIComponent(dog)}`, { method: "POST" });
@@ -177,6 +188,7 @@ export class PersonalBox extends DurableObject<Env> {
 
   async run(dog: string, body: unknown): Promise<{ status: number; text: string } | undefined> {
     const call = () => this.agent(`/desktops/${encodeURIComponent(dog)}/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, RUN_TIMEOUT_MS);
+    if (!(await this.agentUp(AGENT_START_MS))) return undefined;
     let response = await call();
     if (response?.status === 404) {
       await response.body?.cancel();
