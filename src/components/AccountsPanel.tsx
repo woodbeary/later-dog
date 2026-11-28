@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { GripVertical, Loader2, RefreshCw, X } from "lucide-react";
+import { GripVertical, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
 import { api, useStore, type ConfigStatus, type InstanceInfo } from "@/state/store";
 import { useStoreDispatch } from "@/state/store-selectors";
 import { t } from "@/lib/i18n";
@@ -29,14 +29,25 @@ export const ACCOUNT_ENGINES: ReadonlyArray<{ kind: AccountKind; name: string; r
   { kind: "codex", name: "ChatGPT", route: "/api/instances/chatgpt-accounts", defaultId: "chatgpt" },
   { kind: "grokAgent", name: "Grok", defaultId: "grok" },
   { kind: "cursorAgent", name: "Cursor", defaultId: "cursor" },
+  { kind: "antigravityAgent", name: "Antigravity", route: "/api/instances/antigravity-accounts", defaultId: "antigravity" },
 ];
 
-const CARRY_ON_KINDS: readonly AccountKind[] = ["claudeAgent", "codex"];
-const ALL_KINDS: readonly AccountKind[] = ACCOUNT_ENGINES.map((engine) => engine.kind);
+const CARRY_ON_KINDS: readonly AccountKind[] = ["claudeAgent", "codex", "antigravityAgent", "geminiAgent"];
+const ALL_KINDS: readonly AccountKind[] = [...ACCOUNT_ENGINES.map((engine) => engine.kind), "geminiAgent"];
+type KeyUse = "free" | "paid";
+const ALWAYS_ORDERED: readonly AccountKind[] = ["claudeAgent", "codex"];
 
 const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex", "grok", "cursor"]);
 
-const carriesOn = (instance: InstanceInfo) => (CARRY_ON_KINDS as readonly string[]).includes(instance.driverKind);
+export const keyUseOf = (battery: Pick<Battery, "googleKeys"> | undefined, instance: InstanceInfo): KeyUse | undefined =>
+  instance.driverKind === "geminiAgent" ? battery?.googleKeys?.[instance.instanceId] : undefined;
+
+export const carriesOn = (instance: InstanceInfo, battery?: Pick<Battery, "googleKeys">) =>
+  instance.driverKind === "geminiAgent" ? keyUseOf(battery, instance) !== undefined : (CARRY_ON_KINDS as readonly string[]).includes(instance.driverKind);
+
+export function batteryAccounts(instances: readonly InstanceInfo[], battery: Pick<Battery, "order" | "sequence" | "googleKeys"> | undefined): InstanceInfo[] {
+  return subscriptionAccounts(instances, battery).filter((instance) => carriesOn(instance, battery));
+}
 
 const primary = cn(pill, "bg-accent text-white hover:bg-accent");
 const ROW = "flex min-h-16 items-center gap-3 px-4 py-3";
@@ -62,8 +73,8 @@ export function subscriptionAccounts(instances: readonly InstanceInfo[], battery
 }
 
 function eligible(instance: InstanceInfo): boolean {
-  return instance.instanceId !== "claudeApi" && !instance.readOnly && !instance.managed && !instance.policy
-    && (instance.access ?? "subscription") === "subscription" && instance.snapshot.account?.method !== "api-key"
+  const own = instance.driverKind === "geminiAgent" || ((instance.access ?? "subscription") === "subscription" && instance.snapshot.account?.method !== "api-key");
+  return instance.instanceId !== "claudeApi" && !instance.readOnly && !instance.managed && !instance.policy && own
     && (removable(instance) || !instance.snapshot.authenticationUnavailableReason);
 }
 
@@ -72,7 +83,7 @@ export function removable(instance: InstanceInfo): boolean {
 }
 
 export function addedAccount(instance: InstanceInfo): boolean {
-  return removable(instance) && (instance.driverKind === "claudeAgent" || instance.snapshot.chatgptPlan === true);
+  return removable(instance) && (instance.driverKind === "claudeAgent" || instance.driverKind === "antigravityAgent" || instance.driverKind === "geminiAgent" || instance.snapshot.chatgptPlan === true);
 }
 
 export function realAccount(instance: InstanceInfo): boolean {
@@ -120,7 +131,10 @@ function useListedAccounts(accounts: readonly InstanceInfo[]) {
 
 export function accountOrder(accounts: readonly InstanceInfo[]): Record<string, string[]> {
   const order: Record<string, string[]> = {};
-  for (const kind of CARRY_ON_KINDS) order[kind] = accounts.filter((account) => account.driverKind === kind).map((account) => account.instanceId);
+  for (const kind of CARRY_ON_KINDS) {
+    const ids = accounts.filter((account) => account.driverKind === kind).map((account) => account.instanceId);
+    if (ids.length || ALWAYS_ORDERED.includes(kind)) order[kind] = ids;
+  }
   return order;
 }
 
@@ -148,7 +162,7 @@ export function useCarryOn() {
   const battery = state.config?.accountBattery;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const accounts = subscriptionAccounts(state.instances, battery);
+  const accounts = batteryAccounts(state.instances, battery);
   const save = async (enabled: boolean, order: Record<string, string[]>, shown?: ConfigStatus, auto = battery?.auto === true, sequence = accounts.map((account) => account.instanceId)) => {
     if (saving) return;
     setSaving(true);
@@ -165,6 +179,20 @@ export function useCarryOn() {
     }
   };
   const set = (enabled: boolean) => save(enabled, accountOrder(accounts));
+  const setKeyUse = async (instanceId: string, use: KeyUse | null) => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const googleKeys = Object.fromEntries(Object.entries({ ...battery?.googleKeys, [instanceId]: use }).filter((entry): entry is [string, KeyUse] => entry[1] !== null));
+      const config = await api<ConfigStatus>("/api/config", { method: "PUT", body: JSON.stringify({ accountBattery: { googleKeys } }) });
+      dispatch({ type: "configStatus", config });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("accounts.carryOnError"));
+    } finally {
+      setSaving(false);
+    }
+  };
   const reorder = async (shown: readonly string[]) => {
     if (!battery || !state.config || (battery.enabled && battery.auto)) return;
     const order = shownOrder(accounts, shown);
@@ -172,20 +200,23 @@ export function useCarryOn() {
     await save(battery.enabled, order, { ...state.config, accountBattery: { ...battery, order, sequence } }, false, sequence);
   };
   const setAuto = (auto: boolean) => save(battery?.enabled === true, accountOrder(accounts), undefined, auto);
-  return { on: battery?.enabled === true, auto: battery?.enabled === true && battery.auto === true, saving, error, set, setAuto, reorder, canReorder: battery !== undefined && !(battery.enabled && battery.auto) };
+  return { on: battery?.enabled === true, auto: battery?.enabled === true && battery.auto === true, saving, error, set, setAuto, setKeyUse, reorder, canReorder: battery !== undefined && !(battery.enabled && battery.auto) };
 }
 
 export function AccountMark({ kind, size = 20 }: { kind: string; size?: number }) {
   if (kind === "codex") return <CodexMark size={size} />;
   if (kind === "grokAgent") return <GrokMark size={size} />;
   if (kind === "cursorAgent") return <CursorMark size={size} />;
+  if (kind === "antigravityAgent" || kind === "geminiAgent") return <Sparkles size={size} />;
   return <ClaudeMark size={size} />;
 }
 
-function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGone }: {
+function AccountRow({ instance, provider, rest, keyUse, onKeyUse, now, only, drag, onSignIn, onGone }: {
   instance: InstanceInfo;
   provider: PlanProvider | undefined;
   rest: Rest | undefined;
+  keyUse?: KeyUse | null;
+  onKeyUse?: (use: KeyUse | null) => void;
   now: number;
   only: boolean;
   drag: AccountDrag;
@@ -354,6 +385,20 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
                   ? <span data-credit-balance className="text-[12px] tabular-nums text-ink-secondary">{credits}</span>
                   : <AccountCharge used={usage.rest ? undefined : usage.used} rest={usage.rest} now={now} />}
               </span>
+            )}
+            {keyUse !== undefined && onKeyUse && (
+              <select
+                data-account-key-use
+                value={keyUse ?? ""}
+                aria-label={t("accounts.keyUse", { name })}
+                title={t("accounts.keyUseHint")}
+                onChange={(event) => onKeyUse(event.target.value === "" ? null : event.target.value as KeyUse)}
+                className="h-7 shrink-0 rounded-md border border-hairline/40 bg-inset px-1.5 text-[12px] text-ink"
+              >
+                <option value="">{t("accounts.keyUseOff")}</option>
+                <option value="free">{t("accounts.keyUseFree")}</option>
+                <option value="paid">{t("accounts.keyUsePaid")}</option>
+              </select>
             )}
             {isSignedIn && instance.enabled !== undefined && (
               <Switch checked={instance.enabled} disabled={busy !== null} aria-label={t("accounts.use", { name })} onClick={() => void switchAccount()} />
@@ -556,14 +601,14 @@ export function AccountsPanel() {
   const { listed: accounts, forget } = useListedAccounts(subscriptionAccounts(state.instances, battery, ALL_KINDS));
   const loaded = state.instances.length > 0;
   const signedInCount = accounts.filter(signedIn).length;
-  const carryOnCount = accounts.filter((account) => signedIn(account) && carriesOn(account)).length;
+  const carryOnCount = accounts.filter((account) => signedIn(account) && carriesOn(account, battery)).length;
   const { report, now } = usePlanUsage();
   const carryOn = useCarryOn();
   const drag = useAccountDrag(
     accounts.map((instance) => ({
       id: instance.instanceId,
       kind: "account",
-      movable: carryOn.canReorder && accounts.filter(carriesOn).length > 1 && carriesOn(instance),
+      movable: carryOn.canReorder && accounts.filter((account) => carriesOn(account, battery)).length > 1 && carriesOn(instance, battery),
     })),
     (ids) => void carryOn.reorder(ids),
   );
@@ -592,6 +637,8 @@ export function AccountsPanel() {
                 instance={instance}
                 provider={report?.providers.find((provider) => provider.id === instance.instanceId)}
                 rest={battery?.resting?.[instance.instanceId]}
+                keyUse={instance.driverKind === "geminiAgent" ? keyUseOf(battery, instance) ?? null : undefined}
+                onKeyUse={(use) => void carryOn.setKeyUse(instance.instanceId, use)}
                 now={now}
                 only={signedIn(instance) && signedInCount === 1}
                 drag={drag}
