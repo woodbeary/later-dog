@@ -1652,8 +1652,16 @@ export class Store {
     return this.bots.find((b) => b.id === id) ?? null;
   }
 
+  private threadOwners = new Map<string, BotRecord>();
+
   botByThread(threadId: string) {
-    return this.bots.find((b) => b.threadId === threadId || b.tasks?.some((t) => t.threadId === threadId)) ?? null;
+    const owns = (bot: BotRecord) => bot.threadId === threadId || Boolean(bot.tasks?.some((t) => t.threadId === threadId));
+    const known = this.threadOwners.get(threadId);
+    if (known && owns(known) && this.bots.includes(known)) return known;
+    const found = this.bots.find(owns) ?? null;
+    if (found) this.threadOwners.set(threadId, found);
+    else this.threadOwners.delete(threadId);
+    return found;
   }
 
   taskForThread(threadId: string): TaskRecord | undefined {

@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { capabilitySecret, verifyCapabilitySync } from "./signed-capability-node.ts";
-import { ensureHistoryOutbox, noteHistoryChat, noteHistoryMessage, outboxSize } from "./history-outbox-db.ts";
+import { ensureHistoryOutbox, isCovered, markCovered, noteHistoryChat, noteHistoryMessage, outboxSize } from "./history-outbox-db.ts";
 import { HistoryWriter, type HistoryDatabase } from "./history-writer.ts";
 import { chatHistory, serveHistory, type ChatHistoryPort } from "../../deploy/laterdog/home/src/chat-history.ts";
 
@@ -253,5 +253,18 @@ describe("history writer", () => {
     instance.setMode("shadow");
     await instance.idle();
     expect((await remote.chatFor(HOME, "chat-g").stats()).count).toBe(2);
+  });
+});
+
+describe("history coverage", () => {
+  it("answers whether one chat is covered without listing every covered chat", () => {
+    const database = localDatabase();
+    for (let i = 0; i < 50; i++) markCovered(database, `chat-${i}`, { count: i, bytes: i * 10 }, i);
+    const statements: string[] = [];
+    const prepare = database.prepare.bind(database);
+    database.prepare = ((sql: string) => { statements.push(sql); return prepare(sql); }) as typeof database.prepare;
+    expect(isCovered(database, "chat-7")).toBe(true);
+    expect(isCovered(database, "chat-70")).toBe(false);
+    expect(statements.every((sql) => sql.includes("WHERE thread_id = ?"))).toBe(true);
   });
 });

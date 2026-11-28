@@ -129,6 +129,10 @@ export function coveredHistory(database: DatabaseSync): Map<string, { count: num
   return new Map(rows.map((row) => [row.thread_id, { count: Number(row.count), bytes: Number(row.bytes) }]));
 }
 
+export function isCovered(database: DatabaseSync, threadId: string): boolean {
+  return database.prepare("SELECT 1 FROM history_coverage WHERE thread_id = ?").get(threadId) !== undefined;
+}
+
 export function markCovered(database: DatabaseSync, threadId: string, stats: { count: number; bytes: number }, at: number): void {
   database.prepare("INSERT INTO history_coverage (thread_id, count, bytes, at) VALUES (?, ?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET count = excluded.count, bytes = excluded.bytes, at = excluded.at")
     .run(threadId, stats.count, stats.bytes, at);

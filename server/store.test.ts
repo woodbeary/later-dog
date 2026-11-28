@@ -2519,6 +2519,27 @@ describe("waiting asks in a chat", () => {
   });
 });
 
+describe("finding a chat's dog", () => {
+  it("remembers which dog owns a chat and notices when the chat moves or the dog goes", () => {
+    const store = new Store(selection);
+    const first = store.createBot({}, { seedMessages: false });
+    const second = store.createBot({}, { seedMessages: false });
+    const task = store.createTask(second.id, "Work", false)!;
+    expect(store.botByThread(task.threadId)?.id).toBe(second.id);
+    const scans = vi.spyOn(store.bots, "find");
+    for (let i = 0; i < 50; i++) expect(store.botByThread(task.threadId)?.id).toBe(second.id);
+    expect(scans).not.toHaveBeenCalled();
+    scans.mockRestore();
+    const moved = store.bot(second.id)!.tasks!.find((candidate) => candidate.threadId === task.threadId)!;
+    store.bot(second.id)!.tasks = store.bot(second.id)!.tasks!.filter((candidate) => candidate !== moved);
+    store.bot(first.id)!.tasks = [moved, ...store.bot(first.id)!.tasks!];
+    expect(store.botByThread(task.threadId)?.id).toBe(first.id);
+    store.deleteBot(first.id);
+    expect(store.botByThread(task.threadId)).toBeNull();
+    expect(store.botByThread("no-such-chat")).toBeNull();
+  });
+});
+
 describe("finding a chat's task", () => {
   it("finds the task that owns a chat across dogs, and nothing for a group chat", () => {
     const store = new Store(selection);
