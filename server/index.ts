@@ -1098,6 +1098,7 @@ const edgeArrivals = CLOUD_HOME ? new EdgeArrivals({
   sessions: () => sessions.liveSessions(),
   dogs: () => edgeAdmissionDogs(coordinatorSetting),
   deliver: async (arrival) => {
+    if (!sessions.liveSession(arrival.session)) return { status: 401, body: { error: "the device that sent it was signed out before it arrived" } };
     const response = await fetch(`http://127.0.0.1:${PORT}/api/bots/${encodeURIComponent(arrival.dog)}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json", [EDGE_REPLAY_HEADER]: `${EDGE_REPLAY_SECRET}:${arrival.session}` },

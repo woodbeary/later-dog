@@ -4,7 +4,7 @@ export const ADMISSION_ROUTE = "/api/internal/coordinator/admission";
 export const ARRIVAL_POLL_MS = 250;
 const CALL_MS = 10_000;
 const TOKEN_MS = 10 * 60_000;
-const CONFIGURE_DELAY_MS = 500;
+const CONFIGURE_DELAY_MS = 100;
 
 export interface AdmissionSession {
   hash: string;
