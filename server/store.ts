@@ -1648,6 +1648,14 @@ export class Store {
     return this.bots.find((b) => b.threadId === threadId || b.tasks?.some((t) => t.threadId === threadId)) ?? null;
   }
 
+  taskForThread(threadId: string): TaskRecord | undefined {
+    for (const bot of this.bots) {
+      const task = bot.tasks?.find((candidate) => candidate.threadId === threadId);
+      if (task) return task;
+    }
+    return undefined;
+  }
+
   private newBotSelection(requested?: ModelSelection): ModelSelection {
     return this.completeNewBotSelection(requested ?? this.defaultSelection());
   }

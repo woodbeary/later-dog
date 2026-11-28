@@ -2497,6 +2497,19 @@ describe("task patches that change nothing", () => {
   });
 });
 
+describe("finding a chat's task", () => {
+  it("finds the task that owns a chat across dogs, and nothing for a group chat", () => {
+    const store = new Store(selection);
+    const first = store.createBot({}, { seedMessages: false });
+    const second = store.createBot({}, { seedMessages: false });
+    const task = store.createTask(second.id, "Second's work", false)!;
+    const room = store.createGroup("Room", [first.id, second.id]);
+    expect(store.taskForThread(task.threadId)).toBe(store.taskByThread(second.id, task.threadId));
+    expect(store.taskForThread(first.threadId)).toBe(store.activeTask(first.id));
+    expect(store.taskForThread(room.threadId)).toBeUndefined();
+  });
+});
+
 describe("checking whole chats without the chat cache", () => {
   it("reads an idle chat whole without caching it or pushing other chats out", () => {
     const seed = new Store(selection);

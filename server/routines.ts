@@ -740,6 +740,11 @@ export class RoutineManager {
     return run ? cloneRun(run) : null;
   }
 
+  activeRunForThread(threadId: string): RoutineRun | null {
+    const run = this.runs.findLast((candidate) => candidate.threadId === threadId);
+    return run && (run.status === "running" || run.status === "waiting") ? cloneRun(run) : null;
+  }
+
   legacyResultsThreadId(routineId: string): string | undefined {
     return this.routines.find((routine) => routine.id === routineId)?.resultsThreadId;
   }

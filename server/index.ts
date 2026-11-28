@@ -3288,7 +3288,7 @@ const logArchive = archiveBridge
     bridge: archiveBridge,
     threads: () => [
       ...new Set([
-        ...store.bots.flatMap(bot => store.tasks(bot.id).map(task => task.threadId)),
+        ...store.bots.flatMap(bot => (bot.tasks ?? []).map(task => task.threadId)),
         ...store.groups.flatMap(group => [group.threadId, ...(group.tasks ?? []).map(task => task.threadId)]),
       ]),
     ],
@@ -3301,12 +3301,12 @@ const logArchive = archiveBridge
       if (groupSpeakers.has(id)) return false;
       const group = store.groupByThread(id);
       if (group && (Boolean(group.busyBotId) || Boolean(groupTurnOperations.get(group.id)?.size))) return false;
-      const owner = store.bots.find(bot => store.tasks(bot.id).some(task => task.threadId === id));
+      const owner = store.bots.find(bot => (bot.tasks ?? []).some(task => task.threadId === id));
       if (owner && threadBusy(owner.id, id)) return false;
       return true;
     },
-    sessions: id => claudeSessionIds(store.bots.flatMap(bot => store.tasks(bot.id)).find(task => task.threadId === id)?.resumeCursors),
-    outsideSessions: () => outsideSessionOwners(store.bots.map(bot => ({ threadId: bot.threadId, resumeCursors: bot.resumeCursors, tasks: store.tasks(bot.id) })), id => Boolean(store.groupByThread(id))),
+    sessions: id => claudeSessionIds(store.taskForThread(id)?.resumeCursors),
+    outsideSessions: () => outsideSessionOwners(store.bots.map(bot => ({ threadId: bot.threadId, resumeCursors: bot.resumeCursors, tasks: bot.tasks ?? [] })), id => Boolean(store.groupByThread(id))),
     sweep: () => archiveSweep(archiveDisk()),
     room: () => roomToRestore(archiveDisk()),
     report: message => console.log(`[log archive] ${message}`),
@@ -8671,8 +8671,7 @@ function settleWaitingOnPersonChips(threadId: string, requestId?: string) {
 }
 
 function activeRoutineRunForThread(threadId: string): RoutineRun | null {
-  const run = routines?.runForThread(threadId);
-  return run && ["running", "waiting"].includes(run.status) ? run : null;
+  return routines?.activeRunForThread(threadId) ?? null;
 }
 
 function routineTurnBelongsToRun(run: Pick<RoutineRun, "id" | "threadId">): boolean {
