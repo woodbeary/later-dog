@@ -492,6 +492,7 @@ import { armSyncTripwire, onMountedSyncCall } from "./laterdog/sync-tripwire.ts"
 import { skillsCall, skillsPromptReady } from "./skills-thread.ts";
 import type { SkillPackageStamp } from "./skills.ts";
 import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
+import { quickMemorySnapshot } from "./laterdog/memory-prompt-snapshot.ts";
 import { SearchUnavailable } from "./message-search-worker.ts";
 import {
   beginMemoryTurnInBackground,
@@ -10161,8 +10162,10 @@ async function startTurn(
 
       turnPhases.mark(threadId, "computer and prompt");
       if (memoryHead) {
-        memoryDocs = promptFromIndex() && searchIndex ? await searchIndex.promptMemory(bot.id, memoryHead)
-          : await Promise.race([memoryHead, new Promise<null>((resolve) => setTimeout(() => resolve(null), MOUNTED_FOLDER_ANSWER_MS).unref())]);
+        const head = memoryHead;
+        memoryDocs = await quickMemorySnapshot(head, new Map([...memorySnapshotFiles(bot.id)].map(([path, file]) => [path, file.text])))
+          ?? (promptFromIndex() && searchIndex ? await searchIndex.promptMemory(bot.id, head)
+          : await Promise.race([head, new Promise<null>((resolve) => setTimeout(() => resolve(null), MOUNTED_FOLDER_ANSWER_MS).unref())]));
         turnPhases.mark(threadId, "memory snapshot wait");
       }
       const assignedSkills = skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined;

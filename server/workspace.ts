@@ -189,18 +189,21 @@ export async function memoryFilesReady(botId: string): Promise<Map<string, Memor
     if (!found?.isDirectory()) return [];
     return (await dogFiles.list(join(root, dir))).filter(isMemoryTopicName).map((name) => `${prefix}/${name}`);
   };
-  const paths = ["MEMORY.md", ...await listed("memory", "memory"), ...await listed(join("memory", MEMORY_LOG_DIR), `memory/${MEMORY_LOG_DIR}`)];
-  const files = new Map<string, MemoryFileRead>();
-  for (const path of paths) {
+  const [topics, logs] = await Promise.all([listed("memory", "memory"), listed(join("memory", MEMORY_LOG_DIR), `memory/${MEMORY_LOG_DIR}`)]);
+  const paths = ["MEMORY.md", ...topics, ...logs];
+  const read = await Promise.all(paths.map(async (path) => {
     const info = await dogFiles.lstat(join(root, path));
-    if (!info?.isFile()) continue;
+    if (!info?.isFile()) return null;
     const stamp = `${info.size}:${info.mtimeMs}:${info.ino}`;
     const known = seen.get(path);
     const text = known?.stamp === stamp ? known.file.text : await dogFiles.readText(join(root, path));
-    if (text === null) continue;
-    const file = { text, mtimeMs: info.mtimeMs, bytes: info.size };
-    seen.set(path, { stamp, file });
-    files.set(path, file);
+    return text === null ? null : { path, stamp, file: { text, mtimeMs: info.mtimeMs, bytes: info.size } };
+  }));
+  const files = new Map<string, MemoryFileRead>();
+  for (const found of read) {
+    if (!found) continue;
+    seen.set(found.path, { stamp: found.stamp, file: found.file });
+    files.set(found.path, found.file);
   }
   for (const path of seen.keys()) if (!files.has(path)) seen.delete(path);
   return files;
