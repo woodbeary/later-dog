@@ -65,6 +65,8 @@ export interface WorkFolderDeps {
   workspacesDir: string;
   bridge: WorkFolderBridge;
   chats(): WorkspaceTask[];
+  chatsInSlices?(): Promise<WorkspaceTask[]>;
+  chat?(dir: string): WorkspaceTask | undefined;
   syncDirectory?(dir: string): Promise<void>;
   live?(): ProcessInfo[];
   inUse?(botId: string, threadId: string): boolean;
@@ -416,7 +418,7 @@ export class WorkFolderArchive {
       if (!await this.realFolder(key) || this.held(chat.dir)) return 0;
       const stamp = `${this.now().toString(36)}-${randomUUID()}`;
       const stillQuiet = () => {
-        const current = this.deps.chats().find((candidate) => candidate.dir === chat.dir);
+        const current = this.deps.chat ? this.deps.chat(chat.dir) : this.deps.chats().find((candidate) => candidate.dir === chat.dir);
         return Boolean(current && this.quiet(current, key, limits));
       };
       if (!stillQuiet()) return 0;
@@ -447,7 +449,7 @@ export class WorkFolderArchive {
     const limits = this.deps.limits();
     const records = this.load();
     this.totals.lastSweepAt = this.now();
-    const chats = this.deps.chats();
+    const chats = this.deps.chatsInSlices ? await this.deps.chatsInSlices() : this.deps.chats();
     const known = new Set(chats.map((chat) => this.keyOf(chat.dir)));
     for (const [key, until] of this.leftAlone) if (until <= this.now() || !known.has(key)) this.leftAlone.delete(key);
     let forgotten = 0;

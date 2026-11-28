@@ -606,7 +606,7 @@ import { managedDeviceApproval } from "./laterdog/managed-device-approval.ts";
 import { managedJobFolders } from "./laterdog/managed-job-folders.ts";
 
 import { homeMountPaths } from "./laterdog/work-folder-maintenance.ts";
-import { workFolderChats } from "./laterdog/work-folder-chats.ts";
+import { workFolderChat, workFolderChats, workFolderChatsInSlices, type WorkFolderChatsDeps } from "./laterdog/work-folder-chats.ts";
 import { savesForStorage } from "./laterdog/save-status.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
@@ -3319,7 +3319,9 @@ const workFolders = !mountedFolderLayout && archiveBridge && logArchive
     dataDir: DATA_DIR,
     workspacesDir: TASK_WORKSPACES_DIR,
     bridge: archiveBridge,
-    chats: () => workFolderChats({ workspacesDir: TASK_WORKSPACES_DIR, bots: store.bots, groups: store.groups, damaged: store.damaged, thread: janitorThread, atWork: threadAtWork }),
+    chats: () => workFolderChats(workFolderChatSources()),
+    chatsInSlices: () => workFolderChatsInSlices(workFolderChatSources()),
+    chat: (dir) => workFolderChat(workFolderChatSources(), dir),
     inUse: (botId, threadId) => chatInUse(botId, threadId),
     limits: () => workFolderSweep(archiveDisk()),
     room: bytes => roomFor(archiveDisk(), bytes),
@@ -22749,6 +22751,10 @@ setInterval(sweepThreadEventLogsNow, THREAD_LOG_RETENTION_SWEEP_MS).unref();
 
 function threadLogCap(): number | null {
   return threadEventLogMaxBytes(cfg) ?? (CLOUD_HOME ? CLOUD_THREAD_LOG_MAX_BYTES : null);
+}
+
+function workFolderChatSources(): WorkFolderChatsDeps {
+  return { workspacesDir: TASK_WORKSPACES_DIR, bots: store.bots, groups: store.groups, damaged: store.damaged, thread: janitorThread, atWork: threadAtWork };
 }
 
 function janitorThread(botId: string, threadId: string): ReaperThreadState {
