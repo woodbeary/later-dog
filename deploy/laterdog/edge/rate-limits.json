@@ -86,8 +86,8 @@
     },
     {
       "ref": "r5-homes",
-      "description": "R5: every Cloud home (*-home.later.dog) except work folder storage, which each computer reaches with its own folder grant and many computers share egress addresses, 600 per minute per IP",
-      "expression": "(http.host wildcard \"*-home.later.dog\" and not starts_with(http.request.uri.path, \"/api/work-folders/v1/\"))",
+      "description": "R5: every Cloud home (*-home.later.dog) except work folder storage, which each computer reaches with its own folder grant and many computers share egress addresses, and the coordinator calls a home makes with its own signed capabilities, 600 per minute per IP",
+      "expression": "(http.host wildcard \"*-home.later.dog\" and not starts_with(http.request.uri.path, \"/api/work-folders/v1/\") and not starts_with(http.request.uri.path, \"/api/internal/coordinator/\"))",
       "action": "block",
       "action_parameters": {
         "response": {

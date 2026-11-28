@@ -74,9 +74,15 @@ export async function guestCliCredentials(driver: string, instanceId: string, en
   } else if (driver === "antigravityAgent") {
     const login = await accountJson(join(antigravityProfileDirectory(instanceId), "antigravity-acp", "acp_token.json"));
     if (!login) throw new Error("Antigravity needs a sign-in for the selected account.");
-    const key = ["access_token", "accessToken", "token"].find(key => text(login[key]));
-    if (!key || !fresh(login.expiry_date ?? login.expires_at ?? login.expiresAt, now)) throw new Error("Antigravity needs a current access token for the selected account.");
-    out.files.antigravity = JSON.stringify(selected(login, [key, "expiry_date", "expires_at", "expiresAt", "token_type", "scope"]));
+    const nested = login.token && typeof login.token === "object" && !Array.isArray(login.token) ? login.token as Record<string, unknown> : null;
+    if (nested) {
+      if (!text(nested.access_token) || !fresh(nested.expiry, now)) throw new Error("Antigravity needs a current access token for the selected account.");
+      out.files.antigravity = JSON.stringify({ ...selected(login, ["auth_method", "id_token_email"]), token: selected(nested, ["access_token", "token_type", "expiry", "expires_in"]) });
+    } else {
+      const key = ["access_token", "accessToken", "token"].find(key => text(login[key]));
+      if (!key || !fresh(login.expiry_date ?? login.expires_at ?? login.expiresAt, now)) throw new Error("Antigravity needs a current access token for the selected account.");
+      out.files.antigravity = JSON.stringify(selected(login, [key, "expiry_date", "expires_at", "expiresAt", "token_type", "scope"]));
+    }
   }
   return out;
 }

@@ -79,7 +79,7 @@ async function act(request: FolderRequest, roots: string[], run: FolderRun): Pro
   const root = roots.find((candidate) => within(candidate, target))!;
   const shown = (path: string) => relative(working, path) || ".";
   await stayInside(target, root, run);
-  if (action === "list") return list(target, shown, run);
+  if (action === "list") return list(target, shown, run, roots);
   if (action === "read") return read(target, shown, request, run);
   if (action === "search") return search(target, shown, request, run);
   if (action === "write") return write(target, shown, request, run);
@@ -109,12 +109,17 @@ async function stayInside(target: string, root: string, run: FolderRun): Promise
   }
 }
 
-async function list(target: string, shown: (path: string) => string, run: FolderRun): Promise<string> {
-  const entries = await run(target, () => readdir(target, { withFileTypes: true }));
+async function list(target: string, shown: (path: string) => string, run: FolderRun, roots: string[]): Promise<string> {
+  const others = roots.filter((root) => root !== target).map((root) => `\nYour other folders: ${root}`).join("");
+  const entries = await run(target, () => readdir(target, { withFileTypes: true })).catch((error: unknown) => {
+    if (missing(error) && target === roots[0]) return [] as Dirent[];
+    throw error;
+  });
+  if (!entries.length) return `${shown(target)} is empty.${target === roots[0] ? others : ""}`;
   entries.sort((a, b) => a.name.localeCompare(b.name));
   const lines = entries.slice(0, FOLDER_LIST_ENTRIES).map((entry: Dirent) => `${entry.isDirectory() ? "dir " : entry.isSymbolicLink() ? "link" : "file"} ${entry.name}`);
   const more = entries.length > FOLDER_LIST_ENTRIES ? `\n… and ${entries.length - FOLDER_LIST_ENTRIES} more` : "";
-  return `${shown(target)} (${entries.length} entries)\n${lines.join("\n")}${more}`;
+  return `${shown(target)} (${entries.length} entries)\n${lines.join("\n")}${more}${target === roots[0] ? others : ""}`;
 }
 
 async function read(target: string, shown: (path: string) => string, request: FolderRequest, run: FolderRun): Promise<string> {

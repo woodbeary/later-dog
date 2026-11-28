@@ -34,12 +34,15 @@ const GROUP_OF: Readonly<Record<string, string>> = {
 
 const GROUP_ORDER: readonly string[] = ["", "replies", "the_person", "files", "computer", "browser", "my_cloud", "connected_apps", "sign_ins", "recall", "routines", "changing_yourself", "skills", "tools_and_places", "team", "progress"];
 const LEAD_ORDER: readonly string[] = ["persona", "soul", "guide"];
+const CHAT_TAIL: readonly string[] = ["files", "plan", "coordination", "assignment", "routine-execution", "webhook"];
 
 export function sectionGroup(id: string): string {
   return GROUP_OF[id] ?? "tools_and_places";
 }
 
 function rank(id: string): number {
+  const tail = CHAT_TAIL.indexOf(id);
+  if (tail >= 0) return LEAD_ORDER.length + GROUP_ORDER.length + tail;
   const lead = LEAD_ORDER.indexOf(id);
   if (lead >= 0) return lead;
   return LEAD_ORDER.length + GROUP_ORDER.indexOf(sectionGroup(id));

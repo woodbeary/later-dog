@@ -145,6 +145,31 @@ describe("routines fired by the dog object", () => {
     expect(w.started).toHaveLength(1);
   });
 
+  it("tries a dog again after a failed sync, waiting longer each time, without waiting for a change", async () => {
+    const w = world();
+    const home = w.home(w.file);
+    w.link.down = true;
+    home.manager.create(every10(START + 10 * MINUTE));
+    await home.step();
+    expect(w.alarm.at).toBeNull();
+    w.clock.now += 1_000;
+    await home.step();
+    expect(home.bridge.state.failures).toBe(1);
+    w.clock.now += 2_000;
+    await home.step();
+    expect(home.bridge.state.failures).toBe(2);
+    w.link.down = false;
+    w.clock.now += 4_000;
+    await home.step();
+    expect(w.alarm.at).toBeNull();
+    w.clock.now += 2_000;
+    await home.step();
+    expect(w.alarm.at).toBe(START + 10 * MINUTE);
+    w.clock.now = START + 10 * MINUTE + 1_000;
+    await home.step();
+    expect(w.started).toHaveLength(1);
+  });
+
   it("hands its schedule back so the home's scheduler resumes where the object was", async () => {
     const w = world();
     const home = w.home(w.file);

@@ -6,7 +6,7 @@ import type WebSocket from "ws";
 import { afterEach, expect, it } from "vitest";
 import { REMOTE_ENGINES_FILE, type ClaudeRemotePlan, type EngineOpener } from "./engine-placement.ts";
 import type { EngineLink } from "./engine-remote.ts";
-import { notePoolLoss, onPool, POOL_AVOID_MS, POOL_NOTE, poolAvoided, poolEngineOpener, poolLaunch, poolLink, takePoolLoss, type PoolService } from "./pool-opener.ts";
+import { notePoolLoss, onPool, poolChosen, poolSetting, savePoolSetting, POOL_AVOID_MS, POOL_NOTE, poolAvoided, poolEngineOpener, poolLaunch, poolLink, takePoolLoss, type PoolService } from "./pool-opener.ts";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -102,4 +102,13 @@ it("marks a chat as on the pool while its pool engine is open, and records a los
   expect(takePoolLoss("bot-on", "thread-on")).toBe(true);
   expect(poolAvoided("bot-on", "thread-on")).toBe(true);
   expect(readFileSync(join(data, "engine-placement.log"), "utf8")).toContain("lost its pool engine (pool stream closed)");
+});
+
+it("puts every dog on the pool except the ones it skips, so new dogs are included", () => {
+  const data = mkdtempSync(join(tmpdir(), "ldpool-skip-"));
+  dirs.push(data);
+  expect(savePoolSetting(data, { enabled: true, skip: ["dev", "dev"] })).toEqual({ enabled: true, skip: ["dev"] });
+  expect(poolSetting(data)).toEqual({ enabled: true, skip: ["dev"] });
+  expect(poolChosen(data, "brand-new-dog")).toBe(true);
+  expect(poolChosen(data, "dev")).toBe(false);
 });
