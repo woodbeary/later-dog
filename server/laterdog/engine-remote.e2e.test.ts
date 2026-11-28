@@ -670,6 +670,30 @@ it.each(["exit", "disconnect"] as const)("settles a remote %s delivered alongsid
   }
 });
 
+it("starts two chats' engines on one computer at once without either finding the shared account settings half written", async () => {
+  const w = world();
+  const plans = [w.plan(), w.plan()];
+  const other = plans[1]!.launch, otherCwd = join(w.base, "home", "other-chat");
+  mkdirSync(otherCwd, { recursive: true });
+  other.lockFile = other.lockFile.replace(/\.lock$/, "-other.lock");
+  other.stateFile = other.stateFile.replace(/\.json$/, "-other.json");
+  other.cwd = otherCwd;
+  other.args = other.args.map((arg) => (arg === "s-1" ? "s-2" : arg));
+  other.roots = other.roots.map((root) =>
+    root.id === "workspace" ? { ...root, path: otherCwd }
+      : root.id === "session" ? { ...root, files: ["s-2.jsonl"] }
+        : root.id === "session-extra" || root.id === "file-history" ? { ...root, path: root.path.replace(/s-1$/, "s-2") }
+          : root);
+  for (const plan of plans) plan.launch.env.FAKE_ENGINE_CONFIG_RACE = "1";
+  const started = plans.map((plan) => w.start(plan));
+  const stderr: string[] = [];
+  for (const { engine } of started) engine.stderr.on("data", (bytes) => stderr.push(String(bytes)));
+  const results = await Promise.all(started.map(({ engine }, n) => turn(engine, `chat ${n}`, undefined, 45_000)));
+  expect(results).toHaveLength(2);
+  expect(stderr.join("")).not.toContain("restoring from backup");
+  for (const { engine } of started) { const ended = closed(engine); engine.stdin.end(); await ended; }
+}, 90_000);
+
 it("refuses a second engine for a chat whose engine still runs on the computer", async () => {
   const w = world();
   const first = w.start(w.plan());

@@ -335,7 +335,9 @@ import { searchIndexClient } from "./laterdog/search-index-feed.ts";
 import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-index-setting.ts";
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
-import { historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
+import { BOT_BROADCAST_MS, coalescedBroadcasts } from "./laterdog/coalesced-broadcasts.ts";
+import { EdgeArrivals } from "./laterdog/edge-arrivals.ts";
+import { edgeAdmissionDogs, historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
 import { DogObjectCalls, ObjectRoutines } from "./laterdog/object-routines.ts";
 import { ObjectInbox } from "./laterdog/object-inbox.ts";
 import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
@@ -907,6 +909,7 @@ import { createVoiceStreams } from "./laterdog/voice-stream.ts";
 import { createTimeZoneRoutes, currentTimeZone, restoreTimeZone } from "./laterdog/time-zone.ts";
 import { withScheduleLabel } from "./laterdog/routine-schedule-label.ts";
 import { heldAccountReason } from "./laterdog/held-accounts.ts";
+import { boxScreenExec, createBoxScreenRoutes, screensOnBox } from "./laterdog/box-screen.ts";
 import { createAccountKeeper, createSignInRoutes, keeperRenewing, keptAccounts } from "./laterdog/account-keeper.ts";
 import { createHomeAccountRoutes, withHandedOverEmail } from "./laterdog/home-accounts.ts";
 import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
@@ -961,6 +964,7 @@ import { computerEngineOpener, openEngineOnMachine, type EngineWorkFolders } fro
 import { machineWaitingText, saveTaskMachineSetting, TASK_MACHINE_RESOURCE, taskLineService, taskMachineOpener, taskMachineSetting } from "./laterdog/task-machines.ts";
 import { createTaskMachineRoutes } from "./routes/task-machines.ts";
 import { taskMachineLoss } from "./laterdog/task-machine-loss.ts";
+import { NEW_TASK_MS, publishNewTaskFolders } from "./laterdog/task-machine-folders.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
 import { poolChosen, poolEngineOpener, poolService, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
@@ -984,7 +988,7 @@ setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFo
   dataDir: DATA_DIR,
   ticketClass: (botId, threadId) => startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "task" : null,
   size: (botId, threadId) => machineSizes.choose(botId, threadId, undefined).size,
-  openOn: async (machineId, botId, plan, signal) => openEngineOnMachine(await boat.taskMachineComputer(machineId, signal), botId, plan, engineFolderOptions),
+  openOn: async (machineId, botId, plan, signal) => openEngineOnMachine(await boat.taskMachineComputer(machineId, signal), botId, plan, taskMachineFolderOptions(plan.threadId)),
   onWait: (botId, threadId, wait) => {
     if (wait.waiting) {
       const shown = taskMachineWaits.get(threadId);
@@ -1007,6 +1011,19 @@ setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFo
   },
 }));
 const taskMachineWaits = new Map<string, number>();
+function taskMachineFolderOptions(threadId: string): { workFolders?: EngineWorkFolders } {
+  const assign = engineFolderOptions.workFolders;
+  if (!assign) return engineFolderOptions;
+  return {
+    workFolders: async (input) => {
+      const folders = await assign(input);
+      const created = store.taskByThread(input.botId, threadId)?.createdAt;
+      const published = await publishNewTaskFolders(folders, threadId, typeof created === "number" && Date.now() - created < NEW_TASK_MS);
+      if (published.length) notePlacement(DATA_DIR, `[task-line] ${input.botId.slice(0, 8)} ${threadId.slice(0, 8)} published the new task's empty folder for its machine`);
+      return folders;
+    },
+  };
+}
 const pickUpLostTaskMachine = taskMachineLoss({
   busy: (botId, threadId) => threadBusy(botId, threadId),
   request: (threadId) => store.activePath(threadId).findLast((message) => message.role === "user")?.id,
@@ -1119,6 +1136,36 @@ const historyWriter = CLOUD_HOME ? new HistoryWriter({
   filled: (threadId) => store.forgetCachedThread(threadId),
   inScope: (threadId) => historyCovers(coordinatorSetting, store.botByThread(threadId)?.id ?? (store.groupByThread(threadId) ? `room-${store.groupByThread(threadId)!.id}` : null)),
   log: (line) => console.log(line),
+}) : null;
+const EDGE_REPLAY_HEADER = "x-laterdog-edge-replay";
+const EDGE_REPLAY_SECRET = randomBytes(24).toString("hex");
+function edgeReplaySession(req: IncomingMessage): SessionRecord | null {
+  const presented = req.headers[EDGE_REPLAY_HEADER];
+  if (typeof presented !== "string" || !presented.startsWith(`${EDGE_REPLAY_SECRET}:`)) return null;
+  const address = req.socket.remoteAddress ?? "";
+  if (address !== "127.0.0.1" && address !== "::1" && address !== "::ffff:127.0.0.1") return null;
+  return sessions.liveSession(presented.slice(EDGE_REPLAY_SECRET.length + 1));
+}
+const edgeArrivals = CLOUD_HOME ? new EdgeArrivals({
+  origin: CLOUD_HOME.publicOrigin,
+  home: CLOUD_HOME.machineId,
+  bootstrapSecret: CLOUD_HOME.bootstrapSecret,
+  sessions: () => sessions.liveSessions(),
+  dogs: () => edgeAdmissionDogs(coordinatorSetting),
+  deliver: async (arrival) => {
+    if (!sessions.liveSession(arrival.session)) return { status: 401, body: { error: "the device that sent it was signed out before it arrived" } };
+    const response = await fetch(`http://127.0.0.1:${PORT}/api/bots/${encodeURIComponent(arrival.dog)}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", [EDGE_REPLAY_HEADER]: `${EDGE_REPLAY_SECRET}:${arrival.session}` },
+      body: JSON.stringify(arrival.body),
+      signal: AbortSignal.timeout(120_000),
+    });
+    return { status: response.status, body: (await response.json().catch(() => ({}))) as Record<string, unknown> };
+  },
+  undelivered: (arrival, why) => {
+    if (!store.taskByThread(arrival.dog, arrival.chat)) return;
+    store.appendMessage(arrival.chat, { role: "bot", kind: "activity", tool: failedTurnTool(`A message you sent could not be delivered: ${why}`) });
+  },
 }) : null;
 const queuesInObject = (botId: string) => Boolean(objectQueue) && queueModeFor(coordinatorSetting, botId) === "object";
 const dogObjectCalls = CLOUD_HOME ? new DogObjectCalls({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
@@ -1334,6 +1381,7 @@ const HELD_ACCOUNTS_FILE = join(DATA_DIR, "providers", "held-accounts.json");
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId), snapshotFile: join(DATA_DIR, "account-snapshots.json") });
 const supportsApprovalMode = createApprovalModeSupport(registry);
 claudeSignInRefresh.onChange((instanceId) => registry.forgetSnapshot(instanceId));
+const BOX_SCREENS_FILE = join(DATA_DIR, "laterdog", "box-screens.json");
 const ACCOUNT_KEEPER_FILE = join(DATA_DIR, "providers", "account-keeper.json");
 const accountKeeper = createAccountKeeper({
   renewing: () => keeperRenewing(ACCOUNT_KEEPER_FILE),
@@ -5727,6 +5775,10 @@ function pageIfThreadChanged(id: string, threadId: string) {
   sentThreads.set(id, threadId);
   return messagePage(threadId, DEFAULT_PAGE);
 }
+const botBroadcasts = coalescedBroadcasts(BOT_BROADCAST_MS, (botId) => {
+  const bot = store.bot(botId);
+  if (bot) broadcast({ kind: "bot", bot: { ...wireBot(bot), ...pageIfThreadChanged(bot.id, bot.threadId) } });
+});
 store.onChange((change) => {
   if (change.type !== "message" && change.type !== "message.patch" && change.type !== "thread" && change.type !== "sections") forgetVisibility();
   switch (change.type) {
@@ -5750,7 +5802,7 @@ store.onChange((change) => {
       break;
     case "bot": {
       const bot = store.bot(change.botId);
-      if (bot) broadcast({ kind: "bot", bot: { ...wireBot(bot), ...pageIfThreadChanged(bot.id, bot.threadId) } });
+      if (bot) botBroadcasts.soon(bot.id);
       if (bot) for (const group of store.groups.filter((candidate) => candidate.memberIds.includes(bot.id))) settleRoomFloor(group);
       break;
     }
@@ -14482,7 +14534,7 @@ ROUTES.push(createSearchIndexRoutes({
 if (searchIndex) searchIndex.setMode(readSearchIndexMode(DATA_DIR));
 ROUTES.push(createCoordinatorRoutes({
   available: () => Boolean(CLOUD_HOME),
-  read: () => ({ ...coordinatorSetting, routineClient: objectRoutines ? objectRoutines.state : null, inboxClient: objectInbox ? { pending: objectInbox.pending(), ...objectInbox.state } : null, historyWriter: historyWriter ? historyWriter.state() : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
+  read: () => ({ ...coordinatorSetting, routineClient: objectRoutines ? objectRoutines.state : null, inboxClient: objectInbox ? { pending: objectInbox.pending(), ...objectInbox.state } : null, historyWriter: historyWriter ? historyWriter.state() : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null, edgeArrivals: edgeArrivals ? edgeArrivals.state : null }),
   change: async (change) => {
     const before = coordinatorSetting;
     coordinatorSetting = mergeCoordinatorSetting(coordinatorSetting, change);
@@ -14497,6 +14549,7 @@ ROUTES.push(createCoordinatorRoutes({
     saveCoordinatorSetting(DATA_DIR, coordinatorSetting);
     if (change.historyDogs && historyWriter?.mode === coordinatorSetting.history) historyWriter.rescope();
     historyWriter?.setMode(coordinatorSetting.history);
+    edgeArrivals?.refresh();
     return coordinatorSetting;
   },
 }));
@@ -14674,6 +14727,7 @@ ROUTES.push(createMacAccountRoutes({
   exclusive: withProviderConfig,
   reload: reloadProviderInstance,
 }));
+ROUTES.push(createBoxScreenRoutes({ file: BOX_SCREENS_FILE, allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth), dogExists: (id) => Boolean(store.bot(id)) }));
 ROUTES.push(createSignInRoutes({ keeper: accountKeeper, file: ACCOUNT_KEEPER_FILE, allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth) }));
 ROUTES.push(createHomeAccountRoutes({
   cloudHome: Boolean(CLOUD_HOME),
@@ -15409,7 +15463,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         serverName: environmentDescriptor({ environmentId: ENVIRONMENT_ID, desktopManaged: DESKTOP_MANAGED }).label,
       });
     }
-    const gate = resolveRequestAuth(req, {
+    const replayed = edgeReplaySession(req);
+    const gate = replayed
+      ? { auth: { kind: "session" as const, session: replayed, via: "bearer" as const, scopes: replayed.scopes }, status: 401 as const, error: "" }
+      : resolveRequestAuth(req, {
       sessions,
       cookieName: SESSION_COOKIE,
       streamPath: "/api/events",
@@ -15871,7 +15928,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/computer/mcp") {
         const body = await readInternalBody();
-        if (internalCapability.boxId === undefined) return json(res, 403, { error: "this turn has no cloud computer" });
+        const screen = screensOnBox(BOX_SCREENS_FILE, internalSender.id) ? boxScreenExec(internalSender.id) : undefined;
+        if (internalCapability.boxId === undefined && !screen) return json(res, 403, { error: "this turn has no cloud computer" });
         const abort = new AbortController();
         res.once("close", () => { if (!res.writableEnded) abort.abort(); });
         return json(res, 200, { result: await cloudComputerRpc(body, {
@@ -15894,6 +15952,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           secureForms: secureForms.desk(internalSender.id, internalCapability.threadId),
           tabs: (boxId, tool) => cloudTabs.watch({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId, tool),
           vault: vaultItemsFor(internalCapability),
+          screen,
+          screenGate: async () => ({ held: botComputerControlSnapshot(internalCapability.botId, internalCapability.teamComputerId).held }),
         }) });
       }
       if (method === "GET" && path === "/api/internal/shared-computers" && lendingEnabled()) {
@@ -22915,6 +22975,8 @@ server.listen(PORT, "127.0.0.1", async () => {
   for (const turn of leftoverTurns) if (queuesInObject(turn.botId)) awaitingPickup.add(turn.threadId);
   followupsReady = true;
   historyWriter?.setMode(coordinatorSetting.history);
+  edgeArrivals?.refresh();
+  sessions.onSessionsChanged(() => edgeArrivals?.refresh());
   limitHold.restorePeople();
   drainQueuedSends();
   drainQueuedChannelSends();
@@ -22941,6 +23003,7 @@ server.listen(PORT, "127.0.0.1", async () => {
 const gracefulShutdown = createGracefulShutdown({
   cleanup: [
     () => {
+      store.flushBots();
       followupsReady = false;
       companyShutdown = true;
       inflightTurns.markPlanned();

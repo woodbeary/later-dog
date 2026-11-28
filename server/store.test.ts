@@ -10,7 +10,7 @@ import { DATA_DIR } from "./config.ts";
 import type { ModelSelection } from "./contracts.ts";
 import * as mdb from "./message-db.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
-import { Store, toWireTask, type BotRecord } from "./store.ts";
+import { BOTS_FLUSH_MS, Store, toWireTask, type BotRecord } from "./store.ts";
 import { SECTION_CONTEXTS_FILE, readSectionContext, writeSectionContext } from "./section-context.ts";
 import { TeamComputers } from "./team-computers.ts";
 import { allowsTool } from "../shared/tool-scope.ts";
@@ -398,6 +398,7 @@ describe("Store", () => {
     expect(events).toEqual([{ type: "bot", botId: bot.id }, { type: "bot", botId: bot.id }]);
 
     store.setResumeCursor(bot.id, "claude", { sessionId: "s-2" }, bot.threadId);
+    store.flushBots();
     expect(statSync(file).ino).not.toBe(saved);
     expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.resumeCursors).toEqual({ claude: { sessionId: "s-2" } });
   });
@@ -407,11 +408,13 @@ describe("Store", () => {
     const store = new Store(selection);
     const bot = store.createBot({ name: "Original" }, { seedMessages: false });
     store.setResumeCursor(bot.id, "claude", { sessionId: "s-1" }, bot.threadId);
+    store.flushBots();
     const edited = JSON.parse(readFileSync(file, "utf8"));
     edited[0].name = "Edited on disk";
     writeFileSync(file, JSON.stringify(edited, null, 2));
 
     store.setResumeCursor(bot.id, "claude", { sessionId: "s-1" }, bot.threadId);
+    store.flushBots();
     expect(JSON.parse(readFileSync(file, "utf8"))[0].name).toBe("Original");
   });
 
@@ -605,7 +608,7 @@ describe("Store", () => {
     expect(whole.hasMore).toBe(false);
   });
 
-  it("caches a complete tail but never caches a zero-message page as an empty thread", () => {
+  it("reads a tail without caching the chat, and never caches a zero-message page as an empty thread", () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "keep this" });
@@ -613,9 +616,10 @@ describe("Store", () => {
     try {
       const fresh = new Store(selection);
       expect(fresh.messagesTail(bot.threadId, 10)).toMatchObject({ hasMore: false });
+      expect(fresh.hasCachedThread(bot.threadId)).toBe(false);
       read.mockClear();
       expect(fresh.messagesFor(bot.threadId)).toHaveLength(1);
-      expect(read).not.toHaveBeenCalled();
+      expect(read).toHaveBeenCalledTimes(1);
 
       const zeroPage = new Store(selection);
       expect(zeroPage.messagesTail(bot.threadId, 0)).toMatchObject({ messages: [], hasMore: true });
@@ -811,6 +815,7 @@ describe("Store", () => {
     store.addTaskUsage(bot.id, bot.threadId, { input: 10, output: 0, cachedInput: 20, costUsd: null });
     expect(store.addTaskUsage(bot.id, "no-such-thread", { input: 5, output: 5, costUsd: null })).toBeNull();
 
+    store.flushBots();
     const reloaded = new Store(selection);
     expect(reloaded.taskByThread(bot.id, bot.threadId)?.usage).toMatchObject({
       input: 2010,
@@ -834,6 +839,7 @@ describe("Store", () => {
     store.addTaskUsage(bot.id, bot.threadId, { input: 100, output: 10, costUsd: null, context: { tokens: 120_000, window: 1_000_000, windowSource: "provider" } });
     expect(store.showTaskContext(bot.id, bot.threadId, { tokens: 240_000 })).toBe(true);
     expect(store.taskByThread(bot.id, bot.threadId)?.usage).toMatchObject({ input: 100, output: 10, turns: 1, context: { tokens: 240_000, window: 1_000_000, windowSource: "provider" } });
+    store.flushBots();
     expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.usage?.context).toEqual({ tokens: 240_000, window: 1_000_000, windowSource: "provider" });
     expect(store.showTaskContext(bot.id, "no-such-thread", { tokens: 5 })).toBe(false);
     expect(store.showTaskContext(bot.id, bot.threadId, { tokens: Number.NaN })).toBe(false);
@@ -853,6 +859,7 @@ describe("Store", () => {
     expect(toWireTask(task, bot.modelSelection).usage?.context).toEqual({ tokens: 244_210, window: 200_000 });
     store.patchTask(bot.id, bot.threadId, { lastContextModel: undefined });
     store.addTaskUsage(bot.id, bot.threadId, { costUsd: null, context: { tokens: 150_000, window: 200_000, windowSource: "provider" } });
+    store.flushBots();
     const restored = new Store(selection).taskByThread(bot.id, bot.threadId)!;
     expect(toWireTask(restored, bot.modelSelection).usage?.context).toEqual({ tokens: 150_000, window: 200_000, windowSource: "provider" });
   });
@@ -1481,6 +1488,7 @@ describe("Store", () => {
     store.setResumeCursor(bot.id, "claude", "sess-abc");
     store.setResumeCursor(bot.id, "codex", "thread-xyz");
 
+    store.flushBots();
     const reloaded = new Store(selection);
     expect(reloaded.bot(bot.id)?.resumeCursors).toEqual({ claude: "sess-abc", codex: "thread-xyz" });
   });
@@ -2422,4 +2430,40 @@ describe("soul", () => {
     expect(store.messagesFor(bot.threadId).map((m) => m.text)).toContain("busy-5");
     expect(store.messagesFor(room.threadId).map((m) => m.text)).toContain("room-busy");
   });
+
+describe("bookkeeping saves", () => {
+  it("write a turn's bookkeeping within a moment, as one write for a burst", async () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const write = vi.spyOn(store as unknown as { saveBots(): void }, "saveBots");
+    for (let turn = 0; turn < 20; turn++) store.setResumeCursor(bot.id, "claude", { sessionId: `s-${turn}` }, bot.threadId);
+    expect(write).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, BOTS_FLUSH_MS + 50));
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(new Store(selection).bot(bot.id)?.resumeCursors).toEqual({ claude: { sessionId: "s-19" } });
+  });
+});
+
+
+describe("chat cache under memory pressure", () => {
+  it("keeps fewer chats in memory while the home is short of memory", () => {
+    let available = 8 * 1024 ** 3;
+    vi.useFakeTimers();
+    try {
+      const store = new Store(selection, undefined, undefined, undefined, { maxThreads: 80, maxMessages: 100_000, availableMemory: () => available });
+      const bots = Array.from({ length: 70 }, () => store.createBot({}, { seedMessages: false }));
+      for (const bot of bots) store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "hi" });
+      for (const bot of bots) store.messagesFor(bot.threadId);
+      expect(store.cachedThreadCount()).toBe(70);
+      available = 3 * 1024 ** 3;
+      vi.advanceTimersByTime(1_001);
+      store.messagesFor(bots[0]!.threadId);
+      store.appendMessage(bots[1]!.threadId, { role: "user", kind: "text", text: "again" });
+      expect(store.cachedThreadCount()).toBeLessThanOrEqual(64);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 });
