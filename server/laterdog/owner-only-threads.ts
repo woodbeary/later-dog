@@ -2,8 +2,8 @@ import type { Message } from "../store.ts";
 
 export interface OwnerOnlyThreadsDeps {
   lastMessage(threadId: string): Message | undefined;
-  wholeThread(threadId: string): Message[];
-  decide(threadId: string, thread: Message[]): boolean;
+  wholeThread(threadId: string): readonly Message[];
+  decide(threadId: string, thread: readonly Message[]): boolean;
 }
 
 const KEPT = 5_000;

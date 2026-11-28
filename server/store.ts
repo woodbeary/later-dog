@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
-import { writeFileAtomic, writeFileAtomicIfChanged } from "./atomic.ts";
+import { writeFileAtomic, writeFileAtomicIfChanged, writeFileAtomicWhileCurrent } from "./atomic.ts";
 import { parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import { ensureSections, readSections, changeEmptySection, orderSections } from "./section-context.ts";
 import type { TeamComputers } from "./team-computers.ts";
@@ -911,33 +911,66 @@ export class Store {
   }
 
   private botsFlush: ReturnType<typeof setTimeout> | null = null;
+  private botsWriting: Promise<void> | null = null;
+  private botsGeneration = 0;
+  private botsWritten: string | null = null;
 
   private saveBotsSoon(): void {
     if (this.botsFlush) return;
     this.botsFlush = setTimeout(() => {
       this.botsFlush = null;
-      try {
-        this.saveBots();
-      } catch (error) {
-        console.error(`[store] could not save dogs: ${(error as Error).message}`);
-      }
+      this.writeBotsInBackground();
     }, BOTS_FLUSH_MS);
     this.botsFlush.unref?.();
   }
 
+  private writeBotsInBackground(): void {
+    if (this.botsWriting) {
+      this.saveBotsSoon();
+      return;
+    }
+    let text: string;
+    try {
+      text = this.botsText(this.bots);
+    } catch (error) {
+      console.error(`[store] could not save dogs: ${(error as Error).message}`);
+      return;
+    }
+    const generation = ++this.botsGeneration;
+    if (text === this.botsWritten) return;
+    this.botsWriting = writeFileAtomicWhileCurrent(BOTS_FILE, text, () => generation === this.botsGeneration, { mode: 0o600 })
+      .then((wrote) => { if (wrote) this.botsWritten = text; })
+      .catch((error) => {
+        console.error(`[store] could not save dogs: ${(error as Error).message}`);
+        this.saveBotsSoon();
+      })
+      .finally(() => { this.botsWriting = null; });
+  }
+
   flushBots(): void {
-    if (!this.botsFlush) return;
-    clearTimeout(this.botsFlush);
+    if (!this.botsFlush && !this.botsWriting) return;
+    if (this.botsFlush) clearTimeout(this.botsFlush);
     this.botsFlush = null;
     this.saveBots();
   }
 
-  private saveBots(bots: BotRecord[] = this.bots, registerSections = true) {
-    if (registerSections) this.rememberSections([...this.bots, ...bots].map((bot) => bot.section));
-    writeFileAtomicIfChanged(BOTS_FILE, JSON.stringify(bots.map(({ busy: _busy, activity: _activity, ...bot }) => ({
+  async settledBots(): Promise<void> {
+    while (this.botsWriting) await this.botsWriting;
+  }
+
+  private botsText(bots: BotRecord[]): string {
+    return JSON.stringify(bots.map(({ busy: _busy, activity: _activity, ...bot }) => ({
       ...bot,
       tasks: bot.tasks?.map(({ busy: _taskBusy, activity: _taskActivity, turnStartedAt: _taskTurnStarted, workingStartedAt: _taskWorkingStarted, ...task }) => persistedPin(task)),
-    })), null, 2), { mode: 0o600 });
+    })));
+  }
+
+  private saveBots(bots: BotRecord[] = this.bots, registerSections = true) {
+    if (registerSections) this.rememberSections([...this.bots, ...bots].map((bot) => bot.section));
+    const text = this.botsText(bots);
+    this.botsGeneration++;
+    writeFileAtomicIfChanged(BOTS_FILE, text, { mode: 0o600 });
+    this.botsWritten = text;
   }
 
   private saveGroups(groups: GroupRecord[] = this.groups, registerSections = true) {
@@ -1403,6 +1436,18 @@ export class Store {
 
   messagesFor(threadId: string): Message[] {
     return this.thread(threadId).messages;
+  }
+
+  messagesWithoutCaching(threadId: string): readonly Message[] {
+    const cached = this.threads.get(threadId);
+    if (cached) return cached.messages;
+    const { messages } = mdb.readThread(threadId, messagesFile(threadId));
+    let prev: string | null = null;
+    for (const m of messages) {
+      if (m.parentId === undefined) m.parentId = prev;
+      prev = m.id;
+    }
+    return messages;
   }
 
   messagesTail(threadId: string, limit: number): { messages: Message[]; hasMore: boolean; activeLeafId: string | null } {

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -2432,15 +2432,49 @@ describe("soul", () => {
   });
 
 describe("bookkeeping saves", () => {
+  beforeEach(async () => {
+    await new Promise((resolve) => setTimeout(resolve, BOTS_FLUSH_MS + 200));
+    rmSync(DATA_DIR, { recursive: true, force: true });
+  });
+
   it("write a turn's bookkeeping within a moment, as one write for a burst", async () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const write = vi.spyOn(store as unknown as { saveBots(): void }, "saveBots");
+    const background = vi.spyOn(store as unknown as { writeBotsInBackground(): void }, "writeBotsInBackground");
     for (let turn = 0; turn < 20; turn++) store.setResumeCursor(bot.id, "claude", { sessionId: `s-${turn}` }, bot.threadId);
-    expect(write).not.toHaveBeenCalled();
+    expect(background).not.toHaveBeenCalled();
     await new Promise((resolve) => setTimeout(resolve, BOTS_FLUSH_MS + 50));
-    expect(write).toHaveBeenCalledTimes(1);
+    await store.settledBots();
+    expect(background).toHaveBeenCalledTimes(1);
+    expect(write).not.toHaveBeenCalled();
     expect(new Store(selection).bot(bot.id)?.resumeCursors).toEqual({ claude: { sessionId: "s-19" } });
+  });
+
+  it("write bookkeeping off the main thread, and a direct save made meanwhile wins over the one in flight", async () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.setResumeCursor(bot.id, "claude", { sessionId: "background" }, bot.threadId);
+    await new Promise((resolve) => setTimeout(resolve, BOTS_FLUSH_MS + 1));
+    expect((store as unknown as { botsWriting: unknown }).botsWriting).toBeTruthy();
+    store.patchBot(bot.id, { name: "Saved now" });
+    await store.settledBots();
+    const reloaded = new Store(selection).bot(bot.id);
+    expect(reloaded?.name).toBe("Saved now");
+    expect(reloaded?.resumeCursors).toEqual({ claude: { sessionId: "background" } });
+    expect(readdirSync(DATA_DIR).filter((name) => name.startsWith("bots.json.") && name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  it("save the latest bookkeeping when the server stops while a background write is in flight", async () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.setResumeCursor(bot.id, "claude", { sessionId: "first" }, bot.threadId);
+    await new Promise((resolve) => setTimeout(resolve, BOTS_FLUSH_MS + 5));
+    store.setResumeCursor(bot.id, "claude", { sessionId: "last" }, bot.threadId);
+    store.flushBots();
+    expect(new Store(selection).bot(bot.id)?.resumeCursors).toEqual({ claude: { sessionId: "last" } });
+    await store.settledBots();
+    expect(new Store(selection).bot(bot.id)?.resumeCursors).toEqual({ claude: { sessionId: "last" } });
   });
 });
 
@@ -2460,6 +2494,27 @@ describe("task patches that change nothing", () => {
     expect(write).toHaveBeenCalledTimes(1);
     expect(changes).toEqual(["bot", "bot", "bot"]);
     expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.unread).toBe(true);
+  });
+});
+
+describe("checking whole chats without the chat cache", () => {
+  it("reads an idle chat whole without caching it or pushing other chats out", () => {
+    const seed = new Store(selection);
+    const bots = Array.from({ length: 6 }, () => seed.createBot({}, { seedMessages: false }));
+    for (const bot of bots) for (let i = 0; i < 3; i++) seed.appendMessage(bot.threadId, { role: "user", kind: "text", text: `${bot.id}-${i}` });
+    const store = new Store(selection, undefined, undefined, undefined, { maxThreads: 2, maxMessages: 100, availableMemory: () => 16 * 1024 ** 3 });
+    store.messagesFor(bots[0]!.threadId);
+    store.messagesFor(bots[1]!.threadId);
+    for (const bot of bots.slice(2)) {
+      const read = store.messagesWithoutCaching(bot.threadId);
+      expect(read.map((m) => m.text)).toEqual([0, 1, 2].map((i) => `${bot.id}-${i}`));
+      expect(read[1]!.parentId).toBe(read[0]!.id);
+    }
+    expect(store.hasCachedThread(bots[0]!.threadId)).toBe(true);
+    expect(store.hasCachedThread(bots[1]!.threadId)).toBe(true);
+    expect(store.cachedThreadCount()).toBe(2);
+    const added = store.appendMessage(bots[0]!.threadId, { role: "user", kind: "text", text: "fresh" });
+    expect(store.messagesWithoutCaching(bots[0]!.threadId).at(-1)).toBe(added);
   });
 });
 

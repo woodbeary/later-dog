@@ -1774,7 +1774,7 @@ function attestCloudRoutineRun(run: RoutineRun): void {
 
 const ownerOnlyCache = new OwnerOnlyThreads({
   lastMessage: (threadId) => store.messagesTail(threadId, 1).messages.at(-1),
-  wholeThread: (threadId) => store.messagesFor(threadId),
+  wholeThread: (threadId) => store.messagesWithoutCaching(threadId),
   decide: (threadId, thread) => ownerOnlyConversation(thread, cloudProvenOwnerPerson, cloudCardAnswerer, undefined, ownersOwnDogs(threadId)) && !thread.some((line) => cloudReportFromOthers(line, threadId)),
 });
 function ownersOwnDogs(threadId: string): boolean {
@@ -4271,7 +4271,7 @@ let helpersWorkingIn = (_threadId: string): number => 0;
 const computerJobs = new ComputerJobs(join(DATA_DIR, "computer-jobs.json"), { changed: (threadId) => announceHelpersChanged(threadId) });
 const delegatedWaiting = new Map<string, boolean>();
 function delegatedNeedsYou(threadId: string): boolean {
-  if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.messagesFor(threadId).some(message => message.needsYou?.status === "waiting"));
+  if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.messagesWithoutCaching(threadId).some(message => message.needsYou?.status === "waiting"));
   return delegatedWaiting.get(threadId)!;
 }
 const workSignals = new WorkSignals();
