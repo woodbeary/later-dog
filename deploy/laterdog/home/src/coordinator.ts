@@ -9,6 +9,7 @@ import { dogInbox, type DogInboxPort } from "./dog-inbox.ts";
 import { serveInbox, serveRoutines, type DogObjectPort } from "./dog-routes.ts";
 import { INBOX_ROUTE, ROUTINES_ROUTE, type InboxLetter, type ObjectRoutine, type OccurrenceState } from "../../../../shared/dog-object-protocol.ts";
 import { serveHistory } from "./chat-history.ts";
+import { ADMISSION_DOG, ADMISSION_PATH, ADMIT_PATH, homeAdmission, validConfig, type AdmissionConfig, type AdmissionPort } from "./edge-admission.ts";
 
 export { serveHistory };
 import { ChatQueue, dogSlots, validQueueRow, validSlot, QUEUE_ROW_STATUSES, type ChatHistoryPort, type ChatQueuePort, type DogSlot, type DogSlotsPort, type QueueRowStatus } from "./chat-queue.ts";
@@ -68,6 +69,22 @@ export class Dog extends DurableObject<CoordinatorEnv> implements DogTurns, DogS
   private readonly held = dogSlots(this.ctx.storage);
   private routinesPart: DogRoutinesPort | null = null;
   private inboxPart: DogInboxPort | null = null;
+  private admissionPart: AdmissionPort | null = null;
+  private get admission(): AdmissionPort {
+    return this.admissionPart ??= homeAdmission(this.ctx.storage.sql, this.ctx.storage);
+  }
+  configureAdmission(config: AdmissionConfig) {
+    return this.admission.configure(config);
+  }
+  admit(input: Parameters<AdmissionPort["admit"]>[0]) {
+    return this.admission.admit(input);
+  }
+  takeArrivals(limit: number) {
+    return this.admission.take(limit);
+  }
+  doneArrivals(ids: string[]) {
+    return this.admission.done(ids);
+  }
   private get routines(): DogRoutinesPort {
     return this.routinesPart ??= dogRoutines(this.ctx.storage.sql, {
       set: (at) => this.ctx.storage.setAlarm(at),
@@ -190,10 +207,36 @@ export async function serveQueue(body: Record<string, unknown>, claims: SignedCa
   }
 }
 
-export async function coordinate(request: Request, dogFor: (home: string, dog: string) => DogTurns, indexFor?: (home: string) => IndexShardPorts, queues?: QueuePorts, dogObjects?: (home: string, dog: string) => DogObjectPort): Promise<Response> {
+export async function serveAdmission(path: string, body: Record<string, unknown>, claims: SignedCapabilityClaims, admission: AdmissionPort): Promise<Response> {
+  if (path === ADMIT_PATH) {
+    if (claims.generation !== "edge") return answer(403, { error: "edge_only" });
+    const outcome = await admission.admit({ hash: String(body.hash ?? ""), dog: claims.dog, chat: claims.chat, body: (body.body ?? {}) as Record<string, unknown> });
+    return outcome.ok ? answer(202, { ok: true, id: outcome.id, duplicate: outcome.duplicate }) : answer(200, { ok: false, why: outcome.why });
+  }
+  switch (body.op) {
+    case "configure":
+      if (!validConfig(body.config)) return answer(400, { error: "bad_config" });
+      return answer(200, { ok: true, sessions: await admission.configure(body.config) });
+    case "take":
+      return answer(200, { ok: true, arrivals: await admission.take(typeof body.limit === "number" ? body.limit : 50) });
+    case "done":
+      return answer(200, { ok: true, done: await admission.done(Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === "string") : []) });
+    default:
+      return answer(400, { error: "unknown_op" });
+  }
+}
+
+export async function coordinate(request: Request, dogFor: (home: string, dog: string) => DogTurns, indexFor?: (home: string) => IndexShardPorts, queues?: QueuePorts, dogObjects?: (home: string, dog: string) => DogObjectPort, admissionFor?: (home: string) => AdmissionPort): Promise<Response> {
   const claims = presentedClaims(request);
   if (!claims) return answer(401, { error: "capability_required" });
   const path = new URL(request.url).pathname;
+  if ((path === ADMIT_PATH || path === ADMISSION_PATH) && request.method === "POST") {
+    if (claims.kind !== "turns") return answer(403, { error: "capability_wrong-kind" });
+    if (!admissionFor) return answer(404, { error: "not_found" });
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object") return answer(400, { error: "bad_body" });
+    return serveAdmission(path, body, claims, admissionFor(claims.home));
+  }
   if (path.startsWith(INDEX_ROUTE)) return indexFor ? serveIndex(request, claims, indexFor(claims.home)) : answer(404, { error: "not_found" });
   if ((path === `${COORDINATOR_PREFIX}queue` || path === `${COORDINATOR_PREFIX}history`) && request.method === "POST") {
     if (claims.kind !== "turns") return answer(403, { error: "capability_wrong-kind" });
@@ -247,6 +290,15 @@ export class CoordinatorApi extends WorkerEntrypoint<CoordinatorEnv> {
         chat: (home, chat) => this.env.CHATS.get(this.env.CHATS.idFromName(`${home}/${chat}`)),
       },
       (home, dog) => this.env.DOGS.get(this.env.DOGS.idFromName(`${home}/${dog}`)) as unknown as DogObjectPort,
+      (home) => {
+        const stub = this.env.DOGS.get(this.env.DOGS.idFromName(`${home}/${ADMISSION_DOG}`));
+        return {
+          configure: (config) => stub.configureAdmission(config),
+          admit: (input) => stub.admit(input),
+          take: (limit) => stub.takeArrivals(limit),
+          done: (ids) => stub.doneArrivals(ids),
+        } satisfies AdmissionPort;
+      },
     );
   }
 }

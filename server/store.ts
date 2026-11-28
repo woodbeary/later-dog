@@ -105,6 +105,7 @@ export function toWireTask(task: TaskRecord, botModel: ModelSelection, bots: rea
 
 const ASK_NOW = { approvalMode: "ask" as const, autoApprove: false, alwaysAllow: [] as string[] };
 
+export const BOTS_FLUSH_MS = 250;
 const TASK_PATCH_FIELDS = [
   "title", "projectId", "modelSelection", "approvalMode", "autoApprove", "alwaysAllow",
   "unread", "rewound", "archivedAt", "pinned", "pinnedMessageId", "resumeCursors", "lastInstanceId", "cwd",
@@ -477,10 +478,14 @@ function taskCountsAsBotUnread(task: { unread?: boolean; routineRunId?: string }
   return Boolean(task.unread) && !task.routineRunId;
 }
 
-export const DEFAULT_THREAD_CACHE_MAX_THREADS = 64;
-export const DEFAULT_THREAD_CACHE_MAX_MESSAGES = 10_000;
+export const DEFAULT_THREAD_CACHE_MAX_THREADS = 256;
+export const DEFAULT_THREAD_CACHE_MAX_MESSAGES = 40_000;
+export const LEAN_THREAD_CACHE_MAX_THREADS = 64;
+export const LEAN_THREAD_CACHE_MAX_MESSAGES = 10_000;
+export const LEAN_CACHE_BELOW_BYTES = 4 * 1024 ** 3;
 
 export interface ThreadCacheLimits {
+  availableMemory?: () => number;
   maxThreads?: number;
   maxMessages?: number;
 }
@@ -494,8 +499,25 @@ export class Store {
   bots: BotRecord[] = [];
   groups: GroupRecord[] = [];
   private threads = new Map<string, ThreadState>();
-  private readonly maxCachedThreads: number;
-  private readonly maxCachedMessages: number;
+  private readonly roomyCachedThreads: number;
+  private readonly roomyCachedMessages: number;
+  private readonly availableMemory: () => number;
+  private leanUntil = 0;
+  private leanNow = false;
+  private get lean(): boolean {
+    const now = Date.now();
+    if (now >= this.leanUntil) {
+      this.leanNow = this.availableMemory() < LEAN_CACHE_BELOW_BYTES;
+      this.leanUntil = now + 1_000;
+    }
+    return this.leanNow;
+  }
+  private get maxCachedThreads(): number {
+    return this.lean ? Math.min(this.roomyCachedThreads, LEAN_THREAD_CACHE_MAX_THREADS) : this.roomyCachedThreads;
+  }
+  private get maxCachedMessages(): number {
+    return this.lean ? Math.min(this.roomyCachedMessages, LEAN_THREAD_CACHE_MAX_MESSAGES) : this.roomyCachedMessages;
+  }
   private defaultSelection: () => ModelSelection;
   private completeNewBotSelection: (selection: ModelSelection) => ModelSelection;
   private driverKindOf: (instanceId: string) => string | undefined;
@@ -513,8 +535,9 @@ export class Store {
     newDogComputer: () => BotRecord["computer"] = () => undefined,
     threadCacheLimits: ThreadCacheLimits = {},
   ) {
-    this.maxCachedThreads = Math.max(1, threadCacheLimits.maxThreads ?? DEFAULT_THREAD_CACHE_MAX_THREADS);
-    this.maxCachedMessages = Math.max(1, threadCacheLimits.maxMessages ?? DEFAULT_THREAD_CACHE_MAX_MESSAGES);
+    this.roomyCachedThreads = Math.max(1, threadCacheLimits.maxThreads ?? DEFAULT_THREAD_CACHE_MAX_THREADS);
+    this.roomyCachedMessages = Math.max(1, threadCacheLimits.maxMessages ?? DEFAULT_THREAD_CACHE_MAX_MESSAGES);
+    this.availableMemory = threadCacheLimits.availableMemory ?? (() => process.availableMemory());
     this.defaultSelection = defaultSelection;
     this.completeNewBotSelection = completeNewBotSelection;
     this.driverKindOf = driverKindOf;
@@ -885,6 +908,28 @@ export class Store {
     };
     for (const bot of this.bots) sweep(bot.tasks, () => { botsDirty = true; });
     if (botsDirty) this.saveBots();
+  }
+
+  private botsFlush: ReturnType<typeof setTimeout> | null = null;
+
+  private saveBotsSoon(): void {
+    if (this.botsFlush) return;
+    this.botsFlush = setTimeout(() => {
+      this.botsFlush = null;
+      try {
+        this.saveBots();
+      } catch (error) {
+        console.error(`[store] could not save dogs: ${(error as Error).message}`);
+      }
+    }, BOTS_FLUSH_MS);
+    this.botsFlush.unref?.();
+  }
+
+  flushBots(): void {
+    if (!this.botsFlush) return;
+    clearTimeout(this.botsFlush);
+    this.botsFlush = null;
+    this.saveBots();
   }
 
   private saveBots(bots: BotRecord[] = this.bots, registerSections = true) {
@@ -1275,11 +1320,13 @@ export class Store {
   }
 
   private evictThreads(keepThreadId?: string): void {
+    const maxThreads = this.maxCachedThreads;
+    const maxMessages = this.maxCachedMessages;
     let totalMessages = 0;
     for (const state of this.threads.values()) totalMessages += state.messages.length;
-    if (this.threads.size <= this.maxCachedThreads && totalMessages <= this.maxCachedMessages) return;
+    if (this.threads.size <= maxThreads && totalMessages <= maxMessages) return;
     for (const [id, state] of this.threads) {
-      if (this.threads.size <= this.maxCachedThreads && totalMessages <= this.maxCachedMessages) break;
+      if (this.threads.size <= maxThreads && totalMessages <= maxMessages) break;
       if (id === keepThreadId || this.isThreadBusy(id)) continue;
       this.threads.delete(id);
       totalMessages -= state.messages.length;
@@ -1344,8 +1391,8 @@ export class Store {
     } else {
       const tail = mdb.readThreadTail(threadId, messagesFile(threadId), limit);
       const legacyRows = tail.hasMore !== undefined && tail.messages.some((m) => m.parentId === undefined);
-      if (tail.hasMore !== true || legacyRows) {
-        state = this.cacheThread(threadId, legacyRows ? mdb.readThread(threadId, messagesFile(threadId)) : tail);
+      if (legacyRows) {
+        state = this.cacheThread(threadId, mdb.readThread(threadId, messagesFile(threadId)));
       } else {
         return {
           messages: tail.messages,
@@ -2043,7 +2090,7 @@ export class Store {
     const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
     if (task) task.resumeCursors[instanceId] = cursor;
     if (!threadId || bot.threadId === threadId) bot.resumeCursors[instanceId] = cursor;
-    this.saveBots();
+    this.saveBotsSoon();
     this.emit({ type: "bot", botId });
   }
 
@@ -2051,7 +2098,7 @@ export class Store {
     const task = this.taskByThread(botId, threadId);
     if (!task || task.lastInstanceId === instanceId) return;
     task.lastInstanceId = instanceId;
-    this.saveBots();
+    this.saveBotsSoon();
   }
 
   setHandedMessages(botId: string, threadId: string, instanceId: string, state: HandedState) {
@@ -2060,7 +2107,7 @@ export class Store {
     const live = Object.entries(task.handedMessages ?? {})
       .filter(([id, record]) => id !== instanceId && record.session !== undefined && record.session === task.resumeCursors[id]);
     task.handedMessages = { ...Object.fromEntries(live), [instanceId]: state };
-    this.saveBots();
+    this.saveBotsSoon();
   }
 
   addTaskUsage(
@@ -2096,7 +2143,7 @@ export class Store {
         ? { context: { tokens: contextTokens, ...(contextWindow > 0 ? { window: contextWindow, ...(turn.context?.windowSource ? { windowSource: turn.context.windowSource } : {}) } : {}) } }
         : prev.context ? { context: prev.context } : {}),
     };
-    this.saveBots();
+    this.saveBotsSoon();
     this.emit({ type: "bot", botId });
     return task.usage;
   }
@@ -2110,7 +2157,7 @@ export class Store {
       ? { window: Math.trunc(context.window), windowSource: "provider" as const }
       : usage.context?.window ? { window: usage.context.window, ...(usage.context.windowSource ? { windowSource: usage.context.windowSource } : {}) } : {};
     task.usage = { ...usage, context: { tokens, ...window } };
-    this.saveBots();
+    this.saveBotsSoon();
     this.emit({ type: "bot", botId });
     return true;
   }
