@@ -155,9 +155,15 @@ export function attachPool(socket: WebSocket, signal?: AbortSignal): Promise<Web
   });
 }
 
-export function poolLink(socket: WebSocket, stop: () => Promise<boolean>, timing: { pingMs: number; silentMs: number } = { pingMs: POOL_PING_MS, silentMs: POOL_SILENT_MS }, onLost?: (why: string) => void): EngineLink {
+export const POOL_REATTACH_TRIES = 3;
+export const POOL_REATTACH_PAUSE_MS = 1_000;
+
+export function poolLink(first: WebSocket, stop: () => Promise<boolean>, timing: { pingMs: number; silentMs: number } = { pingMs: POOL_PING_MS, silentMs: POOL_SILENT_MS }, onLost?: (why: string) => void, reattach?: () => Promise<WebSocket>): EngineLink {
   const link = new EventEmitter() as EngineLink;
+  let socket = first;
   let closed = false;
+  let rejoining = false;
+  const outbox: string[] = [];
   let partial: Buffer = Buffer.alloc(0);
   let heard = Date.now();
   let lastWords = "";
@@ -177,15 +183,44 @@ export function poolLink(socket: WebSocket, stop: () => Promise<boolean>, timing
       link.emit("close", why);
     });
   };
+  const rejoin = (from: WebSocket, why: string) => {
+    if (closed || from !== socket || rejoining) return;
+    if (!reattach) { close(why); return; }
+    rejoining = true;
+    void (async () => {
+      for (let attempt = 1; attempt <= POOL_REATTACH_TRIES && !closed; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, POOL_REATTACH_PAUSE_MS * attempt));
+        if (closed) return;
+        try {
+          const next = await reattach();
+          if (closed) { next.terminate(); return; }
+          socket = next;
+          heard = Date.now();
+          wire(next);
+          rejoining = false;
+          link.emit("diagnostic", `pool stream reattached after: ${why}\n`);
+          for (const line of outbox.splice(0)) next.send(Buffer.from(`${line}\n`));
+          return;
+        } catch {}
+      }
+      rejoining = false;
+      close(why);
+    })();
+  };
   const beat = setInterval(() => {
-    if (Date.now() - heard > timing.silentMs) { close("the pool stream went silent"); return; }
+    if (rejoining) return;
+    if (Date.now() - heard > timing.silentMs) {
+      const quiet = socket;
+      try { quiet.terminate(); } catch {}
+      rejoin(quiet, "the pool stream went silent");
+      return;
+    }
     try { socket.ping(); } catch {}
   }, timing.pingMs);
   beat.unref?.();
   const hear = () => { heard = Date.now(); };
-  socket.on("pong", hear);
-  socket.on("ping", hear);
-  socket.on("message", (data: WebSocket.RawData, binary: boolean) => {
+  const onMessage = (from: WebSocket) => (data: WebSocket.RawData, binary: boolean) => {
+    if (from !== socket) return;
     hear();
     const bytes = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
     if (!binary) {
@@ -204,10 +239,20 @@ export function poolLink(socket: WebSocket, stop: () => Promise<boolean>, timing
       deliver(partial.subarray(0, newline).toString("utf8"));
       partial = partial.subarray(newline + 1);
     }
-  });
-  socket.on("close", () => close("pool stream closed"));
-  socket.on("error", () => close("pool stream failed"));
-  link.send = (line) => { if (!closed) socket.send(Buffer.from(`${line}\n`)); };
+  };
+  function wire(next: WebSocket): void {
+    next.on("pong", hear);
+    next.on("ping", hear);
+    next.on("message", onMessage(next));
+    next.on("close", () => rejoin(next, "pool stream closed"));
+    next.on("error", () => rejoin(next, "pool stream failed"));
+  }
+  wire(first);
+  link.send = (line) => {
+    if (closed) return;
+    if (rejoining || socket.readyState !== socket.OPEN) { outbox.push(line); return; }
+    socket.send(Buffer.from(`${line}\n`));
+  };
   link.close = () => close("closed by the home");
   return link;
 }
@@ -281,7 +326,7 @@ export async function openOnPool(pool: PoolService, botId: string, plan: ClaudeR
     try {
       const socket = await pool.stream(chat, signal);
       poolLaunch(plan, opened.slot, computerProxy, layout);
-      return { link: poolLink(socket, () => pool.close(chat), undefined, onLost), state: opened.state ?? "cold", slot: opened.slot };
+      return { link: poolLink(socket, () => pool.close(chat), undefined, onLost, () => pool.stream(chat)), state: opened.state ?? "cold", slot: opened.slot };
     } catch (error) {
       if (attempt === 0 && error instanceof PoolNotWarm && !signal?.aborted) continue;
       await pool.close(chat);

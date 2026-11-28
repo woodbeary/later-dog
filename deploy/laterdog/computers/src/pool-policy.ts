@@ -60,10 +60,10 @@ export interface ScalePlan {
   remove: string[];
 }
 
-export function poolSettings(env: Pick<Env, "POOL_HOSTS_MAX">): PoolSettings {
+export function poolSettings(env: { POOL_HOSTS_MAX?: string }): PoolSettings {
   return {
     minHosts: 1,
-    maxHosts: bounded(env.POOL_HOSTS_MAX, 4, 1, 20),
+    maxHosts: bounded(env.POOL_HOSTS_MAX, 4, 1, 60),
     scaleOutPercent: 80,
     scaleOutAfterMs: 2 * MINUTE,
     scaleInPercent: 30,

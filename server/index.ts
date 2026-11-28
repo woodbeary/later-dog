@@ -339,6 +339,7 @@ import { BOT_BROADCAST_MS, coalescedBroadcasts } from "./laterdog/coalesced-broa
 import { EdgeArrivals } from "./laterdog/edge-arrivals.ts";
 import { edgeAdmissionDogs, historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
 import { DogObjectCalls, ObjectRoutines } from "./laterdog/object-routines.ts";
+import { OwnerOnlyThreads } from "./laterdog/owner-only-threads.ts";
 import { ObjectInbox } from "./laterdog/object-inbox.ts";
 import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
 import { SkillsPromptCache, skillsPromptWorker } from "./skills-prompt-cache.ts";
@@ -1770,7 +1771,11 @@ function attestCloudRoutineRun(run: RoutineRun): void {
   }));
 }
 
-const ownerOnlyCache = new Map<string, { length: number; last?: string; owner: boolean }>();
+const ownerOnlyCache = new OwnerOnlyThreads({
+  lastMessage: (threadId) => store.messagesTail(threadId, 1).messages.at(-1),
+  wholeThread: (threadId) => store.messagesFor(threadId),
+  decide: (threadId, thread) => ownerOnlyConversation(thread, cloudProvenOwnerPerson, cloudCardAnswerer, undefined, ownersOwnDogs(threadId)) && !thread.some((line) => cloudReportFromOthers(line, threadId)),
+});
 function ownersOwnDogs(threadId: string): boolean {
   const bot = store.botByThread(threadId);
   const routineThread = Boolean(routineRunForTurn(threadId) || (bot && store.taskByThread(bot.id, threadId)?.routineRunId));
@@ -1780,15 +1785,7 @@ function ownersOwnDogs(threadId: string): boolean {
 
 function cloudOwnerOnlyThread(threadId: string): boolean {
   if (cloudThreadStarters(threadId).some((person) => person !== undefined && !cloudProvenOwnerPerson(person))) return false;
-  const thread = store.messagesFor(threadId);
-  const last = thread.at(-1);
-  const cached = ownerOnlyCache.get(threadId);
-  const lastKey = last ? `${last.id}:${last.card?.answeredBy ? JSON.stringify(last.card.answeredBy) : ""}` : undefined;
-  if (cached && cached.length === thread.length && cached.last === lastKey) return cached.owner;
-  const owner = ownerOnlyConversation(thread, cloudProvenOwnerPerson, cloudCardAnswerer, undefined, ownersOwnDogs(threadId)) && !thread.some((line) => cloudReportFromOthers(line, threadId));
-  if (ownerOnlyCache.size > 5_000) ownerOnlyCache.clear();
-  ownerOnlyCache.set(threadId, { length: thread.length, last: lastKey, owner });
-  return owner;
+  return ownerOnlyCache.ownerOnly(threadId);
 }
 
 function sessionLendingPrincipal(auth: RequestAuth): string | null {
