@@ -5,6 +5,7 @@ import { PassThrough } from "node:stream";
 import { createInterface } from "node:readline";
 import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, workspaceRecovery, decodeEngineChunk, engineFileChunks, engineFileKey, inventoryWork, runFileWork, transcriptPrefixWork, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 import { createHash } from "node:crypto";
+import { inProcessProxy, type ProxyHandle } from "./in-process-proxies.ts";
 
 export interface EngineLink extends EventEmitter {
   opening?: boolean;
@@ -85,7 +86,7 @@ export class RemoteSession extends EventEmitter {
   #fileError: string | null = null;
   #pendingFileBytes = 0;
   #inventory: { resident: EngineFile[]; previous: EngineFile[] } | null = null;
-  #proxies = new Map<string, ChildProcess>();
+  #proxies = new Map<string, ProxyHandle>();
   #pushed = new Map<string, string>();
   #pushTimer: NodeJS.Timeout | null = null;
   conflicts: string[] = [];
@@ -341,8 +342,8 @@ export class RemoteSession extends EventEmitter {
         this.#send({ type: "ack", id: frame.id });
         return;
       case "proxy_open": this.#openProxy(String(frame.id), String(frame.name)); return;
-      case "proxy_stdin": this.#proxies.get(String(frame.id))?.stdin?.write(Buffer.from(frame.data, "base64")); return;
-      case "proxy_end": this.#proxies.get(String(frame.id))?.stdin?.end(); return;
+      case "proxy_stdin": this.#proxies.get(String(frame.id))?.write(Buffer.from(frame.data, "base64")); return;
+      case "proxy_end": this.#proxies.get(String(frame.id))?.end(); return;
       case "proxy_close": { const proxy = this.#proxies.get(String(frame.id)); this.#proxies.delete(String(frame.id)); proxy?.kill(); return; }
       case "hook": void this.#runHook(String(frame.id), Number(frame.index) || 0, frame.payload); return;
       default: return;
@@ -352,13 +353,20 @@ export class RemoteSession extends EventEmitter {
   #openProxy(id: string, name: string): void {
     const spec = Object.hasOwn(this.#launch.mcp, name) ? this.#launch.mcp[name] : undefined;
     if (!spec) { this.#send({ type: "proxy_exit", id, code: 1 }); return; }
-    const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.homeCwd ?? this.#launch.cwd, env: { ...(this.#launch.proxyEnv ?? this.#launch.hookEnv), ...spec.env }, stdio: ["pipe", "pipe", "pipe"] });
-    this.#proxies.set(id, child);
+    const env = { ...(this.#launch.proxyEnv ?? this.#launch.hookEnv), ...spec.env };
+    const served: ProxyHandle | null = inProcessProxy(spec, env, (bytes) => { if (!this.#closed) this.#send({ type: "proxy_stdout", id, data: bytes.toString("base64") }); }, (code) => {
+      if (this.#proxies.get(id) === served) this.#proxies.delete(id);
+      if (!this.#closed) this.#send({ type: "proxy_exit", id, code });
+    });
+    if (served) { this.#proxies.set(id, served); return; }
+    const child = spawn(spec.command, spec.args ?? [], { cwd: this.#launch.homeCwd ?? this.#launch.cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const handle: ProxyHandle = { write: (bytes) => { child.stdin?.write(bytes); }, end: () => { child.stdin?.end(); }, kill: () => { child.kill(); } };
+    this.#proxies.set(id, handle);
     child.stdin.on("error", () => {});
     child.stdout.on("data", (bytes) => this.#send({ type: "proxy_stdout", id, data: Buffer.from(bytes).toString("base64") }));
     child.stderr.on("data", (bytes) => this.#send({ type: "proxy_stderr", id, data: Buffer.from(bytes).toString("base64") }));
     child.on("error", () => { this.#proxies.delete(id); this.#send({ type: "proxy_exit", id, code: 1 }); });
-    child.on("close", (code) => { if (this.#proxies.get(id) === child) this.#proxies.delete(id); if (!this.#closed) this.#send({ type: "proxy_exit", id, code: code ?? 1 }); });
+    child.on("close", (code) => { if (this.#proxies.get(id) === handle) this.#proxies.delete(id); if (!this.#closed) this.#send({ type: "proxy_exit", id, code: code ?? 1 }); });
   }
 
   async #runHook(id: string, index: number, payload: unknown): Promise<void> {

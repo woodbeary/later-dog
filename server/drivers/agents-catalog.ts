@@ -15,6 +15,7 @@ export interface CatalogProfile {
   phone?: boolean;
   memoryEnabled?: boolean;
   insideTask?: boolean;
+  poolFolder?: boolean;
   botId: string;
 }
 
@@ -27,6 +28,7 @@ export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
     emailMe: env.LATERDOG_EMAIL_ME === "1",
     phone: env.LATERDOG_PHONE === "1",
     insideTask: env.LATERDOG_IN_TASK === "1",
+    poolFolder: env.LATERDOG_POOL_FOLDER === "1",
     memoryEnabled: env.LATERDOG_MEMORY_ENABLED !== "0",
     botId: env.LATERDOG_BOT_ID ?? "",
   };
@@ -399,6 +401,24 @@ const TOOL_DEFINITIONS = [
       outputs: { type: "string", enum: ["home", "remote"], description: "Set on the first call. home (default) brings back changed files. remote keeps files on the cloud computer under its normal storage lifetime." },
       run_id: { type: "string", description: "Keep waiting for a run still going." },
       wait_minutes: { type: "integer", minimum: 1, maximum: 60, description: "How long this call may wait for the command to end. Default 4." },
+    } },
+  },
+  {
+    name: "folder",
+    description:
+      "Your own files: your working folder and the other folders this chat may use. Your built-in file and shell tools work in a scratch folder that is not your working folder and is cleared, so use this tool whenever you look at, search or change your files. Paths are relative to your working folder (or absolute inside your folders). list shows a folder; read returns text with its sha256 (256 KiB a call; pass offset to read on); search finds a regular expression (pattern) under path, optionally only in files matching glob, skipping .git and node_modules; write creates a file, and needs expected_sha256 from a read to replace one; edit swaps old_text for new_text exactly (once, or every time with replace_all); delete removes a file or an empty folder. For builds, tests, installs, big files or anything with many steps, use run_on_computer.",
+    inputSchema: { type: "object", additionalProperties: false, required: ["action"], properties: {
+      action: { type: "string", enum: ["list", "read", "search", "write", "edit", "delete"] },
+      path: { type: "string", maxLength: 4096, description: "File or folder, relative to your working folder. Default: the working folder." },
+      content: { type: "string", description: "For write: the whole file text." },
+      expected_sha256: { type: "string", description: "For write over an existing file: its sha256 from read." },
+      old_text: { type: "string", description: "For edit: the exact text to replace." },
+      new_text: { type: "string", description: "For edit: the replacement text." },
+      replace_all: { type: "boolean", description: "For edit: replace every occurrence." },
+      pattern: { type: "string", maxLength: 1000, description: "For search: a regular expression." },
+      glob: { type: "string", maxLength: 300, description: "For search: only files matching this, such as *.ts or src/**/*.md." },
+      offset: { type: "integer", minimum: 0, description: "For read: byte offset." },
+      length: { type: "integer", minimum: 1, maximum: 262144, description: "For read: bytes to read." },
     } },
   },
   {
@@ -965,7 +985,8 @@ function catalogTools(profile: CatalogProfile) {
   const BOT_SCOPED_TOOLS = TOOL_DEFINITIONS.filter((tool) =>
     (profile.botId === WATCHER_OPTIONS_CARD_BOT_ID || !WATCHER_TOOL_NAMES.has(tool.name)) &&
     (profile.memoryEnabled !== false || (tool.name !== "memory_update" && tool.name !== "memory_log")) &&
-    (profile.insideTask !== true || tool.name !== "start_tasks"));
+    (profile.insideTask !== true || tool.name !== "start_tasks") &&
+    (profile.poolFolder === true || tool.name !== "folder"));
   const AUTHORING_TOOLS = profile.skillAuthoring
     ? BOT_SCOPED_TOOLS
     : BOT_SCOPED_TOOLS.filter((tool) => !SKILL_TOOL_NAMES.has(tool.name));

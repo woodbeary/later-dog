@@ -10,12 +10,14 @@
     "bindings": [
       { "name": "DOGS", "class_name": "Dog" },
       { "name": "PERSON_INDEX", "class_name": "PersonIndex" },
-      { "name": "DOG_INDEX", "class_name": "DogIndex" }
+      { "name": "DOG_INDEX", "class_name": "DogIndex" },
+      { "name": "CHATS", "class_name": "ChatQueue" }
     ]
   },
   "exports": {
     "Dog": { "type": "durable-object", "storage": "sqlite" },
     "PersonIndex": { "type": "durable-object", "storage": "sqlite" },
-    "DogIndex": { "type": "durable-object", "storage": "sqlite" }
+    "DogIndex": { "type": "durable-object", "storage": "sqlite" },
+    "ChatQueue": { "type": "durable-object", "storage": "sqlite" }
   }
 }

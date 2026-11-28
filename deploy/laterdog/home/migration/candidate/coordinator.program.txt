@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, open, readFile, readlink, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { CHUNK_BYTES, parseManifest, restore, transient } from "/app/cloud/runtime/sync.mjs";
+import { CHUNK_BYTES, parseManifest, transient } from "/app/cloud/runtime/sync.mjs";
+import { restore } from "/app/cloud/runtime/restore-engine.mjs";
 import { folderExclusions, folderMounts } from "/app/cloud/runtime/work-folder-mounts.mjs";
 import { projectPreviousCloudBackup } from "/app/cloud/runtime/previous-backup-compat.mjs";
 

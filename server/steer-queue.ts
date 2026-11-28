@@ -32,6 +32,24 @@ interface QueueEntry {
 }
 
 export type SteerQueueHead = Pick<QueueEntry["items"][number], "trigger" | "sender" | "peerAsk">;
+export type SteerQueueItem = QueueEntry["items"][number];
+export type SteerSettleStatus = "dispatching" | "interrupted" | "cancelled" | null;
+
+export interface SteerQueueSink {
+  queued(botId: string, threadId: string, item: SteerQueueItem): void;
+  settled(botId: string, threadId: string, ids: string[], status: SteerSettleStatus): void;
+}
+
+let sink: SteerQueueSink | null = null;
+
+export function setSteerQueueSink(next: SteerQueueSink | null): void {
+  sink = next;
+}
+
+function settle(botId: string, threadId: string, ids: string[], status: SteerSettleStatus): void {
+  settleChatFollowups(ids, status);
+  if (ids.length) sink?.settled(botId, threadId, ids, status);
+}
 
 const queues = new Map<string, QueueEntry>();
 
@@ -111,8 +129,22 @@ export function queueSteeredMessage(
   saveChatFollowup({ id, kind: "bot", ownerId: botId, threadId, payload: item });
   entry.items.push(item);
   queues.set(threadId, entry);
+  sink?.queued(botId, threadId, item);
   changed();
   return { id };
+}
+
+export function adoptSteeredMessage(botId: string, threadId: string, item: SteerQueueItem): boolean {
+  const entry = queues.get(threadId) ?? { botId, items: [] };
+  if (entry.botId !== botId || entry.items.some((held) => held.messageId === item.messageId)) return false;
+  saveChatFollowup({ id: item.messageId, kind: "bot", ownerId: botId, threadId, payload: item });
+  const at = entry.items.findIndex((held) => held.queuedAt > item.queuedAt);
+  if (at === -1) entry.items.push(item);
+  else entry.items.splice(at, 0, item);
+  queues.set(threadId, entry);
+  sink?.queued(botId, threadId, item);
+  changed();
+  return true;
 }
 
 export function queuedThreadPosition(botId: string, threadId: string): number | null {
@@ -153,7 +185,7 @@ export function drainSteeredMessages(
       ? store.projectBotForTask(entry.botId, threadId)
       : store.bot(entry.botId);
     if (!bot) {
-      settleChatFollowups(entry.items.map((item) => item.messageId), "cancelled");
+      settle(entry.botId, threadId, entry.items.map((item) => item.messageId), "cancelled");
       queues.delete(threadId);
       changed();
       continue;
@@ -161,7 +193,7 @@ export function drainSteeredMessages(
     if (bot.busy || isBlocked?.(entry.botId, threadId)) continue;
     const group = drainCoalesceHead(entry.items, coalesceIdentity, (item) => item.queuedAt);
     const ids = group.map((item) => item.messageId);
-    settleChatFollowups(ids, "dispatching");
+    settle(entry.botId, threadId, ids, "dispatching");
     const rest = entry.items.slice(group.length);
     if (rest.length > 0) queues.set(threadId, { botId: entry.botId, items: rest });
     else queues.delete(threadId);
@@ -195,8 +227,8 @@ export function drainSteeredMessages(
       { trigger: group[0].trigger, sender: group[0].sender, peerAsk: group[0].peerAsk },
     );
     void Promise.resolve(running).then(
-      () => settleChatFollowups(ids, null),
-      () => settleChatFollowups(ids, "interrupted"),
+      () => settle(entry.botId, threadId, ids, null),
+      () => settle(entry.botId, threadId, ids, "interrupted"),
     ).catch((error) => console.warn("steer-queue: could not settle durable follow-up", error));
   }
 }
@@ -229,7 +261,7 @@ export function cancelSteeredMessage(botId: string, messageId: string, expectedT
     const named = entry.items.filter((item) => namesQueued(item, messageId));
     if (named.length === 0) continue;
     const items = entry.items.filter((item) => !namesQueued(item, messageId));
-    settleChatFollowups(named.map((item) => item.messageId), "cancelled");
+    settle(entry.botId, threadId, named.map((item) => item.messageId), "cancelled");
     if (items.length === 0) queues.delete(threadId);
     else queues.set(threadId, { botId: entry.botId, items });
     changed();
@@ -257,7 +289,11 @@ export function restoreHeldSteeredQueue(held: HeldSteerQueue): void {
 }
 
 export function settleHeldSteeredQueue(held: HeldSteerQueue): void {
-  settleChatFollowups(held.items.map((item) => item.messageId), null);
+  settle(held.botId, held.threadId, held.items.map((item) => item.messageId), null);
+}
+
+export function steeredItems(botId: string): Array<[string, SteerQueueItem[]]> {
+  return [...queues].filter(([, entry]) => entry.botId === botId).map(([threadId, entry]) => [threadId, [...entry.items]]);
 }
 
 export function _queuedCount(threadId: string): number {

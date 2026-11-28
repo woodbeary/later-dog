@@ -20,6 +20,7 @@ export const CORE_AGENT_TOOLS: readonly string[] = [
   "start_tasks",
   "list_bots",
   "create_options_card",
+  "folder",
 ];
 
 export const RARE_AGENT_TOOLS: readonly string[] = [
