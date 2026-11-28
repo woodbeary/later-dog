@@ -82,6 +82,8 @@ export class RemoteSession extends EventEmitter {
   #receiver: EngineFileReceiver | null = null;
   #skipping = false;
   #fileError: string | null = null;
+  #fileRoot?: string;
+  #streamedCheckpointFailed = false;
   #pendingFileBytes = 0;
   #inventory: { resident: EngineFile[]; previous: EngineFile[] } | null = null;
   #proxies = new Map<string, ChildProcess>();
@@ -215,7 +217,9 @@ export class RemoteSession extends EventEmitter {
     const outputRoots = launch.roots.filter(root => launch.outputIds.includes(root.id));
     this.#receiver = new EngineFileReceiver(outputRoots, home.filter(file => launch.outputIds.includes(file.root)));
     for (const tree of trees) {
-      const changes = workspaceRecovery(tree.id, home, configured.files, received.previous);
+      let changes: ReturnType<typeof workspaceRecovery>;
+      try { changes = workspaceRecovery(tree.id, home, configured.files, received.previous); }
+      catch (error) { throw new NotDispatched(error instanceof Error ? error.message : "The working folder could not be reconciled."); }
       for (let i = 0; i < changes.length; i += 64) {
         const files = changes.slice(i, i + 64);
         const result = await this.#request({ type: "recover_workspace", files }, SYNC_REPLY_MS, true);
@@ -298,6 +302,9 @@ export class RemoteSession extends EventEmitter {
     return reply?.selected === true;
   }
 
+  #failedStreamedFile(id: string | undefined) {
+    if (this.#launch.roots.some(root => root.id === id && streamedTree(root))) this.#streamedCheckpointFailed = true;
+  }
   checkpoint(): Promise<unknown> { return this.#request({ type: "checkpoint_request" }, SYNC_REPLY_MS, true); }
 
   async #line(line: string): Promise<void> {
@@ -320,16 +327,22 @@ export class RemoteSession extends EventEmitter {
       case "native_error": this.emit("stderr", Buffer.from("The engine reported a process error on the cloud computer.\n")); return;
       case "native_exit": this.#exit(Number.isInteger(frame.code) ? frame.code : null, typeof frame.signal === "string" ? frame.signal : null); return;
       case "file_begin":
+        this.#fileRoot = frame.file?.root;
         this.#fileError = null;
         try { await runFileWork(this.#receiver!.beginWork(frame.file, frame.prefix), this.#fileAbort.signal, this.#onFileProgress); this.#skipping = false; }
         catch (error) { this.#skipping = true; this.#fileError = (error as Error).message; this.conflicts.push(`${frame.file?.path}: ${this.#fileError}`); this.emit("conflict", frame.file?.path, this.#fileError); }
         return;
       case "file_chunk": if (!this.#skipping) try { this.#receiver!.chunk(decodeEngineChunk(frame.data)); this.#onFileProgress(); } catch (error) { this.#skipping = true; this.#receiver!.close(); this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } return;
-      case "file_end": if (!this.#skipping) try { await runFileWork(this.#receiver!.endWork(), this.#fileAbort.signal, this.#onFileProgress); } catch (error) { this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); } this.#skipping = false; return;
+      case "file_end":
+        if (!this.#skipping) try { await runFileWork(this.#receiver!.endWork(), this.#fileAbort.signal, this.#onFileProgress); }
+        catch (error) { this.#fileError = (error as Error).message; this.conflicts.push(this.#fileError); }
+        if (this.#fileError) this.#failedStreamedFile(this.#fileRoot);
+        this.#skipping = false;
+        return;
       case "file_window": this.#send({ type: "ack", id: frame.id, ...(this.#fileError && frame.required ? { error: this.#fileError } : {}) }); return;
-      case "file_remove": this.#fileError = null; try { await runFileWork(this.#receiver!.removeWork(frame.file), this.#fileAbort.signal, this.#onFileProgress); } catch (error) { this.#fileError = (error as Error).message; this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); } return;
+      case "file_remove": this.#fileError = null; try { await runFileWork(this.#receiver!.removeWork(frame.file), this.#fileAbort.signal, this.#onFileProgress); } catch (error) { this.#failedStreamedFile(frame.file?.root); this.#fileError = (error as Error).message; this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); } return;
       case "checkpoint":
-        if (this.#launch.requireCompleteCheckpoint && this.conflicts.length) {
+        if (this.#streamedCheckpointFailed || (this.#launch.requireCompleteCheckpoint && this.conflicts.length)) {
           this.emit("diagnostic", "The cloud computer's checkpoint could not be committed because files conflicted or failed to transfer.\n");
           this.#lost("incomplete checkpoint");
           this.#link.close();

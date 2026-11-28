@@ -37,6 +37,7 @@ export interface Teammate {
 export interface ChatNow {
   name: string;
   path: readonly Message[];
+  history?:{lastAt:number;waitingOnTakeover:boolean};
   busy: boolean;
   requestOpen: boolean;
   helpers: number;
@@ -188,7 +189,7 @@ function explainLine(name: string, owed: OwedWork): string {
 
 export function judgeChat(chat: ChatNow, options: { quietMs?: number; tries?: number; lookbackMs?: number } = {}): StallVerdict {
   if (chat.busy) return { kind: "fine", why: "busy" };
-  if (chat.requestOpen || waitsOnTakeover(chat.path)) return { kind: "fine", why: "asking" };
+  if (chat.requestOpen || (chat.history?.waitingOnTakeover??waitsOnTakeover(chat.path))) return { kind: "fine", why: "asking" };
   if (chat.helpers > 0) return { kind: "fine", why: "helpers" };
   if (chat.usageWait) return { kind: "fine", why: "usage" };
   if (chat.queued) return { kind: "fine", why: "queued" };
@@ -199,7 +200,7 @@ export function judgeChat(chat: ChatNow, options: { quietMs?: number; tries?: nu
     return { kind: "needs-you", what: needsAccountLine(dogs), dogs };
   }
   if (chat.teammates.length) return { kind: "fine", why: "teammates" };
-  const lastAt = Math.max(0, ...chat.path.map((message) => message.at));
+  const lastAt = chat.history?.lastAt??Math.max(0, ...chat.path.map((message) => message.at));
   if (chat.now - lastAt < (options.quietMs ?? STALL_QUIET_MS)) return { kind: "fine", why: "recent" };
   if (chat.now - lastAt > (options.lookbackMs ?? STALL_LOOKBACK_MS)) return { kind: "fine", why: "old" };
   const owed = owedWork(chat.path);
@@ -220,6 +221,7 @@ export interface StallFacts {
 }
 
 export interface StallWatchHost {
+  prepareSweep?(run:()=>void):Promise<void>;
   chats(): Iterable<{ botId: string; threadId: string }>;
   look(botId: string, threadId: string): ChatNow | null;
   append(threadId: string, message: NewMessage): Message;
@@ -317,7 +319,13 @@ export function createStallWatch(host: StallWatchHost, options: { everyMs?: numb
       started = true;
       const begin = () => {
         if (!started || timer) return;
-        timer = setInterval(() => { this.sweep(); }, options.everyMs ?? STALL_CHECK_MS);
+        let preparing=false;
+        timer=setInterval(()=>{
+          if(!host.prepareSweep){this.sweep();return;}
+          if(preparing)return;
+          preparing=true;
+          void host.prepareSweep(()=>{if(started)this.sweep();}).catch(err=>log("stall watch: "+reasonOf(err))).finally(()=>{preparing=false;});
+        },options.everyMs??STALL_CHECK_MS);
         timer.unref?.();
       };
       if (options.ready) void options.ready.then(begin, begin);

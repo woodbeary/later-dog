@@ -1,3 +1,4 @@
+import { consumeEngineLines } from "../laterdog/engine-lines.ts";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer as createNetServer } from "node:net";
@@ -2055,17 +2056,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }
       };
 
-      let buf = "";
-      child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk) => {
-        buf += chunk;
-        let nl;
-        while ((nl = buf.indexOf("\n")) !== -1) {
-          const line = buf.slice(0, nl);
-          buf = buf.slice(nl + 1);
-          if (line.trim()) handleLine(line);
-        }
-      });
+      const afterOutput = consumeEngineLines(child.stdout, handleLine);
 
       child.stderr.on("data", (c) => {
         session.stderr += c;
@@ -2262,10 +2253,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         removePrivateTempDir(session.systemPromptPath);
         if (confirmed && sessions.get(threadId) === session) sessions.delete(threadId);
       };
-      child.on("close", (code) => {
+      child.on("close", (code) => afterOutput(() => {
         session.finishClose = () => finalizeClose(code);
         void session.finishClose().finally(markClosed);
-      });
+      }));
 
       const stop = () => {
         if (session.turn) session.turn.stopRequested = true;

@@ -36,6 +36,7 @@
   },
   "r2_buckets": [{ "binding": "STATE", "bucket_name": "laterdog-homes" }],
   "services": [
+    { "binding": "HISTORY", "service": "laterdog-history", "entrypoint": "HistoryApi" },
     { "binding": "COMPUTERS", "service": "laterdog-computers", "entrypoint": "ComputersApi" },
     { "binding": "ACCOUNTS", "service": "laterdog-control-plane", "entrypoint": "AccountsApi" }
   ],

@@ -3,12 +3,12 @@ import type { NativeActivity, NativeActor, NativeActorState, NativeObservation, 
 import type { RuntimeEvent } from "../../shared/runtime-events.ts";
 import type { Helper, HelpersSnapshot } from "../../shared/helpers.ts";
 import { redactSecrets } from "../redact.ts";
+import { nativeTextLimit } from "../../shared/native-run-projection.ts";
 import { NativeRunStore } from "./native-run-store.ts";
 
-const terminal = (state: NativeActorState): boolean => state === "done" || state === "failed" || state === "stopped";
 const active = (state: NativeActorState): boolean => state === "running" || state === "waiting";
-const textLimit = 24_000;
-const clip = (value: string | undefined, limit = textLimit): string | undefined => value?.slice(0, limit);
+
+const clip = (value: string | undefined, limit = nativeTextLimit): string | undefined => value?.slice(0, limit);
 const publicLink = (value: string): boolean => {
   try { const url = new URL(value); return (url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password; }
   catch { return false; }
@@ -16,13 +16,26 @@ const publicLink = (value: string): boolean => {
 export const nativeRunId = (threadId: string, providerInstanceId: string, turnId: string): string =>
   createHash("sha256").update(JSON.stringify([threadId, providerInstanceId, turnId])).digest("hex").slice(0, 32);
 
+function legacyActors(event: Extract<RuntimeEvent, { type: "helper.updated" }>): NativeActor[] {
+  const actors: NativeActor[] = [];
+  const helper = event.helper;
+  actors.push({ id: `legacy:${helper.id}`, parentId: "parent", nativeId: helper.id, kind: helper.kind === "workflow" ? "workflow" : "subagent", label: helper.label, state: helper.state, activity: helper.activity, summary: helper.summary, startedAt: helper.startedAt, endedAt: helper.endedAt, background: helper.background });
+  for (const member of helper.members ?? []) actors.push({ id: `legacy:${helper.id}:${member.id}`, parentId: `legacy:${helper.id}`, kind: "subagent", label: member.label, state: member.state, activity: member.activity, startedAt: helper.startedAt });
+  return actors.map(cleanActor);
+}
+
+function cleanActor(actor: NativeActor): NativeActor {
+  const clean = redactSecrets(actor) as NativeActor;
+  return { ...clean, label: clip(clean.label, 160)!, task: clip(clean.task, 4_000), summary: clip(clean.summary, 4_000), activity: clip(clean.activity, 500) };
+}
+
 function cleanObservation(observation: NativeObservation): NativeObservation {
-  const clean = redactSecrets(observation) as NativeObservation;
-  if (clean.kind === "actor") return { kind: "actor", actor: { ...clean.actor, label: clip(clean.actor.label, 160)!, task: clip(clean.actor.task, 4_000), summary: clip(clean.actor.summary, 4_000), activity: clip(clean.actor.activity, 500) } };
+  if (observation.kind === "actor") return { kind: "actor", actor: cleanActor(observation.actor) };
+  const clean = redactSecrets(observation) as Exclude<NativeObservation, { kind: "actor" }>;
   if (clean.kind === "capabilities") return { ...clean, limitations: clean.limitations.slice(0, 30).map(line => clip(line, 1000)!) };
   const a = clean.activity;
   return { ...clean, activity: { ...a, label: clip(a.label, 250)!, input: clip(a.input), output: clip(a.output), text: clip(a.text),
-    truncated: a.truncated || [a.input, a.output, a.text].some(value => (value?.length ?? 0) > textLimit),
+    truncated: a.truncated || [a.input, a.output, a.text].some(value => (value?.length ?? 0) > nativeTextLimit),
     links: a.links?.filter(link => publicLink(link.url)).slice(0, 50).map(link => ({ title: clip(link.title, 250)!, url: clip(link.url, 2000)! })),
   } };
 }
@@ -71,83 +84,25 @@ export class NativeRunProjector {
     const rawObservation = event.type === "native.observed" ? event.observation : parentObservation(event, at);
     const observation = rawObservation ? cleanObservation(rawObservation) : undefined;
     if (!observation && !["turn.started", "turn.completed", "session.started", "helper.updated", "session.exited"].includes(event.type)) return;
-    const run = this.store.apply(id, event.eventId, at, observation ?? { type: event.type }, (previous, item) => {
-      const owner = this.owner(event.threadId);
-      const next: NativeRun = previous ?? { id, threadId: event.threadId, turnId, botId: owner.botId, provider: event.provider,
-        providerInstanceId: event.providerInstanceId, revision: 0, startedAt: at, state: "running", observation: "live", activityCount: 0, failureCount: 0, limitations: [],
-        actors: [{ id: "parent", kind: "parent", label: owner.label ?? "Main agent", state: "running", startedAt: at }],
-      };
-      next.revision += 1;
-      let activity: NativeActivity | undefined;
-      if (event.type === "session.started") next.sessionId = event.sessionId ?? undefined;
-      if (event.type === "native.observed") {
-        if (!next.nativeActivity) next.actors = next.actors.filter(actor => !actor.id.startsWith("legacy:"));
-        next.nativeActivity = true;
-      }
-      if (event.type === "helper.updated" && !next.nativeActivity) {
-        const helper = event.helper;
-        this.actor(next, { id: `legacy:${helper.id}`, parentId: "parent", nativeId: helper.id, kind: helper.kind === "workflow" ? "workflow" : "subagent", label: helper.label, state: helper.state, activity: helper.activity, summary: helper.summary, startedAt: helper.startedAt, endedAt: helper.endedAt, background: helper.background });
-        for (const member of helper.members ?? []) this.actor(next, { id: `legacy:${helper.id}:${member.id}`, parentId: `legacy:${helper.id}`, kind: "subagent", label: member.label, state: member.state, activity: member.activity, startedAt: helper.startedAt });
-      }
-      if (observation?.kind === "actor") this.actor(next, observation.actor);
-      if (observation?.kind === "capabilities") {
-        next.providerVersion = observation.version ?? next.providerVersion;
-        next.limitations = [...new Set([...next.limitations, ...observation.limitations])];
-        next.nativeParentActivity = observation.handlesParentActivity ?? next.nativeParentActivity;
-      }
-      const coveredParentItem = next.nativeParentActivity && event.type !== "native.observed" && (event.type.startsWith("item.") || event.type === "content.delta");
-      if (observation?.kind === "activity" && !coveredParentItem) {
-        const before = item(observation.activity.id);
-        const incoming = observation.activity;
-        if (!before || !terminal(before.state) || before.state === incoming.state) {
-          activity = { ...before, ...incoming, startedAt: before?.startedAt ?? incoming.startedAt };
-          if (before && event.type !== "native.observed") { activity.label = before.label; activity.kind = before.kind; }
-          if (observation.append) {
-            const field = observation.append;
-            const full = (before?.[field] ?? "") + (incoming[field] ?? "");
-            activity[field] = clip(full);
-            activity.truncated ||= full.length > textLimit;
-          }
-          if (!before) next.activityCount += 1;
-          if (incoming.state === "failed" && before?.state !== "failed") next.failureCount += 1;
-        }
-      }
-      if (event.type === "turn.completed") {
-        next.endedAt = at;
-        next.state = event.ok ? "done" : /interrupt|cancel|stop/i.test(event.stopReason ?? "") ? "stopped" : "failed";
-        next.observation = next.actors.some(actor => actor.id !== "parent" && !actor.ambient && !terminal(actor.state)) ? "partial" : "complete";
-        next.actors = next.actors.map(actor => actor.id === "parent" ? { ...actor, state: next.state, endedAt: at, canStop: false } : { ...actor, canStop: false });
-      }
-      if (event.type === "session.exited" && !next.endedAt) {
-        next.observation = "interrupted";
-        next.actors = next.actors.map(actor => ({ ...actor, canStop: false }));
-      }
-      if (next.endedAt && (next.observation === "partial" || next.observation === "complete")) next.observation = next.actors.some(actor => actor.id !== "parent" && !actor.ambient && !terminal(actor.state)) ? "partial" : "complete";
-      return { run: next, activity };
-    }, { sequence: event.nativeSequence, final: event.type === "turn.completed" || event.type === "session.exited" });
+    const owner = this.owner(event.threadId);
+    const run = this.store.observe(event.threadId, {
+      id, turnId, eventId: event.eventId, at, type: event.type, provider: event.provider,
+      providerInstanceId: event.providerInstanceId, sequence: event.nativeSequence,
+      botId: owner.botId, parentLabel: owner.label, observation,
+      sessionId: event.type === "session.started" ? event.sessionId ?? undefined : undefined,
+      helpers: event.type === "helper.updated" ? legacyActors(event) : undefined,
+      result: event.type === "turn.completed" ? (event.ok ? "done" : /interrupt|cancel|stop/i.test(event.stopReason ?? "") ? "stopped" : "failed") : undefined,
+    });
     if (run) {
-      const current = this.current(event.threadId);
+      const current = this.latest.get(event.threadId) === id ? run : this.current(event.threadId);
       if (!current || run.startedAt >= current.startedAt) this.latest.set(event.threadId, id);
       this.publish(run);
     }
     return run;
   }
 
-  private actor(run: NativeRun, incoming: NativeActor): void {
-    const cleaned = cleanObservation({ kind: "actor", actor: incoming });
-    if (cleaned.kind !== "actor") return;
-    incoming = cleaned.actor;
-    const index = run.actors.findIndex(actor => actor.id === incoming.id);
-    const previous = run.actors[index];
-    if (previous && terminal(previous.state) && previous.state !== incoming.state && previous.generation === incoming.generation) return;
-    if (incoming.state === "failed" && previous?.state !== "failed") run.failureCount += 1;
-    if (index >= 0) run.actors[index] = { ...previous, ...incoming, label: incoming.id === "parent" ? previous.label : incoming.label, startedAt: previous.generation === incoming.generation ? previous.startedAt : incoming.startedAt };
-    else if (run.actors.length < 128) run.actors.push(incoming);
-    else run.truncated = true;
-  }
-
   forEvent(event: Pick<RuntimeEvent, "threadId" | "providerInstanceId" | "provider" | "turnId">): NativeRun | undefined {
-    return event.turnId ? this.store.get(nativeRunId(event.threadId, event.providerInstanceId ?? event.provider, event.turnId)) : undefined;
+    return event.turnId ? this.store.get(nativeRunId(event.threadId, event.providerInstanceId ?? event.provider, event.turnId), event.threadId) : undefined;
   }
 
   running(threadId: string, event?: RuntimeEvent): boolean {
@@ -161,16 +116,13 @@ export class NativeRunProjector {
 
   current(threadId: string): NativeRun | undefined {
     const id = this.latest.get(threadId);
-    return (id ? this.store.get(id) : undefined) ?? this.store.list(threadId, undefined, 1).runs[0];
+    return (id ? this.store.get(id, threadId) : undefined) ?? this.store.list(threadId, undefined, 1).runs[0];
   }
 
   interrupt(threadId: string, reason: string): void {
     for (const current of this.store.live(threadId)) {
       const at = Date.now();
-      const run = this.store.apply(current.id, `interrupted:${current.revision}`, at, { reason }, previous => ({
-        run: { ...previous!, observation: "interrupted", currentActivity: undefined, revision: previous!.revision + 1, actors: previous!.actors.map(actor => ({ ...actor, canStop: false })) },
-        activity: { id: "observation-interrupted", actorId: "parent", kind: "notice", label: "Activity interrupted", text: reason, state: "stopped", startedAt: at, endedAt: at },
-      }), { final: true });
+      const run = this.store.interrupt(threadId, current.id, current.revision, at, reason);
       if (run) this.publish(run);
     }
   }
@@ -179,7 +131,7 @@ export class NativeRunProjector {
     const helpers: Record<string, Helper[]> = {};
     for (const [threadId, id] of this.latest) {
       if (!visible(threadId)) continue;
-      const current = this.store.get(id);
+      const current = this.store.get(id, threadId);
       const runs = this.store.live(threadId);
       if (current && current.observation !== "live" && current.endedAt && Date.now() - current.endedAt <= 10_000) runs.push(current);
       helpers[threadId] = runs.flatMap(run => run.actors.filter(actor => actor.kind === "subagent" || actor.kind === "workflow").map(actor => ({

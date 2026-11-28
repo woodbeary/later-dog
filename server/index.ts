@@ -142,6 +142,10 @@ import { HOME_SERVER_LOG_DIR, installHomeServerLog } from "./laterdog/home-serve
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
+import type { HistoryStartupFacts } from "../shared/history-startup.ts";
+import { prepareHistoryTails, historyWindow,preloadWorkAttention,remoteAttention,prepareStallWindows } from "./laterdog/history-snapshots.ts";
+import type { HistoryTail } from "./laterdog/history-snapshot-cache.ts";
+import { historyExecute,historyManyAsync, isRemoteHistory, preloadHistoryActivity } from "./laterdog/history-client.ts";
 import { liveStepsFrom } from "./laterdog/live-step.ts";
 import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
@@ -184,7 +188,7 @@ import { connectorCallFromFrame, connectorRefusalText, connectorUnrecognizedText
 import { connectorCardText } from "./connector-card-text.ts";
 import { withMainDogRouting } from "./laterdog/main-dog-prompt.ts";
 import { MAIN_DOG_DELETE_REFUSAL, MAIN_DOG_REQUIRED } from "../shared/main-dog.ts";
-import { buildRecall } from "./recall.ts";
+import { buildRecallAsync } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
 import { appendAboutMe, commitLearned, holdLearned, listPendingLearned, planLearned } from "./profile-learned.ts";
 import { canAccessTeam, canReachPeer, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, PEERS_PROMPT, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomRosterLine } from "./peer-roster.ts";
@@ -323,7 +327,7 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
-import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
+import { readMessageText, recallMessagesAsync, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, questionCardsCountingDown, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { IncidentLedger, incidentChip, type Incident, type IncidentKind } from "./incidents.ts";
@@ -424,7 +428,7 @@ import { NativeRunProjector } from "./laterdog/native-run-projector.ts";
 import { NativeRunPublisher } from "./laterdog/native-run-publisher.ts";
 import { NativeRunStore } from "./laterdog/native-run-store.ts";
 import { threadsPastRetention } from "./laterdog/native-run-retention.ts";
-import { nativeRunDatabase } from "./message-db.ts";
+import { nativeRunDatabase, recoverHistoryCommands } from "./message-db.ts";
 import { createNativeRunRoutes } from "./routes/native-runs.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { TurnResources, type TurnOwner } from "./turn-resources.ts";
@@ -648,7 +652,7 @@ import {
   isTurnAdmissionBlocked,
   isTurnEventQuarantined,
 } from "./turn-dispatch-guard.ts";
-import { createGracefulShutdown } from "./graceful-shutdown.ts";
+import { createGracefulShutdown, listenForVerifiedShutdown } from "./graceful-shutdown.ts";
 import { acquireDataDirLeaseForProcess } from "./data-dir-lease.ts";
 import { createWorkspaceAccess, describeEdition, editionStatus, hostedWorkspaceConfiguration, hostedWorkspaceConfigured, editionForMembers, LICENSE_WARN_DAYS, licenseWarning, sharedWorkspaceFullAccessConfigured, loadEnterpriseLayer, workspaceMembership, type EditionStatus, type WorkspaceAccess } from "./enterprise.ts";
 import { environmentDescriptor, loadEnvironmentId, serverVersion } from "./environment.ts";
@@ -988,6 +992,7 @@ if (existsSync(join(DATA_DIR, ".backups"))) {
     workspaceRestore = readLastWorkspaceRestore(DATA_DIR) ?? workspaceRestore;
   }
 }
+recoverHistoryCommands();
 const workspaceMaintenance = new WorkspaceBackupMaintenance();
 const cloudHold = new CloudHold(join(DATA_DIR, "cloud-hold.json"));
 const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);
@@ -1955,7 +1960,7 @@ function recentWorkSources(bot: BotRecord) {
   };
 }
 
-function autoRecallPrompt(bot: BotRecord, threadId: string, message: string, opts: { conversations: boolean; userName: string }): string {
+async function autoRecallPrompt(bot: BotRecord, threadId: string, message: string, opts: { conversations: boolean; userName: string }): Promise<string> {
   if (bot.memoryEnabled === false || !autoRecallEnabled(cfg)) return "";
   const roomByThread = new Map<string, GroupRecord>();
   if (opts.conversations) {
@@ -1970,7 +1975,7 @@ function autoRecallPrompt(bot: BotRecord, threadId: string, message: string, opt
       .filter((id) => id !== threadId && (!CLOUD_HOME || cloudOwnerOnlyThread(id)))
     : [];
   try {
-    const recalled = buildRecall({
+    const recalled = await buildRecallAsync({
       botId: bot.id,
       message,
       threadIds,
@@ -3913,17 +3918,25 @@ let teammatesAwaited = (_threadId: string): WireWaitingOn[] => [];
 let liveStatusLine = (_threadId: string): string | undefined => undefined;
 let helpersWorkingIn = (_threadId: string): number => 0;
 const computerJobs = new ComputerJobs(join(DATA_DIR, "computer-jobs.json"), { changed: (threadId) => announceHelpersChanged(threadId) });
-const delegatedWaiting = new Map<string, boolean>();
+const startupHistoryFacts=isRemoteHistory()?await historyManyAsync<HistoryStartupFacts>(undefined,{op:"messages.startupFacts"}):undefined;
+const delegatedWaiting = new Map<string, boolean>(startupHistoryFacts?.map(row=>[row.threadId,row.result.waiting] as const));
+const dirtyDelegations=new Set<string>();
 function delegatedNeedsYou(threadId: string): boolean {
-  if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.messagesFor(threadId).some(message => message.needsYou?.status === "waiting"));
+  if (!delegatedWaiting.has(threadId)) {
+    const waiting=isRemoteHistory()?dirtyDelegations.has(threadId)&&historyExecute<HistoryStartupFacts>(threadId,{op:"messages.startupFacts"}).waiting:store.messagesFor(threadId).some(message=>message.needsYou?.status==="waiting");
+    delegatedWaiting.set(threadId,waiting);dirtyDelegations.delete(threadId);
+  }
   return delegatedWaiting.get(threadId)!;
 }
 const workSignals = new WorkSignals();
 let exchangeLookup: ExchangeLookup | undefined;
 let waitingOnPerson = (_threadId: string): boolean => false;
 let stallFacts = (_threadId: string): StallFacts => ({});
+function workAttention(threadId:string){
+  return isRemoteHistory()?store.cachedMessagesTail(threadId,60)??remoteAttention(threadId):store.messagesTail(threadId,60).messages;
+}
 function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
-  const signIn = busy ? undefined : deviceApprovalNeedsYou(store.messagesTail(threadId, 60).messages);
+  const signIn = busy ? undefined : deviceApprovalNeedsYou(workAttention(threadId));
   const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId) || signIn !== undefined;
   const until = limitHold.heldUntil(threadId);
   const usageWait = until !== undefined || (!busy && usageStranded(threadId));
@@ -3932,7 +3945,7 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
   const account = kept ? accountNeedsYou({ carriesOn: carriesOnByItself(threadId), choice: accountBattery.decide(chatSelection(threadId) ?? selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
   return workState({
     busy, helpers: busy ? 0 : helpersWorkingIn(threadId), ...(busy ? {} : computerJobs.facts(threadId)), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
-    ...(asking ? { needsYou: { what: signIn ?? openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: account } : {}),
+    ...(asking ? { needsYou: { what: signIn ?? openAsk(workAttention(threadId)) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: account } : {}),
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
@@ -5152,7 +5165,7 @@ function roomWork(group: GroupRecord): WorkState {
     name: botId => store.bot(botId)?.name,
     turnBotIds: id => new Set([...(groupTurnOperations.get(id) ?? [])].filter(op => !op.cancelled).flatMap(op => [...op.botIds]).concat(store.group(id)?.busyBotId ?? [])),
     threadIds: id => [...new Set([store.group(id)?.threadId ?? "", ...store.groupTasks(id).map(task => task.threadId)].filter(Boolean))],
-    tail: threadId => store.messagesTail(threadId, 60).messages,
+    tail: workAttention,
     heldUntil: threadId => limitHold.heldUntil(threadId),
     holdAccount: id => {
       const room = store.group(id);
@@ -5473,10 +5486,10 @@ function slimMessage(stored: Message): Message | Record<string, unknown> {
   return { ...rest, hasImage: true };
 }
 
-function messagePage(threadId: string, limit: number, before?: string | null, view: PageView = {}) {
+function messagePage(threadId: string, limit: number, before?: string | null, view: PageView = {}, prepared?:HistoryTail) {
   const slim = (message: Message) => slimMessage(view.brief ? briefStep(message) : message);
   if (!before) {
-    const tail = store.messagesTail(threadId, view.shown ? SHOWN_PAGE_ROW_CAP : limit);
+    const tail = prepared??store.messagesTail(threadId, view.shown ? SHOWN_PAGE_ROW_CAP : limit);
     const start = view.shown ? shownPageStart(tail.messages, tail.messages.length, limit) : 0;
     return { messages: tail.messages.slice(start).map(slim), hasMore: start > 0 || tail.hasMore, activeLeafId: tail.activeLeafId };
   }
@@ -6102,7 +6115,7 @@ const inflightTurns = createInflightTurns(fileInflightLedger(join(DATA_DIR, "tur
 let pickingUpAfterRestart = true;
 store.onChange((change) => {
   if ((change.type === "message" || change.type === "message.patch") && change.message.needsYou) {
-    delegatedWaiting.delete(change.threadId);
+    dirtyDelegations.add(change.threadId);delegatedWaiting.delete(change.threadId);
     const owner = store.botByThread(change.threadId);
     if (owner) broadcast({ kind: "bot", bot: wireBot(owner) });
   }
@@ -6209,16 +6222,23 @@ function teammateCanRun(botId: string, threadId: string): boolean {
   if (store.taskByThread(botId, threadId)?.activity === "dead") return false;
   return teammateAccountRuns(chatAccountFacts(bot, threadId));
 }
-const stallWatch = createStallWatch({
-  chats: () => store.bots.flatMap((bot) => store.tasks(bot.id)
+const stallChats=() => store.bots.flatMap((bot) => store.tasks(bot.id)
     .filter((task) => !task.archivedAt && !store.groupByThread(task.threadId) && (task.updatedAt ?? task.createdAt) > Date.now() - STALL_LOOKBACK_MS)
-    .map((task) => ({ botId: bot.id, threadId: task.threadId }))),
+    .map((task) => ({ botId: bot.id, threadId: task.threadId })));
+let preparedStall:Awaited<ReturnType<typeof prepareStallWindows>>|undefined;
+const stallWatch = createStallWatch({
+  chats:stallChats,
+  ...(isRemoteHistory()?{prepareSweep:async(run:()=>void)=>{
+    const threads=stallChats().map(task=>task.threadId);
+    preparedStall=await prepareStallWindows(threads,Date.now()-STALL_LOOKBACK_MS);
+    try{run();}finally{preparedStall=undefined;}
+  }}:{}),
   look: (botId, threadId) => {
     const bot = store.bot(botId);
     if (!bot) return null;
     const now = Date.now();
     return {
-      name: bot.name, path: store.messagesTail(threadId, 160).messages, now,
+      name: bot.name,...(preparedStall?.(threadId)??{path:store.messagesTail(threadId,160).messages}),now,
       busy: threadBusy(botId, threadId) || watchdog.watching(threadId) || directTurnDispatchClaims.has(threadId),
       requestOpen: watchdog.snapshot(threadId)?.waitingOnHuman === true || delegatedNeedsYou(threadId),
       helpers: helpersWorkingIn(threadId) + computerJobs.count(threadId),
@@ -9811,6 +9831,16 @@ async function startTurn(
       }
       const computerSelection = computerSelectionTurns.get(threadId);
       if (computerSelection) computerSelection.mounted = mountedComputer ?? (integrations.browser ? "browser" : undefined);
+      const fromPerson = commsDepth === 0 && !opts?.coordination && !opts?.automationSource && !opts?.unattended;
+      const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
+      if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
+      const recalled = recallsThisTurn(dispatchContext, instance.driverKind) ? await autoRecallPrompt(bot, threadId, resolvedImages.text, {
+        conversations: fromPerson,
+        userName: cfg.profile?.name?.trim() || "User",
+      }) : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? await autoRecallPrompt(bot, threadId, resolvedImages.text, {
+        conversations: false,
+        userName: cfg.profile?.name?.trim() || "User",
+      }) : "";
       await pendingCancelledProviderHandshakes.waitForClear(threadId);
       turnPhases.mark(threadId, "browser and handshakes");
       if (memoryDocs) readMemoryFromSnapshot(bot.id, memoryDocs);
@@ -9871,18 +9901,8 @@ async function startTurn(
       contextBreakdowns.dispatched(threadId, { driverKind: instance.driverKind, instanceId, sections: prompt.sections, tools: homeToolSizes(integrations.agents?.env) });
       compactionCarry.remember(bot.id, threadId, prompt.volatileSections);
       if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
-      const fromPerson = commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended;
       executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort });
       runningTurnEngines.set(threadId, instance);
-      const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
-      if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
-      const recalled = recallsThisTurn(dispatchContext, instance.driverKind) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: fromPerson,
-        userName: cfg.profile?.name?.trim() || "User",
-      }) : fromPerson && bot.memoryEnabled !== false && memoryTrimmed(bot.id) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: false,
-        userName: cfg.profile?.name?.trim() || "User",
-      }) : "";
       turnShape.begin(threadId, {
         questions: threadId === bot.threadId && Date.now() - (bot.createdAt ?? 0) < DOG_SETUP_QUESTIONS_MS,
         replyFirst: fromPerson && !fromLocalTool,
@@ -11226,12 +11246,13 @@ function endFullAccessAll(): void {
 }
 
 {
-  const stale = dismissStalePeerCards(approvalBus);
-  if (stale) console.log(`peer approvals: dismissed ${stale} card(s) left by a previous run`);
   const threadIds = new Set<string>();
   for (const bot of store.bots) for (const threadId of [bot.threadId, ...(bot.tasks ?? []).map((task) => task.threadId)]) threadIds.add(threadId);
   for (const group of store.groups) for (const threadId of [group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)]) threadIds.add(threadId);
-  const staleMac = macApprovals.dismissStale(threadIds);
+  const candidates=isRemoteHistory()?(await historyManyAsync<boolean>(undefined,{op:"messages.hasCards"})).filter(entry=>entry.result&&threadIds.has(entry.threadId)).map(entry=>entry.threadId):threadIds;
+  const stale=dismissStalePeerCards(approvalBus,candidates);
+  if(stale)console.log(`peer approvals: dismissed ${stale} card(s) left by a previous run`);
+  const staleMac = macApprovals.dismissStale(candidates);
   if (staleMac) console.log(`mac approvals: closed ${staleMac} card(s) left by a previous run`);
 }
 
@@ -11797,6 +11818,7 @@ async function runGroupMemberTurn(
       : store.groupTaskByThread(liveGroup.id, threadId)?.turnTimeoutMinutes,
     longWork: ownerWorkThread(threadId) && runsUnattended(roomTurnApprovalMode(readyBot, threadId, orchestration), autoReviewOn(cfg.features)),
   });
+  const roomRecalled = cardContinuation ? "" : await autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
   const outcome = await new Promise<GroupMemberTurnOutcome>((resolve) => {
     let done = false;
     let unsub = () => {};
@@ -11855,7 +11877,6 @@ async function runGroupMemberTurn(
     compactionCarry.remember(readyBot.id, threadId, roomSystem.volatileSections);
     executionEvidence.dispatch(threadId, selectedBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) });
     runningTurnEngines.set(threadId, instance);
-    const roomRecalled = cardContinuation ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
     guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: readyBot.id,
@@ -15784,7 +15805,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               : interleave(picked.filter((dog) => dog.memoryEnabled !== false).map((dog) =>
                 searchMemoryFiles(dog.id, q, limit).map((hit) => ({ ...hit, bot: dog.name, botId: dog.id, snippet: redactSecretsInText(hit.snippet) }))), limit);
             if (scope === "memory") return json(res, 200, { cross: true, hits: [], memoryHits: crossMemory });
-            const crossFound = q ? recallMessages(q, threadIds, limit, range) : recentMessages(threadIds, range ?? {}, limit);
+            const crossFound = q ? await recallMessagesAsync(q, threadIds, limit, range) : recentMessages(threadIds, range ?? {}, limit);
             const crossHits = crossFound.map((hit) => {
               const chat = chats.get(hit.threadId);
               return { ...hit, snippet: redactSecretsInText(hit.snippet), bot: chat?.dog ?? "a dog", chat: chat?.chat ?? "a chat", current: hit.threadId === fromThreadId };
@@ -15806,7 +15827,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const ownThreads = [...new Set([from.threadId, ...(from.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])]
           .filter(cloudLendingView(internalCapability) ? cloudOwnerOnlyThread : () => true);
         const inRoom = Boolean(store.groupByThread(fromThreadId));
-        const found = q ? recallMessages(q, ownThreads, limit, range) : recentMessages(ownThreads, range ?? {}, limit);
+        const found = q ? await recallMessagesAsync(q, ownThreads, limit, range) : recentMessages(ownThreads, range ?? {}, limit);
         const hits = found.map((hit) => {
           const room = roomByThread.get(hit.threadId);
           return {
@@ -16964,18 +16985,26 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const limit = snapshotPageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const shownBots = store.bots.filter((bot) => visible.bot(bot.id));
+
       const queued = publicBotQueuedMessages();
       const preview = pageViewOf(url.searchParams);
+      const groups=store.groups.filter(group=>visible.group(group.id));
+      recoverHistoryCommands();
+      const attentionThreads=[...shownBots.flatMap(bot=>[bot.threadId,...store.tasks(bot.id).map(task=>task.threadId)]),...groups.flatMap(group=>[group.threadId,...store.groupTasks(group.id).map(task=>task.threadId)])];
+      const [prepared]=await Promise.all([
+        prepareHistoryTails([...shownBots,...groups].map(item=>item.threadId),preview.shown?SHOWN_PAGE_ROW_CAP:limit),
+        preloadHistoryActivity(attentionThreads),preloadWorkAttention(attentionThreads)
+      ]);
       return json(res, 200, {
         bots: shownBots.map((bot) => memberBot({
           ...wireBot(bot),
           tasks: store.tasks(bot.id).map((task) => wireTask(task, bot.modelSelection)),
-          ...messagePage(bot.threadId, limit, undefined, preview),
+          ...messagePage(bot.threadId, limit, undefined, preview,prepared(bot.threadId)),
         }, visible)),
         botQueuedMessages: visible.everything ? queued : Object.fromEntries(Object.entries(queued).filter(([threadId]) => visible.thread(threadId))),
         sections: visible.sections(store.sections),
-        groups: store.groups.filter((g) => visible.group(g.id)).map((g) => {
-          const room = { ...publicGroupState(g), ...messagePage(g.threadId, limit, undefined, preview) };
+        groups: groups.map((g) => {
+          const room = { ...publicGroupState(g), ...messagePage(g.threadId, limit, undefined, preview,prepared(g.threadId)) };
           return visible.everything ? room : memberGroup(room);
         }),
         computerControl: Object.fromEntries(
@@ -16998,6 +17027,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const before = url.searchParams.get("before");
       const around = url.searchParams.get("around");
       if (before && around) return json(res, 400, { error: "before and around cannot be combined" });
+      if(isRemoteHistory()){
+        recoverHistoryCommands();
+        const view=pageViewOf(url.searchParams),size=limit??DEFAULT_PAGE;
+        const window=await historyWindow(threadId,!around&&view.shown?SHOWN_PAGE_ROW_CAP:size,before,around);
+        if(!window)return json(res,404,{error:"no such message"});
+        const start=!around&&view.shown?shownPageStart(window.messages,window.messages.length,size):0;
+        return json(res,200,{...window,messages:window.messages.slice(start).map(m=>slimMessage(!around&&view.brief?briefStep(m):m)),hasMore:start>0||window.hasMore});
+      }
       if (around) {
         const window = messageWindow(threadId, around, limit ?? DEFAULT_PAGE);
         if (!window) return json(res, 404, { error: "no such message" });
@@ -17289,7 +17326,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const bot = store.botByThread(hit.threadId);
           const group = bot ? undefined : store.groupByThread(hit.threadId);
           if (!bot && !group) return null;
-          const active = onActivePath(hit.threadId, hit.messageId);
+          const active = hit.onActivePath??onActivePath(hit.threadId,hit.messageId);
           if (bot) {
             const task = store.taskByThread(bot.id, hit.threadId);
             return { ...hit, botId: bot.id, name: bot.name, task: task?.title, onActivePath: active };
@@ -22328,7 +22365,7 @@ restoreChannelMessages();
 
 try {
   expireStaleApprovals({
-    cards: openPermissionCards,
+    cards: () => openPermissionCards(startupHistoryFacts?.filter(row=>row.result.permission).map(row=>row.threadId)),
     owns: (threadId) => Boolean(store.botByThread(threadId) || store.groupByThread(threadId)),
     patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
   });
@@ -22337,7 +22374,7 @@ try {
 }
 
 try {
-  for (const { threadId, message } of questionCardsCountingDown()) {
+  for (const { threadId, message } of questionCardsCountingDown(startupHistoryFacts?.filter(row=>row.result.countdown).map(row=>row.threadId))) {
     if (message.card) store.patchMessage(threadId, message.id, { card: { ...message.card, autoAnswerAt: undefined } });
   }
 } catch (error) {
@@ -22423,6 +22460,8 @@ const gracefulShutdown = createGracefulShutdown({
     process.exit(restartRequested && code === 0 ? RESTART_EXIT_CODE : code);
   },
 });
+
+listenForVerifiedShutdown(gracefulShutdown);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, gracefulShutdown);

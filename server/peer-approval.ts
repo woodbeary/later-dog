@@ -195,9 +195,9 @@ function peerCardThreads(bus: ApprovalBus): Set<string> {
   return threadIds;
 }
 
-export function dismissStalePeerCards(bus: ApprovalBus): number {
+export function dismissStalePeerCards(bus: ApprovalBus, threads:Iterable<string>=peerCardThreads(bus)): number {
   let dismissed = 0;
-  for (const threadId of peerCardThreads(bus)) {
+  for (const threadId of threads) {
     for (const message of bus.store.messagesFor(threadId)) {
       const card = message.card;
       if (!card?.requestId || card.answered || card.dismissed) continue;

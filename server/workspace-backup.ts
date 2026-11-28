@@ -19,6 +19,8 @@ import { WORKSPACE_BACKUP_CLIENT_KEYS } from "../shared/workspace-backup-client.
 import { ephemeralWorkspaceTokenPath, excludedWorkspaceAuthPath, portableWorkspaceConfig, redownloadedOrgLibraryPath, restoredWorkspaceConfig } from "./workspace-backup-policy.ts";
 import { leftBehindByProfile, measureLeftOnComputer, validLeftOnComputer, CLOUD_MOVE_PROFILE, type WorkspaceBackupProfile } from "./laterdog/cloud-move-profile.ts";
 import { type BackupBytes, ARCHIVE_READ_BYTES } from "./laterdog/previous-cloud-archive.ts";
+import { historyRestoreConnection, restoreHistoryAccess, type HistoryRestoreAccess } from "./laterdog/portable-history-restore.ts";
+import { activeHistoryBackup, exportPortableHistory, type HistoryBackupAccess } from "./laterdog/portable-history.ts";
 import { mountedWorkFolders } from "./laterdog/work-folder-locations.ts";
 import { homeMountPaths } from "./laterdog/work-folder-maintenance.ts";
 import { BackupFolderStore, backupFolderAccess, currentBackupLayout, exportPortableFolders, portableFolderScopes, type BackupFolderAccess, type PortableAuthority, PortableFolderReader, checkpointAssignedFolders, verifyWorkingFileContents, countAssignedFolder, emptyFolderTotals, type FolderTotals } from "./laterdog/portable-work-folders.ts";
@@ -44,7 +46,7 @@ const EXCLUDED = new Set([
   "laterdog-server.lease", "box-create-requests.lock", "messages.db-wal", "messages.db-shm",
   "decider-log",
   "cloud-owner.json", "cloud-hold.json", "computers-trial-key", "computers-trial.json", "computers.json", "computers-key",
-  "turns-running.json",
+  "turns-running.json", "history-control.db", "history-control.db-shm", "history-control.db-wal", "history-control.db-journal", "history-pending.json",
 ]);
 const KEPT_ON_EACH_COMPUTER = new Set(["computers-trial-key", "computers-trial.json", "computers.json", "computers-key"]);
 const keptOnEachComputer = (path: string): boolean => KEPT_ON_EACH_COMPUTER.has(path.toLowerCase());
@@ -103,7 +105,7 @@ function forbiddenArchivePath(path: string): boolean {
 }
 function preserved(name: string): boolean {
   const folded = name.toLowerCase();
-  return excluded(folded) && folded !== "messages.db-wal" && folded !== "messages.db-shm";
+  return excluded(folded) && !/^messages\.db-(?:wal|shm)$/.test(folded) && !/^history-control\.db(?:-(?:wal|shm|journal))?$/.test(folded);
 }
 function keptInPlace(name: string): boolean {
   return preserved(name) || name.toLowerCase() === "sessions.json.open";
@@ -378,7 +380,7 @@ export async function createWorkspaceBackup(dataDir: string, options: CreateWork
   let completed = false;
   try {
     worker = new Worker(existsSync(source) ? source : new URL("./workspace-backup.worker.js", import.meta.url), {
-      workerData: { dataDir, options: { ...options, folderSource: options.folderSource ?? await assignedFolderSource(dataDir) }, jobId }, execArgv: [],
+      workerData: { dataDir, options: { ...options, folderSource: options.folderSource ?? await assignedFolderSource(dataDir) }, history: activeHistoryBackup(), jobId }, execArgv: [],
     });
     const result = await new Promise<CreatedWorkspaceBackup>((resolveBackup, reject) => {
       const failed = () => reject(new Error("The backup worker stopped before completing. Try again."));
@@ -398,7 +400,7 @@ export async function createWorkspaceBackup(dataDir: string, options: CreateWork
   }
 }
 
-export async function createWorkspaceBackupSnapshot(dataDir: string, options: CreateWorkspaceBackupOptions, jobId?: string): Promise<CreatedWorkspaceBackup> {
+export async function createWorkspaceBackupSnapshot(dataDir: string, options: CreateWorkspaceBackupOptions, jobId?: string, history = activeHistoryBackup() as HistoryBackupAccess | undefined): Promise<CreatedWorkspaceBackup> {
   if (Object.hasOwn(options, "credentials")) throw new Error("Workspace backups do not transfer credentials.");
   const remote = options.folderSource ?? await assignedFolderSource(dataDir);
   const mounted = new Set(remote ? homeMountPaths(resolve(dataDir), homedir(), remote.layout) : []);
@@ -421,19 +423,35 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
   try {
     const root = realpathSync(dataDir);
     const sourceDb = join(root, "messages.db");
-    if (existsSync(sourceDb)) {
+    if (history) {
+      const control = join(root, "history-control.db");
+      if (!lstatSync(control).isFile()) throw new Error("The history coordinator must be a regular SQLite database.");
+      const target = join(snapshot, "data", "messages.db");
+      await exportPortableHistory(history, control, target);
+      bytes = lstatSync(target).size;
+      if (bytes > MAX_WORKSPACE_BACKUP_BYTES) throw new Error("The workspace exceeds the 10 GB backup limit.");
+      entries.push({ path: "messages.db", type: "file", mode: 0o600, size: bytes, sha256: hashFile(target) });
+    } else if (existsSync(sourceDb)) {
       if (lstatSync(sourceDb).isSymbolicLink()) throw new Error("The message database must not be a symbolic link.");
       const db = new DatabaseSync(sourceDb, { readOnly: true, timeout: 5_000 });
       const completionPulse = setInterval(() => {}, 25);
-      try { await backup(db, join(snapshot, "messages-snapshot.db")); }
-      finally { clearInterval(completionPulse); db.close(); }
+      try {
+        await backup(db, join(snapshot, "messages-snapshot.db"));
+      } finally {
+        clearInterval(completionPulse);
+        db.close();
+      }
       const snapshotDb = new DatabaseSync(join(snapshot, "messages-snapshot.db"));
-      try { snapshotDb.exec("PRAGMA journal_mode = DELETE"); } finally { snapshotDb.close(); }
+      try {
+        snapshotDb.exec("PRAGMA journal_mode = DELETE");
+      } finally {
+        snapshotDb.close();
+      }
     }
     const walk = (directory: string, prefix = "") => {
       for (const name of presentNames(directory).sort()) {
         if (mounted.has(join(root, prefix, name))) continue;
-        if (!prefix && (excluded(name) || leftBehindByProfile(name, options.profile))) continue;
+        if (!prefix && (excluded(name) || leftBehindByProfile(name, options.profile) || (history && (name==="messages.db" || /^messages-[^/]+\.json$/.test(name))))) continue;
         const path = prefix ? `${prefix}/${name}` : name;
         if (remote && (path==="work-folders.json" || path==="checkpoints/work-folders")) continue;
         if (excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path)) continue;
@@ -1225,12 +1243,102 @@ function finishRestore(dataDir: string, id: string, consumePending = true): Last
 export async function applyPendingWorkspaceRestoreAtBoot(
   dataDir: string,
   destination?: FolderDestination,
+  authority?: HistoryRestoreAccess,
+): Promise<WorkspaceRestoreResult> {
+  const root = backupRoot(dataDir);
+  const receipt = join(root, "history-restore.json"),
+    localJournal = join(root, "restore-journal.json");
+  const pending = readPendingWorkspaceRestoreMetadata(dataDir);
+  const saved = existsSync(receipt) ? privateJson(receipt) : null;
+  const access = authority ?? activeHistoryBackup();
+  if (!access) {
+    if (saved) throw Error("Conversation history restore must recover with its original generation");
+    return applyPendingWorkspaceAndFolders(dataDir, destination, () => applyPendingWorkspaceRestore(dataDir));
+  }
+  if (!saved && !pending)
+    return applyPendingWorkspaceAndFolders(dataDir, destination, () => applyPendingWorkspaceRestore(dataDir));
+  if (
+    saved &&
+    (!record(saved) ||
+      typeof saved.id !== "string" ||
+      !ID.test(saved.id) ||
+      saved.generation !== access.generation ||
+      !Number.isSafeInteger(saved.revision))
+  )
+    throw Error("Invalid conversation restore recovery journal");
+  const id = record(saved) ? String(saved.id) : pending!.id;
+  if (pending && pending.id !== id) throw Error("Another conversation restore is unfinished");
+  const client = historyRestoreConnection(authority ?? restoreHistoryAccess(access), id);
+  const local = existsSync(localJournal) ? readJournal(localJournal) : null;
+  const phase = local?.id === id ? local.phase : null;
+  const remote = await client.job({ op: "status" });
+  const close = async (op: "undo" | "finish") => {
+    const res = await client.job({ op });
+    if (res?.status !== (op === "finish" ? "finished" : "undone"))
+      throw Error("Conversation restore reconciliation failed");
+    rmSync(receipt, { force: true });
+  };
+  if (phase === "committed" || phase === "applying" || phase === "rolled-back" || !pending) {
+    if (phase === "committed" && !["switched", "finished"].includes(remote?.status ?? ""))
+      throw Error("Committed workspace files are missing their paired history revision");
+    if (phase !== "committed" && remote?.status === "finished")
+      throw Error("The completed conversation restore conflicts with the local recovery journal");
+    const result = await applyPendingWorkspaceAndFolders(dataDir, destination, () =>
+      applyPendingWorkspaceRestore(dataDir),
+    );
+    if (remote) await close(phase === "committed" ? "finish" : "undo");
+    else rmSync(receipt, { force: true });
+    return result;
+  }
+  const revision = record(saved) ? Number(saved.revision) : await client.revision();
+  if (!saved) writeJson(receipt, { id, generation: access.generation, revision });
+  const job = jobPath(dataDir, id);
+  const abandonBeforeFileChanges = async (error: unknown): Promise<WorkspaceRestoreResult> => {
+    const status = await client.job({ op: "status" });
+    if (status?.status === "finished") throw Error("The completed history restore needs its matching local files");
+    if (status) await close("undo");
+    writeJson(join(job, "restore-error.json"), { error: error instanceof Error ? error.message : String(error) });
+    rmSync(join(root, "pending-restore.json"), { force: true });
+    rmSync(receipt, { force: true });
+    return { restored: false, rolledBack: true, id };
+  };
+  if (remote?.status === "undone")
+    return abandonBeforeFileChanges(new Error("The previous conversation workspace was retained"));
+  const staged = join(job, "staged");
+  let prepared: string;
+  let incoming: { proofs: [string, string][] };
+  try {
+    prepared = prepareRestore(dataDir, id, validateStaged(staged));
+    incoming = await client.prepare(job, prepared, revision);
+  } catch (error) {
+    return abandonBeforeFileChanges(error);
+  }
+  let state = await client.job({ op: "switch", proofs: incoming.proofs });
+  while (state?.status === "fencing") state = await client.job({ op: "switch", proofs: incoming.proofs });
+  if (state?.status !== "switched") throw Error("Conversation restore did not reach the checked revision");
+  try {
+    const result = await applyPendingWorkspaceAndFolders(dataDir, destination, () =>
+      applyPendingWorkspaceRestore(dataDir, prepared),
+    );
+    await close(result.restored ? "finish" : "undo");
+    return result;
+  } catch (error) {
+    const last = existsSync(localJournal) ? readJournal(localJournal) : null;
+    if (last?.id !== id || last.phase === "rolled-back") return abandonBeforeFileChanges(error);
+    throw error;
+  }
+}
+
+async function applyPendingWorkspaceAndFolders(
+  dataDir: string,
+  destination: FolderDestination | undefined,
+  applyLocal: () => WorkspaceRestoreResult,
 ): Promise<WorkspaceRestoreResult> {
   const root = backupRoot(dataDir),
     reload = join(root, "assigned-reload.json");
   const pending = readPendingWorkspaceRestoreMetadata(dataDir);
   const managedPending = pending && existsSync(join(jobPath(dataDir, pending.id), "assigned-restore.json"));
-  if (!managedPending && !existsSync(reload)) return applyPendingWorkspaceRestore(dataDir);
+  if (!managedPending && !existsSync(reload)) return applyLocal();
   const storage = destination ?? (await activeFolderDestination(dataDir));
   if (!storage) throw new Error("The restored computer cannot access its assigned work folder storage.");
   const reloadMount = async () => {
@@ -1239,7 +1347,7 @@ export async function applyPendingWorkspaceRestoreAtBoot(
   };
   if (!pending || !managedPending) {
     await reloadMount();
-    return applyPendingWorkspaceRestore(dataDir);
+    return applyLocal();
   }
   const job = jobPath(dataDir, pending.id),
     journalFile = join(root, "restore-journal.json");
@@ -1248,11 +1356,11 @@ export async function applyPendingWorkspaceRestoreAtBoot(
   let result: WorkspaceRestoreResult;
   if (journal?.id === pending.id && journal.phase === "applying") {
     await applyAssignedHeads(job, storage.authority, "rollback");
-    result = applyPendingWorkspaceRestore(dataDir);
+    result = applyLocal();
   } else {
     try {
       await applyAssignedHeads(job, storage.authority, "apply");
-      result = applyPendingWorkspaceRestore(dataDir);
+      result = applyLocal();
     } catch (error) {
       await applyAssignedHeads(job, storage.authority, "rollback");
       const detail = error instanceof Error ? error.message : String(error);
@@ -1266,7 +1374,7 @@ export async function applyPendingWorkspaceRestoreAtBoot(
   return result;
 }
 
-export function applyPendingWorkspaceRestore(dataDir: string): WorkspaceRestoreResult {
+export function applyPendingWorkspaceRestore(dataDir: string, historyPrepared?:string): WorkspaceRestoreResult {
   const root = backupRoot(dataDir);
   const journalFile = join(root, "restore-journal.json");
   const pendingFile = join(root, "pending-restore.json");
@@ -1289,7 +1397,8 @@ export function applyPendingWorkspaceRestore(dataDir: string): WorkspaceRestoreR
   if (!pending) return { restored: false };
   const staged = join(jobPath(dataDir, pending.id), "staged");
   const manifest = validateStaged(staged);
-  const prepared = prepareRestore(dataDir, pending.id, manifest);
+  if(historyPrepared!==undefined && historyPrepared!==join(jobPath(dataDir,pending.id),"apply","data"))throw Error("Invalid prepared history restore directory");
+  const prepared = historyPrepared ?? prepareRestore(dataDir, pending.id, manifest);
   const safetyCopyPath = join(root, `safety-${pending.id}`);
   if (existsSync(safetyCopyPath)) throw new Error("A safety copy already exists for this restore. Original files have not been changed.");
   folder(join(safetyCopyPath, "data"));

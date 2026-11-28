@@ -1,0 +1,46 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "laterdog-history-test",
+  "main": "src/history-service.ts",
+  "account_id": "da1336ec3e3f7d9a4971022ae074c5d7",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true
+  },
+  "limits": {
+    "cpu_ms": 300000
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DIRECTORY",
+        "class_name": "HistoryDirectory"
+      },
+      {
+        "name": "THREADS",
+        "class_name": "HistoryShard"
+      }
+    ]
+  },
+  "exports": {
+    "HistoryDirectory": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "HistoryShard": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "r2_buckets": [
+    {
+      "binding": "RECEIPTS",
+      "bucket_name": "laterdog-homes-test"
+    }
+  ]
+}

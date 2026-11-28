@@ -1,3 +1,4 @@
+import type { HomeHistoryRequest } from "./history-home-cutover.ts";
 import type { ReverseRequest } from "./work-folder-reverse.ts";
 import type { CutoverRequest } from "./work-folder-cutover.ts";
 import type { FolderCensusRequest } from "./work-folder-census.ts";
@@ -35,6 +36,13 @@ async function hostForMachine(env: Env, machineId: string) {
   const stub = hostFor(env, "large", machineId);
   await stub.adopt(owner);
   return stub;
+}
+
+export class HistoryHomeMigrationApi extends WorkerEntrypoint<Env> {
+  async control(accountId: string, nonce: string, request: HomeHistoryRequest) {
+    const { identity, stub } = await homeFor(this.env, accountId);
+    return stub.controlHistoryHome(identity.machineId, nonce, request);
+  }
 }
 
 export class WorkFolderMigrationApi extends WorkerEntrypoint<Env> {
@@ -80,9 +88,7 @@ export class HomesApi extends WorkerEntrypoint<Env> {
   async remove(accountId: string): Promise<{ removed: number }> {
     const { identity, size } = await homeFor(this.env, accountId);
     const standard = hostFor(this.env, "standard", identity.machineId);
-    await standard.bury();
-    if (size === "large" || (await standard.standing()) === "released") await hostFor(this.env, "large", identity.machineId).forget();
-    return standard.remove();
+    return standard.remove(identity.machineId, size === "large");
   }
 }
 

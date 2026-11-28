@@ -9,6 +9,7 @@ export interface SearchHit {
   snippet: string;
   matchStart: number;
   matchLength: number;
+  onActivePath?:boolean;
   from?: string;
 }
 

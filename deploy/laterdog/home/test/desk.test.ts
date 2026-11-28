@@ -46,13 +46,13 @@ function memoryBucket() {
   return bucket;
 }
 
-async function home() {
+async function home(history?: { handle(stable: string, request: Request): Promise<Response> }) {
   const HOMES = new FakeNamespace<Host>("HOMES");
   const HOMES_LARGE = new FakeNamespace<Host>("HOMES_LARGE");
   const STATE = memoryBucket();
   const env: Record<string, unknown> = {
     HOME_SECRET: SECRET, HOME_HOST_SUFFIX: SUFFIX, ADMIN_ORIGIN: "https://accounts.later.dog", INCLUDED_API: "https://cloud.later.dog/v1",
-    LARGE_HOME_ACCOUNTS: "", ALWAYS_ON_ACCOUNTS: "", HOMES, HOMES_LARGE, STATE,
+    LARGE_HOME_ACCOUNTS: "", ALWAYS_ON_ACCOUNTS: "", HOMES, HOMES_LARGE, STATE, HISTORY: history,
     COMPUTERS: { fetch: async () => Response.json({ trial: { state: "active" } }, { status: 201 }) }, ACCOUNTS: {},
   };
   HOMES.bind((ctx) => new CloudHomeHost(ctx as never, env as never));
@@ -115,6 +115,50 @@ async function knownOwner(h: Awaited<ReturnType<typeof home>>) {
 }
 
 describe("chats while the home sleeps", () => {
+  it.each(["?limit=100", "?before=old&limit=20", "?around=old&shown=1"])(
+    "opens the authoritative conversation after a remote history cutover with an older saved page %s",
+    async (query) => {
+      let mode = "legacy";
+      const history = { handle: vi.fn(async (_stable: string, request: Request) => {
+        expect(new URL(request.url).pathname).toBe("/history/status");
+        return Response.json({ mode, generation: mode === "remote" ? "stage" : null, revision: 3 });
+      }) };
+      const h = await home(history);
+      await knownOwner(h);
+      const path = "/api/threads/thread-1/messages", visible = { messages: [{ id: "acknowledged" }] };
+      world.answers.set("GET " + path, () => Response.json({ messages: [] }));
+      await h.visit(path + query, asOwner());
+      expect(history.handle).not.toHaveBeenCalled();
+      world.answers.set("GET " + path, () => Response.json(visible));
+      await h.sleep();
+      const legacy = await h.visit(path + query, asOwner());
+      expect(legacy.headers.get(desk.SAVED_HEADER)).toBeTruthy();
+      expect(await legacy.json()).toEqual({ messages: [] });
+      mode = "remote";
+      await h.sleep();
+      const starts = h.machine.starts;
+      const current = await h.visit(path + query, asOwner());
+      expect(current.status).toBe(200);
+      expect(current.headers.has(desk.SAVED_HEADER)).toBe(false);
+      expect(await current.json()).toEqual(visible);
+      expect(h.machine.starts).toBe(starts + 1);
+    },
+  );
+
+  it("never serves the old page if placement cannot be checked and the home is still waking", async () => {
+    const h = await home({ handle: async () => { throw Error("History service unavailable"); } });
+    await knownOwner(h);
+    const path = "/api/threads/thread-1/messages?limit=25";
+    world.answers.set("GET /api/threads/thread-1/messages", () => Response.json({ messages: [] }));
+    await h.visit(path, asOwner());
+    await h.sleep();
+    h.machine.serving = false;
+    const response = await h.visit(path, asOwner());
+    expect(response.status).toBe(503);
+    expect(response.headers.get(WAKE_HEADER)).toBe("waking");
+    expect(response.headers.has(desk.SAVED_HEADER)).toBe(false);
+  });
+
   it("opens with the owner's last chats at once and wakes the home behind them", async () => {
     const h = await home();
     await knownOwner(h);

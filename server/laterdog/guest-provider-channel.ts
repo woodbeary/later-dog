@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { appendNative, type NativeEntry } from "../drivers/native.ts";
-import { createInterface } from "node:readline";
+import {GuestCloseDiagnostic} from "./guest-close-diagnostic.ts";
+import { consumeEngineLines } from "./engine-lines.ts";
 import { newEventId, type RuntimeEvent, type RuntimeEventListener, type SendTurnInput } from "../contracts.ts";
 import type { GuestRequest } from "./guest-provider-types.ts";
 import type { EngineProcess } from "./engine-remote.ts";
@@ -10,8 +11,9 @@ import type { EngineProcess } from "./engine-remote.ts";
 export class GuestProviderChannel {
   private sequence = 0;
   private readonly eventScope = randomUUID();
-  private readonly pending = new Map<number, { done: (value: unknown) => void; fail: (error: Error) => void; read?: () => void }>();
+  private readonly pending = new Map<number, { op:GuestRequest["op"];done: (value: unknown) => void; fail: (error: Error) => void; read?: () => void }>();
   private ended = false;
+  private opened=false;
   private turnId?: string;
   private completion?: Extract<RuntimeEvent, { type: "turn.completed" }>;
   private sending = false;
@@ -34,11 +36,15 @@ export class GuestProviderChannel {
     this.dataDir = dataDir;
     this.turn = turn;
     this.publish = publish;
-    const lines = createInterface({ input: engine.stdout });
-    lines.on("line", line => this.receive(line));
-    engine.stderr.resume();
-    this.closed = new Promise(resolve => engine.once("close", () => {
+    const afterOutput = consumeEngineLines(engine.stdout, line => this.receive(line), true);
+    const diagnostic=new GuestCloseDiagnostic();
+    engine.stderr.on("data",(chunk:Buffer)=>diagnostic.receive(chunk));
+    this.closed = new Promise(resolve => engine.once("close", () => afterOutput(() => {
       this.ended = true;
+      if(this.pending.size||engine.exitCode!==0||!this.disposing&&!this.completion){
+        const stage=Array.from(this.pending.values())[0]?.op??(this.opened?"running":"opening");
+        console.warn("[guest-provider-close] "+JSON.stringify({driver:this.driver,account:this.instanceId,threadId:this.threadId,stage,code:typeof engine.exitCode==="number"?engine.exitCode:null,signal:typeof engine.signalCode==="string"&&/^SIG[A-Z0-9]{1,12}$/.test(engine.signalCode)?engine.signalCode:null,category:diagnostic.category}));
+      }
       const reason = engine.notDispatched ? "The computer could not start the engine." : "The connection to the engine on this dog's computer ended.";
       const error = new Error(reason);
       for (const call of this.pending.values()) call.fail(error);
@@ -50,7 +56,7 @@ export class GuestProviderChannel {
         publish({ ...base, eventId: newEventId(), type: "turn.completed", ok: false, stopReason: "disconnected" });
       }
       resolve();
-    }));
+    })));
   }
 
   private receive(line: string) {
@@ -92,14 +98,14 @@ export class GuestProviderChannel {
     if (!call) return;
     this.pending.delete(frame.id);
     if (typeof frame.error === "string") call.fail(new Error(frame.error));
-    else call.done(frame.value);
+    else {if(call.op==="open")this.opened=true;call.done(frame.value);}
   }
 
   request<T>(request: GuestRequest, read?: () => void): Promise<T> {
     if (this.ended) return Promise.reject(new Error("The engine connection has ended."));
     const id = ++this.sequence;
     return new Promise((done, fail) => {
-      this.pending.set(id, { done: value => done(value as T), fail, read });
+      this.pending.set(id, { op:request.op,done: value => done(value as T), fail, read });
       this.engine.stdin.write(JSON.stringify({ id, request }) + "\n", error => {
         if (!error) return;
         this.pending.delete(id);

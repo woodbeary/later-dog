@@ -1,4 +1,4 @@
-import { recallMessages, recallTerms, type MemoryHit, type RecallHit } from "./message-db.ts";
+import { recallMessages, recallMessagesAsync, recallTerms, type MemoryHit, type RecallHit } from "./message-db.ts";
 import { parseTopicHeader, readTopicHead, topicBody, topicWords } from "./memory-topics.ts";
 import { listMemoryTopics, memoryDate, readMemoryTopic, searchMemoryFiles, workspaceDir } from "./workspace.ts";
 import { withoutExpired } from "./memory-entries.ts";
@@ -141,6 +141,9 @@ export function conversationPassages(input: RecallInput, query: string): RecallP
   } catch {
     return [];
   }
+  return passagesFromHits(input, query, hits);
+}
+function passagesFromHits(input: RecallInput, query: string, hits: RecallHit[]): RecallPassage[] {
   return hits
     .filter((hit) => enoughMatches(query, hit.snippet))
     .slice(0, CONVERSATION_HITS)
@@ -155,8 +158,19 @@ export function conversationPassages(input: RecallInput, query: string): RecallP
 export function buildRecall(input: RecallInput): RecallResult | null {
   const query = recallQuery(input.message);
   if (!query) return null;
+  return renderWithMemory(input, query, conversationPassages(input, query));
+}
+
+export async function buildRecallAsync(input: RecallInput): Promise<RecallResult | null> {
+  const query = recallQuery(input.message);
+  if (!query) return null;
+  const hits = await recallMessagesAsync(query, input.threadIds, CONVERSATION_HITS * 3, undefined, "any").catch((): RecallHit[] => []);
+  return renderWithMemory(input, query, passagesFromHits(input, query, hits));
+}
+
+function renderWithMemory(input: RecallInput, query: string, passages: RecallPassage[]): RecallResult | null {
   const topics = topicPassages(input.botId, query);
   const named = new Set(topics.map((passage) => passage.label));
   const notes = [...topics, ...memoryPassages(input.botId, query).filter((passage) => !named.has(passage.label))].slice(0, MEMORY_HITS);
-  return renderRecall([...notes, ...conversationPassages(input, query)]);
+  return renderRecall([...notes, ...passages]);
 }

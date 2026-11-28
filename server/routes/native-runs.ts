@@ -28,7 +28,7 @@ export function createNativeRunRoutes(deps: NativeRunRouteDeps): RouteHandler {
     if (!auth.scopes.includes("client") && !auth.scopes.includes("admin")) return json(res, 403, { error: "Conversation access required" });
     let actorId: string;
     try { actorId = decodeURIComponent(encodedActorId); } catch { return json(res, 400, { error: "Invalid helper" }); }
-    const run = deps.store.get(runId);
+    const run = deps.store.get(runId, threadId);
     if (!run || run.threadId !== threadId) return json(res, 404, { error: "No such activity" });
     const actor = run.actors.find(actor => actor.id === actorId);
     if (!actor) return json(res, 404, { error: "No such helper" });

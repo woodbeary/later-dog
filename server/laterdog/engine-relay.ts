@@ -1,3 +1,4 @@
+import { WorkspaceReceipts } from "./engine-workspace-receipts.ts";
 import { runFolderCommand } from "./engine-folder-process.ts";
 import { ENGINE_FOLDER_STATE, guestFolderDir, type EngineWorkFolder } from "./engine-folder-sync.ts";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
@@ -87,7 +88,13 @@ function workspaceReceiptFile(root: EngineFileRoot): string {
   return `${stateFile}.workspace-${createHash("sha256").update(root.path).digest("hex")}.json`;
 }
 
+let sharedWorkspace: WorkspaceReceipts | undefined;
 function readWorkspaceReceipt(root: EngineFileRoot): EngineFile[] {
+  if (root.id === "workspace") {
+    if (sharedWorkspace) throw Error("A working folder was configured twice");
+    sharedWorkspace = new WorkspaceReceipts(root, stateFile);
+    return sharedWorkspace.read();
+  }
   try {
     const files: EngineFile[] = JSON.parse(readFileSync(workspaceReceiptFile(root), "utf8"));
     if (!Array.isArray(files) || !files.every(file => file.root === root.id && typeof file.path === "string" && /^[a-f0-9]{64}$/.test(file.hash))) throw new Error("Invalid working folder checkpoint receipt");
@@ -96,7 +103,11 @@ function readWorkspaceReceipt(root: EngineFileRoot): EngineFile[] {
 }
 
 function saveWorkspaceReceipt() {
-  for (const root of outputs.filter(streamedTree)) writeFileAtomic(workspaceReceiptFile(root), JSON.stringify([...baseline.values()].filter(file => file.root === root.id)), { mode: 0o600 });
+  for (const root of outputs.filter(streamedTree)) {
+    const files = [...baseline.values()].filter(file => file.root === root.id);
+    if (root.id === "workspace" && sharedWorkspace) sharedWorkspace.save(files);
+    else writeFileAtomic(workspaceReceiptFile(root), JSON.stringify(files), { mode: 0o600 });
+  }
 }
 
 async function inventory(roots: EngineFileRoot[]) {
@@ -272,9 +283,9 @@ async function launch(frame: any): Promise<void> {
   const strict = new Set(outputs.filter(streamedTree).map(root => root.id));
   const selected = [...receiver.baseline.values()].filter(file => strict.has(file.root));
   baseline = new Map([...installed.filter(file => outputIds.has(file.root) && !strict.has(file.root)), ...selected].map(file => [engineFileKey(file), file]));
-  saveWorkspaceReceipt();
   const resident = installed.filter(file => strict.has(file.root));
   if (resident.length !== selected.length || resident.some(file => !sameEngineFile(baseline.get(engineFileKey(file)), file))) throw new Error("The working folder changed during preparation. Its copies were preserved.");
+  saveWorkspaceReceipt();
   saveTranscriptReceipts();
   receiver.baseline.clear();
   for (const file of installed) receiver.baseline.set(engineFileKey(file), file);

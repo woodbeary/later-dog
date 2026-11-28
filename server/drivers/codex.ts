@@ -1,3 +1,4 @@
+import { consumeEngineLines } from "../laterdog/engine-lines.ts";
 import { CodexHelpers } from "./codex-helpers.ts";
 import { CodexNativeActivity, type CodexActorTarget } from "../laterdog/codex-native-activity.ts";
 import { enginePlans } from "../laterdog/dog-plan.ts";
@@ -1496,38 +1497,29 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         }
       };
 
-      let buf = "";
-      child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk) => {
+      const afterOutput = consumeEngineLines(child.stdout, (line) => {
         if (abandoned || state.settled) return;
-        buf += chunk;
-        let nl;
-        while (!state.settled && (nl = buf.indexOf("\n")) !== -1) {
-          const line = buf.slice(0, nl);
-          buf = buf.slice(nl + 1);
-          if (!line.trim()) continue;
-          let msg: any;
-          try {
-            msg = JSON.parse(line);
-          } catch {
-            continue;
+        let msg: any;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          return;
+        }
+        stderrSinceOutput = "";
+        if (externalAuth?.receive(msg)) return;
+        const loggedMessage = codexNativeIncomingLogMessage(msg, sensitiveResponseIds);
+        appendNative(threadId, { dir: "in", source: "codex.app-server", msg: loggedMessage });
+        if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
+          const pend = rpcPending.get(msg.id);
+          if (pend) {
+            rpcPending.delete(msg.id);
+            if (msg.error) pend.reject(new CodexRpcError(msg.error));
+            else pend.resolve(msg.result);
           }
-          stderrSinceOutput = "";
-          if (externalAuth?.receive(msg)) continue;
-          const loggedMessage = codexNativeIncomingLogMessage(msg, sensitiveResponseIds);
-          appendNative(threadId, { dir: "in", source: "codex.app-server", msg: loggedMessage });
-          if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
-            const pend = rpcPending.get(msg.id);
-            if (pend) {
-              rpcPending.delete(msg.id);
-              if (msg.error) pend.reject(new CodexRpcError(msg.error));
-              else pend.resolve(msg.result);
-            }
-          } else if (msg.id !== undefined && msg.method) {
-            handleServerRequest(msg);
-          } else if (msg.method) {
-            handleNotification(msg);
-          }
+        } else if (msg.id !== undefined && msg.method) {
+          handleServerRequest(msg);
+        } else if (msg.method) {
+          handleNotification(msg);
         }
       });
 
@@ -1544,7 +1536,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
         void settle(false, "spawn_error");
       });
-      child.on("close", (code, signal) => {
+      child.on("close", (code, signal) => afterOutput(() => {
         externalAuth?.close();
         if (abandoned) return;
         if (state.settled) {
@@ -1610,7 +1602,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           }`,
         });
         void settle(false, "exit_before_result");
-      });
+      }));
 
       const stopNativeActor = async (actor: CodexActorTarget) => {
         if (state.settled || abandoned || stopRequested || child.exitCode !== null || child.signalCode !== null) throw new Error("This native run is no longer connected.");

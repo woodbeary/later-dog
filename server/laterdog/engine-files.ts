@@ -94,13 +94,15 @@ export function sameEngineFile(left?: EngineIdentity, right?: EngineIdentity): b
   return left?.hash === right?.hash && left?.mode === right?.mode && left?.link === right?.link && left?.directory === right?.directory;
 }
 
-export function workspaceRecovery(root: string, home: readonly EngineFile[], computer: readonly EngineFile[], previous: readonly EngineFile[]) {
-  const byName = (files: readonly EngineFile[]) => new Map(files.filter(file => file.root === root).map(file => [file.path, file]));
+export function workspaceRecovery(root: string, home: readonly EngineFile[], computer: readonly EngineFile[], previous: readonly (EngineFile & { uncertain?: true })[]) {
+  const byName = <T extends EngineFile>(files: readonly T[]) => new Map(files.filter(file => file.root === root).map(file => [file.path, file]));
   const local = byName(home), remote = byName(computer), baseline = byName(previous);
   const changes: (EngineIdentity & { root: string; path: string })[] = [];
   for (const path of new Set([...remote.keys(), ...baseline.keys()])) {
     const here = local.get(path), there = remote.get(path), before = baseline.get(path);
-    if (sameEngineFile(here, there) || sameEngineFile(there, before)) continue;
+    if (sameEngineFile(here, there)) continue;
+    if (before?.uncertain) throw new Error(`The working file ${path} has conflicting shared checkpoints. Both copies were preserved.`);
+    if (sameEngineFile(there, before)) continue;
     if (!sameEngineFile(here, before)) throw new Error(`The working file ${path} changed on both computers. Both copies were preserved.`);
     changes.push({ root, path, hash: there?.hash, mode: there?.mode, link: there?.link, directory: there?.directory });
   }

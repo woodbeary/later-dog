@@ -1,3 +1,4 @@
+import { HistoryHomeCutover, type HomeHistoryPlacement, type HomeHistoryRequest, type ParkedHistoryDisk } from "./history-home-cutover.ts";
 import type { ReverseRequest } from "./work-folder-reverse.ts";
 import { WorkFolderCutover, cutoverMutable, type CutoverRequest } from "./work-folder-cutover.ts";
 import { workFolderCensus, type FolderCensusRequest } from "./work-folder-census.ts";
@@ -7,7 +8,7 @@ import { WORK_FOLDER_ROUTE } from "../../../../shared/work-folder-store.ts";
 import { Container, type OutboundHandlerContext } from "@cloudflare/containers";
 import { parseActivity, signedActivityRequest, sleepDecision, type HomeActivity } from "./activity.ts";
 import { grantedAsHome, includedKeyDue } from "./included.ts";
-import { hex, randomToken, sha256 } from "./encoding.ts";
+import { hex, hmacSha256, randomToken, sha256 } from "./encoding.ts";
 import { bootstrapSecret, type HomeIdentity } from "./identity.ts";
 import { parsePairingGrant, signedPairingRequest, type PairingGrant } from "./pairing.ts";
 import { handleOwnerEmail, type OwnerMail } from "./email.ts";
@@ -47,11 +48,17 @@ export const HOME_PORT = 8080;
 const RECORD_KEY = "home";
 const SLOW_SETUP_MS = 3 * 60_000;
 export const BOOT_PORT_TIMEOUT_MS = 20 * 60_000;
-export const PAIR_WAKE_WAIT_MS = 15_000;
+export const FOREGROUND_WAKE_WAIT_MS = 15_000;
 const BUSY_MEMORY_MS = 10_000;
 const STARTED_KEY = "started-included-key";
 const STANDING_KEY = "standing";
 const REMOVED_KEY = "removed";
+const HISTORY_REMOVAL = "historyRemoval";
+type HomeRemoval = {id:string;machineId:string;other:boolean;phase:"deleting"} | {id:string;phase:"complete"};
+interface HistoryRemovalService {
+  eraseHome(stable:string, id:string):Promise<boolean>;
+  reopenHome(stable:string, id:string):Promise<void>;
+}
 const REMOVED = "This home was removed.";
 const WAKERS_KEY = "wakers";
 const OUTBOX_KEY = "desk-outbox";
@@ -117,6 +124,7 @@ export class CloudHomeHost extends Container<Env> {
   private signalled = false;
   private serverUp = false;
   private removed = false;
+  private removal?: HomeRemoval;
   private wakers: Wakers = {};
   private ownerKeys: Record<string, number> = {};
   private outbox: QueuedSend[] = [];
@@ -154,25 +162,61 @@ export class CloudHomeHost extends Container<Env> {
       this.ctx.waitUntil(this.stop().catch(error => { this.signalled = false; throw error; }));
     },
     storage: this.ctx.storage,
-    idle: async () => Boolean(this.record && !this.booting && !this.delivering && !this.outbox.length &&
-      !this.admittedRequests && !this.answering.size && (await this.activity(this.record))?.busy === false),
+    idle: () => this.migrationIdle(),
     schedule: async () => {
       this.deleteSchedules("recoverWorkFolderCutover");
       await this.schedule(15, "recoverWorkFolderCutover");
     },
     writerEpoch: async () => hex(await sha256(this.record?.stateToken ?? "")),
-    revokeWriter: async original => {
-      if (!this.record) throw Error("The original home has no owner");
-      const next = hex(await sha256(this.record.stateToken)) === original ? { ...this.record, stateToken: randomToken(32) } : this.record;
-      await this.ctx.storage.put(RECORD_KEY, next);
-      this.record = next;
-      await this.routeState(next, { always: true });
-      this.envVars = await this.environment(next);
-    },
+    revokeWriter: original => this.revokeStateWriter(original),
     retire: async originalDisk => {
       if (originalDisk && this.ctx.container?.running) await this.destroy();
     },
   });
+  private migrationQueue: Promise<unknown> = Promise.resolve();
+  private readonly historyHold = new HistoryHomeCutover({
+    bucket: this.env.STATE, storage: this.ctx.storage, physicalId: this.ctx.id.toString(),
+    running: () => !!this.ctx.container?.running || !!this.booting,
+    idle: () => this.migrationIdle(),
+    writer: async () => hex(await sha256(this.record?.stateToken ?? "")),
+    revoke: original => this.revokeStateWriter(original),
+    retire: () => this.destroy(),
+    schedule: async () => {
+      this.deleteSchedules("recoverHistoryHome");
+      await this.schedule(15, "recoverHistoryHome");
+    },
+    placement: stable => this.historyPlacement(stable),
+    neverActivated: (stable, generation) => {
+      const history = (this.env as unknown as { HISTORY: { neverActivated(stable:string,generation:string): Promise<boolean> } }).HISTORY;
+      return history.neverActivated(stable,generation);
+    },
+    disk: async (action, lease) => {
+      const disk = this.ctx.container;
+      if (!disk?.running) throw Error("Original coordinator disk is unavailable");
+      const child = await disk.exec(["node","/app/cloud/runtime/history-park.mjs",action,lease],{user:"root",stderr:"ignore"});
+      const [raw,code] = await Promise.all([new Response(child.stdout).text(),child.exitCode]);
+      if (code !== 0 || raw.length > 2048) throw Error("The original home cannot confirm its maintenance state");
+      return JSON.parse(raw) as ParkedHistoryDisk;
+    },
+  });
+  private async migrationIdle() {
+    return !!this.record && !this.signalled && !this.booting && !this.delivering && !this.outbox.length &&
+      !this.admittedRequests && !this.answering.size && (await this.activity(this.record))?.busy === false;
+  }
+  private async revokeStateWriter(original: string) {
+    if (!this.record) throw Error("The original home has no owner");
+    const next = hex(await sha256(this.record.stateToken)) === original ? { ...this.record, stateToken: randomToken(32) } : this.record;
+    await this.ctx.storage.put(RECORD_KEY, next);
+    this.record = next;
+    await this.routeState(next, { always: true });
+    this.envVars = await this.environment(next);
+  }
+  private migrationClosed() { return this.cutover.closed() || this.historyHold.closed(); }
+  private migrationControl<T>(action: () => Promise<T>) {
+    const result = this.migrationQueue.then(action);
+    this.migrationQueue = result.catch(() => {});
+    return result;
+  }
   private readonly handover = new Handover({
     standing: () => this.storedStanding ?? (this.size === "standard" ? "holding" : "released"),
     stand: async (standing) => {
@@ -198,9 +242,12 @@ export class CloudHomeHost extends Container<Env> {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => {
       await this.cutover.load();
+      await this.historyHold.load();
       this.record = (await ctx.storage.get<HomeRecord>(RECORD_KEY)) ?? null;
       this.storedStanding = (await ctx.storage.get<HomeStanding>(STANDING_KEY)) ?? null;
-      this.removed = (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;
+      this.removal = await ctx.storage.get<HomeRemoval>(HISTORY_REMOVAL);
+      this.removed = !!this.removal || (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;
+      if (this.removal?.phase === "deleting") await this.schedule(15,"resumeHomeRemoval");
       this.wakers = (await ctx.storage.get<Wakers>(WAKERS_KEY)) ?? {};
       this.ownerKeys = (await ctx.storage.get<Record<string, number>>(OWNER_KEYS_KEY)) ?? {};
       this.outbox = (await ctx.storage.get<QueuedSend[]>(OUTBOX_KEY)) ?? [];
@@ -244,30 +291,69 @@ export class CloudHomeHost extends Container<Env> {
 
   async controlWorkFolderReverse(machineId: string, nonce: string, request: ReverseRequest) {
     if (this.removed || !this.record || this.record.machineId !== machineId || !this.handover.holds()) throw Error("No mounted source home");
-    return this.cutover.reverseControl(this.stateHome(machineId), machineId, nonce, request);
+    return this.migrationControl(() => {
+      if (this.historyHold.closed()) throw Error("Coordinator history migration is holding the home");
+      return this.cutover.reverseControl(this.stateHome(machineId), machineId, nonce, request);
+    });
   }
 
   async controlWorkFolderCutover(machineId: string, nonce: string, request: CutoverRequest) {
     if (this.removed || !this.record || this.record.machineId !== machineId || !this.handover.holds()) throw Error("No original source home");
-    return this.cutover.control(this.stateHome(machineId), machineId, nonce, request);
+    return this.migrationControl(() => {
+      if (this.historyHold.closed()) throw Error("Coordinator history migration is holding the home");
+      return this.cutover.control(this.stateHome(machineId), machineId, nonce, request);
+    });
   }
+
+  private async historyPlacement(stable: string): Promise<HomeHistoryPlacement> {
+    const history = this.env.HISTORY as unknown as { handle(stable: string, request: Request): Promise<Response> };
+    const response = await history.handle(stable, new Request("http://state.r2/history/status"));
+    if (!response.ok) throw Error("Cannot verify conversation history placement");
+    return response.json<HomeHistoryPlacement>();
+  }
+
+  private async needsLiveHistory(record: HomeRecord, request: Request, key: string | null): Promise<boolean> {
+    if (!key || !this.knownDevice(key) || !this.env.HISTORY || request.method !== "GET" ||
+      !/^\/api\/threads\/[\w-]+\/messages$/.test(new URL(request.url).pathname)) return false;
+    const placement = await this.historyPlacement(this.stateHome(record.machineId)).catch(() => null);
+    return placement?.mode !== "legacy" && placement?.mode !== "dual";
+  }
+
+  async controlHistoryHome(machineId: string, nonce: string, request: HomeHistoryRequest) {
+    return this.migrationControl(() => {
+      if (this.removed || !this.record || this.record.machineId !== machineId || !this.handover.holds() || this.cutover.closed()) throw Error("The original home is unavailable");
+      return this.historyHold.control(this.stateHome(machineId),machineId,nonce,request);
+    });
+  }
+  async recoverHistoryHome() { await this.historyHold.recover(); }
 
   async recoverWorkFolderCutover() {
     await this.cutover.recover();
+  }
+
+  async handleHistoryRequest(stable: string, token: string, request: Request): Promise<Response> {
+    if (!this.record || this.removed || !this.handover.holds() || stable !== this.stateHome(this.record.machineId) || token !== this.record.stateToken)
+      return new Response("Retired history writer", {status: 401});
+    if (this.cutover.closed())
+      return new Response("Home history is held", {status: 423, headers: {"retry-after": "5"}});
+    const history = this.env.HISTORY as unknown as {handle(stable: string, request: Request): Promise<Response>;restore(stable:string,request:Request):Promise<Response>};
+    const forwarded = new Request(request.url,{method:request.method,body:request.body,headers:{"content-type":"application/json"}});
+    return this.historyHold.historyRequest(() => ["/history/restore","/history/restore-row"].includes(new URL(request.url).pathname) ? history.restore(stable,forwarded) : history.handle(stable,forwarded));
   }
 
   async mutateHomeState(stable: string, token: string, request: Request) {
     if (!this.record || stable !== this.stateHome(this.record.machineId) || !cutoverMutable(request)) {
       return new Response("Invalid home mutation", { status: 403 });
     }
-    return this.cutover.mutation(request, () => this.record?.stateToken === token, () => {
+    const authenticated = () => !this.removed && this.record?.stateToken === token;
+    return this.historyHold.mutation(request, authenticated, () => this.cutover.mutation(request, authenticated, () => {
       if (workFolderControlPath(new URL(request.url).pathname)) return handleWorkFolderPlacement(request, this.env.STATE, stable);
       return handleState(request, this.env.STATE, stable);
-    });
+    }));
   }
 
   async release(): Promise<boolean> {
-    if (this.cutover.closed()) return false;
+    if (this.migrationClosed()) return false;
     const released = await this.handover.release();
     if (released) await this.cutover.drain();
     return released;
@@ -283,7 +369,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   private async quiet(): Promise<void> {
-    if (this.cutover.closed()) return;
+    if (this.migrationClosed()) return;
     this.deleteSchedules("maintain");
     this.deleteSchedules("wakeForRoutine");
     if (!this.ctx.container?.running || this.signalled) return;
@@ -292,7 +378,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   override startAndWaitForPorts(...args: Parameters<Container<Env>["startAndWaitForPorts"]>): Promise<void> {
-    if (this.cutover.closed()) return Promise.reject(new Error("Original home disk is held"));
+    if (this.migrationClosed()) return Promise.reject(new Error("Original home disk is held"));
     if (this.removed) return Promise.reject(new Error(REMOVED));
     return this.handover.launch(() => super.startAndWaitForPorts(...args));
   }
@@ -306,6 +392,7 @@ export class CloudHomeHost extends Container<Env> {
       LATERDOG_PUBLIC_URL: record.origin,
       LATERDOG_STATE_URL: `http://${STATE_HOST}`,
       LATERDOG_STATE_TOKEN: record.stateToken,
+      LATERDOG_HISTORY_URL: `http://${STATE_HOST}/history`,
       ...(record.emailToken ? { LATERDOG_CLOUD_EMAIL_URL: `http://${EMAIL_HOST}/send`, LATERDOG_CLOUD_EMAIL_TOKEN: record.emailToken } : {}),
       ...(record.googleToken ? { LATERDOG_CLOUD_GOOGLE_URL: `http://${GOOGLE_HOST}`, LATERDOG_CLOUD_GOOGLE_TOKEN: record.googleToken } : {}),
       ...(record.includedKey ? { LATERDOG_INCLUDED_KEY: record.includedKey, LATERDOG_INCLUDED_API: this.env.INCLUDED_API } : {}),
@@ -315,15 +402,24 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async bury(): Promise<void> {
-    if (this.cutover.closed()) throw Error("Original home disk is held");
+    if (this.migrationClosed()) throw Error("Original home disk is held");
     this.removed = true;
     await this.ctx.storage.put(REMOVED_KEY, true);
   }
 
   async reopen(): Promise<void> {
-    if (this.cutover.closed()) throw Error("Original home disk is held");
-    this.removed = false;
-    await this.ctx.storage.delete(REMOVED_KEY);
+    if (this.migrationClosed()) throw Error("Original home disk is held");
+    if (this.removal?.phase === "deleting") throw Error("Home removal is still in progress");
+    return this.migrationControl(async () => {
+      if (this.removal?.phase === "deleting") throw Error("Home removal is still in progress");
+      if (this.removal) {
+        await this.historyRemovalService().reopenHome(this.ctx.id.toString(), this.removal.id);
+        await this.ctx.storage.delete(HISTORY_REMOVAL);
+        this.removal = undefined;
+      }
+      this.removed = false;
+      await this.ctx.storage.delete(REMOVED_KEY);
+    });
   }
 
   async adopt(identity: HomeIdentity): Promise<void> {
@@ -344,7 +440,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async maintain(): Promise<void> {
-    if (this.cutover.closed()) return;
+    if (this.migrationClosed()) return;
     const known = this.record;
     if (!known) return;
     if (!this.handover.holds()) {
@@ -356,11 +452,11 @@ export class CloudHomeHost extends Container<Env> {
     if (!this.ctx.container?.running) return;
     if ((await this.ctx.storage.get<string>(STARTED_KEY)) === (record.includedKey ?? "")) return;
     const activity = await this.activity(record).catch(() => null);
-    if (activity && !activity.busy) await this.stop();
+    if (activity && !activity.busy && !this.migrationClosed()) await this.stop();
   }
 
   async keepUp(): Promise<void> {
-    if (this.cutover.closed()) return;
+    if (this.migrationClosed()) return;
     const record = this.record;
     if (!record || this.removed || !alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) {
       this.deleteSchedules("keepUp");
@@ -382,7 +478,7 @@ export class CloudHomeHost extends Container<Env> {
     const now = Date.now();
     const { record: next, restart } = afterCheck(previous, answered, now);
     await this.ctx.storage.put(ANSWER_KEY, next);
-    if (!restart) return;
+    if (!restart || this.migrationClosed()) return;
     console.error(stuckLine(record.machineId, { ...previous, missed: previous.missed + 1 }, now));
     this.serverUp = false;
     await this.destroy().catch(() => undefined);
@@ -445,11 +541,11 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async pair(input: { label: string; ttlSeconds: number }): Promise<PairOutcome> {
-    if (this.cutover.closed()) throw Error("Original home disk is held");
+    if (this.migrationClosed()) throw Error("Original home disk is held");
     const record = this.record;
     const summary = await this.summary();
     if (!record || summary?.state !== "ready") return { ok: false, summary };
-    if (!(await this.awake(record, PAIR_WAKE_WAIT_MS))) {
+    if (!(await this.awake(record, FOREGROUND_WAKE_WAIT_MS))) {
       return { ok: false, summary: { state: "setting_up", origin: record.origin, setup: { step: "starting" } }, status: 503 };
     }
     const secret = await bootstrapSecret(this.env.HOME_SECRET, record.machineId);
@@ -460,18 +556,55 @@ export class CloudHomeHost extends Container<Env> {
     return { ok: true, origin: record.origin, ...grant };
   }
 
-  async remove(): Promise<{ removed: number }> {
-    if (this.cutover.closed()) throw Error("Original home disk is held");
-    const home = this.record ? this.stateHome(this.record.machineId) : this.size === "standard" ? this.ctx.id.toString() : null;
+  private historyRemovalService(): HistoryRemovalService {
+    if (!this.env.HISTORY) throw Error("Conversation storage removal is unavailable");
+    return this.env.HISTORY as unknown as HistoryRemovalService;
+  }
+  async remove(machineId: string, large: boolean): Promise<{ removed: number }> {
+    if (
+      this.migrationClosed() ||
+      this.size !== "standard" ||
+      this.env.HOMES.idFromName(machineId).toString() !== this.ctx.id.toString()
+    )
+      throw Error("Original home is unavailable for removal");
+    if (!this.removal) {
+      this.removal = {
+        id: hex(crypto.getRandomValues(new Uint8Array(32))),
+        phase: "deleting",
+        machineId,
+        other: large || !this.handover.holds(),
+      };
+      this.removed = true;
+    }
+    return this.migrationControl(() => this.finishRemoval());
+  }
+  async resumeHomeRemoval() {
+    if (this.removal?.phase === "deleting") await this.migrationControl(() => this.finishRemoval());
+  }
+  private async finishRemoval(): Promise<{ removed: number }> {
+    const journal = this.removal;
+    if (!journal || journal.phase === "complete") return { removed: 0 };
+    await this.ctx.storage.put(HISTORY_REMOVAL, journal);
     await this.bury();
+    this.deleteSchedules("resumeHomeRemoval");
+    await this.schedule(30, "resumeHomeRemoval");
+    if (journal.other) {
+      const ns = this.env.HOMES_LARGE;
+      await ns.get(ns.idFromName(journal.machineId)).forget();
+    }
     await this.silence();
-    const removed = home ? await forgetHomeState(this.env.STATE, home) : 0;
-    await this.erase();
+    await Promise.allSettled([...this.deskChains.values(), ...this.checking.values(), this.delivering]);
+    const stable = this.ctx.id.toString();
+    const history = this.historyRemovalService();
+    while (!(await history.eraseHome(stable, journal.id))) continue;
+    const removed = await forgetHomeState(this.env.STATE, stable);
+    this.deleteSchedules("resumeHomeRemoval");
+    await this.erase(journal);
     return { removed };
   }
 
   async forget(): Promise<void> {
-    if (this.cutover.closed()) throw Error("Original home disk is held");
+    if (this.migrationClosed()) throw Error("Original home disk is held");
     await this.bury();
     await this.silence();
     await this.erase();
@@ -479,11 +612,35 @@ export class CloudHomeHost extends Container<Env> {
 
   private async silence(): Promise<void> {
     await this.handover.release();
-    await this.destroy().catch(() => undefined);
+    await this.destroy().catch((error) => {
+      if (this.ctx.container?.running) throw error;
+    });
+    if (this.ctx.container?.running) throw Error("The original home is still stopping");
   }
 
-  private async erase(): Promise<void> {
-    await this.ctx.storage.deleteAll();
+  private async erase(journal?: HomeRemoval): Promise<void> {
+    if (journal) {
+      let after: string | undefined;
+      for (;;) {
+        const page = await this.ctx.storage.list({ limit: 128, startAfter: after });
+        if (!page.size) break;
+        const keys = [...page.keys()];
+        const remove = keys.filter((key) => key !== REMOVED_KEY && key !== HISTORY_REMOVAL);
+        if (remove.length) await this.ctx.storage.delete(remove);
+        after = keys.at(-1);
+      }
+      const completed: HomeRemoval = { id: journal.id, phase: "complete" };
+      await this.ctx.storage.put(HISTORY_REMOVAL, completed);
+      this.removal = completed;
+    } else await this.ctx.storage.deleteAll();
+    for (const stream of this.streams) this.dropDeskStream(stream);
+    this.outbox = [];
+    this.dropped = [];
+    this.deskDevices = {};
+    this.lastSaved.clear();
+    this.refused.clear();
+    this.refusedMidCheck.clear();
+    this.answering.clear();
     this.record = null;
     this.brain = null;
     this.storedStanding = null;
@@ -494,7 +651,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   override async onActivityExpired(): Promise<void> {
-    if (this.cutover.closed()) {
+    if (this.migrationClosed()) {
       this.renewActivityTimeout();
       return;
     }
@@ -513,11 +670,12 @@ export class CloudHomeHost extends Container<Env> {
     this.deleteSchedules("wakeForRoutine");
     if (decision.wakeAt !== null) await this.schedule(new Date(decision.wakeAt), "wakeForRoutine");
     await this.learnBrain(record);
+    if (this.migrationClosed()) { this.renewActivityTimeout(); return; }
     await super.onActivityExpired();
   }
 
   async wakeForRoutine(): Promise<void> {
-    if (this.cutover.closed()) return;
+    if (this.migrationClosed()) return;
     if (!this.record || this.removed || !this.handover.holds()) return;
     this.sleepAfter = ROUTINE_SLEEP_AFTER;
     this.boot(this.record, false);
@@ -536,7 +694,7 @@ export class CloudHomeHost extends Container<Env> {
     if (new URL(request.url).pathname.startsWith(WORK_FOLDER_ROUTE)) {
       return handleWorkFolder(request, this.env.STATE, this.stateHome(record.machineId), record.origin, await bootstrapSecret(this.env.HOME_SECRET, record.machineId));
     }
-    if (this.cutover.closed()) return new Response("Working folder transfer is in progress", { status: 503, headers: { "retry-after": "5" } });
+    if (this.migrationClosed()) return new Response(this.historyHold.closed() ? "Conversation history maintenance is in progress" : "Working folder transfer is in progress", { status: 503, headers: { "retry-after": "5" } });
     this.admittedRequests++;
     try { return await this.serveAdmitted(request, record); }
     finally { this.admittedRequests--; }
@@ -547,8 +705,9 @@ export class CloudHomeHost extends Container<Env> {
     const credential = background ? null : wakeCredential(request);
     const key = credential ? await wakerKey(credential) : null;
     const state = await this.machineState();
-    const running = state === "serving";
-    const wakes = !background && (await this.mayWake(key, !running));
+    const wakes = !background && (await this.mayWake(key, state !== "serving"));
+    const liveHistory = state !== "serving" && await this.needsLiveHistory(record, request, key);
+    const running = state === "serving" || (liveHistory && wakes && await this.awake(record, FOREGROUND_WAKE_WAIT_MS));
     if (wakes) this.sleepAfter = personSleepAfter(this.env.HOME_SLEEP_AFTER);
     if (wakes && alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) await this.armKeepUp();
     if (running) {
@@ -566,9 +725,9 @@ export class CloudHomeHost extends Container<Env> {
       if (credential && key) this.learn(record, credential, key, response);
       return kind ? this.keepAnswer(record, kind, key, request, response) : response;
     }
-    if (wakes && state === "stopped") this.boot(record, true);
+    if (wakes && state === "stopped" && !liveHistory) this.boot(record, true);
     if (deskEvents(request) && key && remembered(this.wakers, key, Date.now())) return this.openDeskStream();
-    const saved = await this.answerAsleep(record, request, key);
+    const saved = liveHistory ? null : await this.answerAsleep(record, request, key);
     if (saved) return saved;
     const busy = this.lastStart?.wake === "busy" && Date.now() - this.lastStart.at < BUSY_MEMORY_MS;
     return wakeResponse(request, busy ? "busy" : wakes || this.booting || state === "starting" ? "waking" : "asleep");
@@ -815,7 +974,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async deliverQueued(): Promise<void> {
-    if (this.cutover.closed()) return;
+    if (this.migrationClosed()) return;
     const record = this.record;
     if (!record || this.removed || !this.outbox.length) return;
     await this.delivering;
@@ -1039,6 +1198,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   private boot(known: HomeRecord, claim: boolean): void {
+    if (this.migrationClosed()) return;
     if (this.booting || this.removed) return;
     let record = known;
     this.booting = this.handover.start(claim, {
@@ -1092,6 +1252,15 @@ export class CloudHomeHost extends Container<Env> {
 
 CloudHomeHost.outboundHandlers = {
   state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; machineId?: string; home?: string; devCode?: boolean }>) => {
+    if (new URL(request.url).pathname.startsWith("/history/")) {
+      const token = context.params?.token;
+      const restore = ["/history/restore","/history/restore-row"].includes(new URL(request.url).pathname);
+      if (!token || !await authorizedState(request,hex(await hmacSha256(token,restore?"laterdog history restore v1":"laterdog history v1"))))
+        return new Response("Unauthorized", {status: 401});
+      const stable = stateOwner(context);
+      const ns = stable === context.containerId ? env.HOMES : env.HOMES_LARGE;
+      return ns.get(ns.idFromString(context.containerId)).handleHistoryRequest(stable,token,request);
+    }
     if (!(await authorizedState(request, context.params?.token))) return new Response("Unauthorized", { status: 401 });
     if (cutoverMutable(request)) {
       const stable = stateOwner(context);

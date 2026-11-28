@@ -34,7 +34,7 @@
     },
     {
       "class_name": "CloudHomeHostLarge",
-      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-home-reliability@sha256:211e1f12bea1f00faff47067064542b4285931cce866b5e374f9d932aef311e0",
+      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-home-reliability@sha256:5c201883dfd0004bf78dcdd31efce5767aae1979208232c8f3d4ccc84eedfb35",
       "instance_type": "standard-4",
       "max_instances": 1,
       "observability": {
@@ -89,6 +89,11 @@
       "binding": "ACCOUNTS",
       "service": "laterdog-control-plane",
       "entrypoint": "AccountsApi"
+    },
+    {
+      "binding": "HISTORY",
+      "service": "laterdog-history-test",
+      "entrypoint": "HistoryApi"
     }
   ],
   "vars": {
@@ -96,7 +101,7 @@
     "ADMIN_ORIGIN": "https://accounts.later.dog",
     "INCLUDED_API": "https://cloud.later.dog/v1",
     "CODEX_ARCHIVE_ACCOUNTS": "test-cold-codex-writer",
-    "LARGE_HOME_ACCOUNTS": "test-cold-codex-writer",
+    "LARGE_HOME_ACCOUNTS": "test-cold-codex-writer,test-capacity-bundle-nov26",
     "ALWAYS_ON_ACCOUNTS": "",
     "HOME_SLEEP_AFTER": "2m",
     "HOME_WAKE_GUARD": "learning",

@@ -52,6 +52,7 @@ function cloud(largeAccounts = "") {
     ADMIN_ORIGIN: "https://accounts.later.dog",
     INCLUDED_API: "https://cloud.later.dog/v1",
     LARGE_HOME_ACCOUNTS: largeAccounts,
+    HISTORY: { eraseHome: async (_stable:string,_id:string) => true, reopenHome: async (_stable:string,_id:string) => {} },
     HOMES,
     HOMES_LARGE,
     STATE,
@@ -341,6 +342,32 @@ describe("deleting a listed owner's home", () => {
     expect(HOMES.machine(owner).running).toBe(false);
     expect(HOMES_LARGE.machine(owner).running).toBe(false);
     expect(world.overlaps).toEqual([]);
+  });
+
+  it("retains the same authorized removal across a service outage and isolates forget from tenant erasure", async () => {
+    const { HOMES, HOMES_LARGE, api, env, settle } = cloud(OWNER);
+    const machine = await machineOf(OWNER), tokens = new Set<string>();
+    let blocked = true;
+    env.HISTORY.eraseHome = async (_stable, token) => {
+      tokens.add(token);
+      if (blocked) throw Error("Conversation storage is unavailable");
+      return true;
+    };
+    await api.open(OWNER);
+    await settle();
+    await host(HOMES_LARGE,machine).forget();
+    expect(tokens.size).toBe(0);
+    await expect(api.remove(OWNER)).rejects.toThrow("unavailable");
+    await expect(api.open(OWNER)).rejects.toThrow("in progress");
+    const id=HOMES.idFromName(machine);
+    const replacement=new CloudHomeHost(HOMES.contexts.get(id.toString()) as never,env as never);
+    await settle();blocked=false;
+    await replacement.resumeHomeRemoval();
+    expect(tokens.size).toBe(1);
+    let reopened:string|undefined;
+    env.HISTORY.reopenHome=async(_stable, token)=>{reopened=token;};
+    await replacement.reopen();
+    expect(reopened).toBe([...tokens][0]);
   });
 
   it("opens again when the same account signs up again", async () => {

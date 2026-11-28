@@ -494,6 +494,7 @@ export class Store {
   bots: BotRecord[] = [];
   groups: GroupRecord[] = [];
   private threads = new Map<string, ThreadState>();
+  private historyRevision = mdb.historyCacheRevision();
   private readonly maxCachedThreads: number;
   private readonly maxCachedMessages: number;
   private defaultSelection: () => ModelSelection;
@@ -1285,8 +1286,17 @@ export class Store {
     return this.threads.has(threadId);
   }
 
+  private cachedThread(threadId:string):ThreadState|undefined {
+    const revision = mdb.historyCacheRevision();
+    if (revision !== this.historyRevision) {
+      this.threads.clear();
+      this.historyRevision = revision;
+    }
+    return this.threads.get(threadId);
+  }
+
   private thread(threadId: string): ThreadState {
-    const t = this.threads.get(threadId);
+    const t = this.cachedThread(threadId);
     if (t) return this.touchCachedThread(threadId, t);
     return this.cacheThread(threadId, mdb.readThread(threadId, messagesFile(threadId)));
   }
@@ -1311,17 +1321,19 @@ export class Store {
   }
 
   hasPendingRequest(threadId: string): boolean {
-    const cached = this.threads.get(threadId);
+    const cached = this.cachedThread(threadId);
     return cached ? cached.messages.some(message => message.requestPending === true && !message.requestCancelled)
       : mdb.hasPendingRequest(threadId, messagesFile(threadId));
   }
+
+  cachedMessagesTail(threadId:string,limit:number):Message[]|undefined {return this.cachedThread(threadId)?.messages.slice(-limit);}
 
   messagesFor(threadId: string): Message[] {
     return this.thread(threadId).messages;
   }
 
   messagesTail(threadId: string, limit: number): { messages: Message[]; hasMore: boolean; activeLeafId: string | null } {
-    let state = this.threads.get(threadId);
+    let state = this.cachedThread(threadId);
     if (state) {
       this.touchCachedThread(threadId, state);
     } else {
@@ -1404,8 +1416,10 @@ export class Store {
     if (!anchorExists || t.activeLeafId === anchorId) return this.appendMessage(threadId, message);
     const full: Message = { id: newId(), at: Date.now(), ...redactBotAuthored(message), parentId: anchorId };
     const children = t.messages.filter((m) => m.parentId === anchorId);
+    const updatedChildren=children.map(child=>({...child,parentId:full.id}));
+    mdb.insertMessageWithChildren(threadId,full,updatedChildren);
+    for(const child of children)child.parentId=full.id;
     t.messages.push(full);
-    mdb.insertMessage(threadId, full);
     if (full.kind === "screen") {
       for (const pruned of this.pruneScreenFrames(t)) {
         mdb.updateMessage(threadId, pruned);
@@ -1417,7 +1431,7 @@ export class Store {
       this.evictThreads(t.messages.length > this.maxCachedMessages ? undefined : threadId);
     }
     this.emit({ type: "message", threadId, message: full });
-    for (const child of children) this.patchMessage(threadId, child.id, { parentId: full.id });
+    for (const child of children) this.emit({ type:"message.patch",threadId,message:child });
     return full;
   }
 
@@ -1501,10 +1515,11 @@ export class Store {
     const idx = t.messages.findIndex((m) => m.id === messageId);
     if (idx === -1) return null;
     const next = { ...t.messages[idx], ...patch, card: patch.card ?? t.messages[idx].card };
+    const revision = mdb.historyCacheRevision();
     let applied = false;
     const persist = () => { mdb.updateMessage(threadId, next); applied = true; return next; };
     const committed = command ? runCommand(command, persist) : persist();
-    if (!applied) return committed;
+    if (!applied || revision !== mdb.historyCacheRevision()) return committed;
     t.messages[idx] = next;
     this.emit({ type: "message.patch", threadId, message: next });
     return next;

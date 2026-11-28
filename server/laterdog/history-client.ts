@@ -1,0 +1,241 @@
+import { HISTORY_RECEIPT_PREFIX, receiptDigest } from "../../shared/history-receipt.ts";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { MessageChannel, receiveMessageOnPort, Worker } from "node:worker_threads";
+import { BOOT_CLOUD_SECRETS } from "../cloud-secrets-boot.ts";
+import type { HistoryOperation } from "../../shared/history-shard-types.ts";
+import type { NativeRunList } from "../../shared/native-runs.ts";
+import { overviewHistory } from "./history-snapshot-cache.ts";
+import { HistoryLiveCache } from "./history-live-cache.ts";
+import { historyRequest } from "./history-request.ts";
+
+const mode = process.env.LATERDOG_HISTORY_MODE;
+const generation = process.env.LATERDOG_HISTORY_GENERATION;
+const url = process.env.LATERDOG_HISTORY_URL;
+const token = BOOT_CLOUD_SECRETS.LATERDOG_HISTORY_TOKEN;
+let worker: Worker | undefined;
+const liveCache = new HistoryLiveCache();
+export function isRemoteHistory() {
+  if (mode && !["legacy", "dual", "remote"].includes(mode))
+    throw Error("Conversation history is unavailable in this placement");
+  return mode === "remote";
+}
+export function remoteHistoryGeneration() {
+  return generation;
+}
+function endpoint() {
+  if (!generation || !url || !token) throw Error("The selected conversation history store is unavailable");
+  return { url, token };
+}
+function request<T>(route: string, body: unknown): T {
+  const options = endpoint();
+  if (!worker) {
+    const source = new URL("../history-transport.worker.ts", import.meta.url);
+    worker = new Worker(existsSync(source) ? source : new URL("./history-transport.worker.js", import.meta.url), {
+      workerData: options,
+      execArgv: [],
+    });
+    const current = worker;
+    current.on("error", () => {
+      if (worker === current) worker = undefined;
+    });
+    current.on("exit", () => {
+      if (worker === current) worker = undefined;
+    });
+    current.unref();
+  }
+  const { port1, port2 } = new MessageChannel();
+  const signal = new SharedArrayBuffer(4);
+  try {
+    worker.postMessage({ route, body, signal, port: port2 }, [port2]);
+    if (Atomics.wait(new Int32Array(signal), 0, 0, 55_000) === "timed-out")
+      throw Error("Conversation history request exceeded its deadline");
+    const result = receiveMessageOnPort(port1)?.message;
+    if (!result || result.error) throw Error(result?.error ?? "Conversation history returned an incomplete response");
+    return result.value as T;
+  } finally {
+    port1.close();
+  }
+}
+const receiptCache = new Map<string, string>();
+let cachedBytes = 0;
+function cacheReceipt(hash: string, value: string) {
+  if (receiptCache.has(hash) || Buffer.byteLength(value) > 1024 * 1024) return;
+  receiptCache.set(hash, value);
+  cachedBytes += Buffer.byteLength(value);
+  while (cachedBytes > 4 * 1024 * 1024 || receiptCache.size > 128) {
+    const oldest = receiptCache.keys().next().value!;
+    cachedBytes -= Buffer.byteLength(receiptCache.get(oldest)!);
+    receiptCache.delete(oldest);
+  }
+}
+export function storeHistoryReceipt(value: string): string {
+  const hash = createHash("sha256").update(value).digest("hex");
+  const route = "receipts/" + encodeURIComponent(generation!) + "/" + hash;
+  if (!receiptCache.has(hash)) {
+    request(route, value);
+    cacheReceipt(hash, value);
+  }
+  return HISTORY_RECEIPT_PREFIX + hash;
+}
+export function readHistoryReceipt(reference: string): string {
+  const hash = receiptDigest(reference),
+    cached = receiptCache.get(hash);
+  if (cached !== undefined) return cached;
+  const value = request<string>("receipts/" + encodeURIComponent(generation!) + "/" + hash, undefined);
+  if (typeof value !== "string" || createHash("sha256").update(value).digest("hex") !== hash)
+    throw Error("Conversation receipt checksum mismatch");
+  cacheReceipt(hash, value);
+  return value;
+}
+export function historyExecute<T>(
+  threadId: string,
+  operation: HistoryOperation,
+  requestId = randomUUID() as string,
+): T {
+  if (
+    [
+      "messages.append",
+      "messages.update",
+      "messages.insert",
+      "messages.import",
+      "messages.batch",
+      "messages.command",
+      "messages.leaf",
+      "messages.delete",
+    ].includes(operation.op)
+  )
+    overviewHistory.invalidate(threadId);
+  return liveCache.execute(
+    threadId,
+    operation,
+    () => request<{ result: T }>("execute", { generation, threadId, operation, requestId }).result,
+  );
+}
+export async function historyExecuteAsync<T>(threadId: string, operation: HistoryOperation): Promise<T> {
+  const { url, token } = endpoint();
+  return (await historyRequest<{ result: T }>(url, token, "execute", { generation, threadId, operation })).result;
+}
+type Page<T> = { items: { threadId: string; result: T }[]; next: string | null };
+export function historyMany<T>(
+  threadIds: readonly string[] | undefined,
+  operation: HistoryOperation,
+  requestId: string = randomUUID(),
+): { threadId: string; result: T }[] {
+  if (threadIds?.length === 0) return [];
+  if (["native.recover", "native.prune", "messages.delete"].includes(operation.op)) liveCache.invalidate(threadIds);
+  const items: { threadId: string; result: T }[] = [];
+  let after: string | null = null;
+  do {
+    const page: Page<T> = request("many", { generation, threadIds, operation, requestId, after });
+    items.push(...page.items);
+    if (page.next !== null && page.next === after) throw Error("Conversation history returned a repeated page");
+    after = page.next;
+  } while (after);
+  return items;
+}
+async function manyPages<T>(threadIds: readonly string[] | undefined, operation: HistoryOperation) {
+  const { url, token } = endpoint();
+  const items: { threadId: string; result: T }[] = [];
+  let after: string | null = null;
+  do {
+    const page: Page<T> = await historyRequest(url, token, "many", { generation, threadIds, operation, after });
+    items.push(...page.items);
+    if (page.next !== null && page.next === after) throw Error("Conversation history returned a repeated page");
+    after = page.next;
+  } while (after);
+  return items;
+}
+export async function historyManyAsync<T>(threadIds: readonly string[] | undefined, operation: HistoryOperation) {
+  if (!threadIds && operation.op === "messages.search") {
+    const { url, token } = endpoint(),
+      ids: string[] = [];
+    let after: string | null = null;
+    do {
+      const query = new URLSearchParams({ generation: generation!, limit: "256" });
+      if (after) query.set("after", after);
+      const page: { threads: string[]; next: string | null } = await historyRequest(
+        url,
+        token,
+        "threads?" + query,
+        undefined,
+      );
+      if (page.next !== null && page.next === after) throw Error("Directory returned a repeated conversation page");
+      ids.push(...page.threads);
+      after = page.next;
+    } while (after);
+    threadIds = ids;
+  }
+  if (!threadIds) return manyPages<T>(undefined, operation);
+  const ids = Array.from(new Set(threadIds)).sort(),
+    pages: Array<Array<{ threadId: string; result: T }>> = [];
+  const size = [
+    "messages.pending",
+    "messages.references",
+    "messages.latest",
+    "messages.recallStats",
+    "messages.hasCards",
+  ].includes(operation.op)
+    ? 64
+    : 12;
+  let next = 0;
+  async function batch() {
+    while (next < ids.length) {
+      const start = next;
+      next += size;
+      pages[start / size] = await manyPages<T>(ids.slice(start, start + size), operation);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, Math.ceil(ids.length / size)) }, batch));
+  return pages.flat();
+}
+export async function preloadHistoryActivity(threads: readonly string[]): Promise<void> {
+  if (isRemoteHistory())
+    await liveCache.preload(threads, (ids) => historyManyAsync<NativeRunList>(ids, { op: "native.livePage" }));
+}
+type ComparisonPage = { messages: unknown[]; activeLeafId: string | null; hasMore: boolean; next: string | null };
+export async function compareHistoryTail(
+  local: { messages: unknown[]; activeLeafId: string | null; hasMore?: boolean },
+  limit: number,
+  fetchPage: (remaining: number, after: string | null) => Promise<ComparisonPage>,
+): Promise<boolean> {
+  const expected = local.messages.slice(-limit).reverse();
+  const more = local.messages.length > limit || !!local.hasMore;
+  let after: string | null = null,
+    index = 0;
+  const seen = new Set<string>();
+  for (;;) {
+    const page = await fetchPage(limit - index, after);
+    if (page.activeLeafId !== local.activeLeafId || page.messages.length > limit - index) return false;
+    for (const message of page.messages) {
+      if (index >= expected.length || JSON.stringify(message) !== JSON.stringify(expected[index++])) return false;
+    }
+    if (index === limit || !page.hasMore) return expected.length === index && more === page.hasMore;
+    if (!page.next || seen.has(page.next) || !page.messages.length) throw Error("Invalid conversation history page");
+    after = page.next;
+    seen.add(after);
+  }
+}
+export function checkDualHistory(
+  threadId: string,
+  local: { messages: unknown[]; activeLeafId: string | null; hasMore?: boolean },
+  requested: number,
+): void {
+  if (mode !== "dual" || requested <= 0) return;
+  const operation = "messages.page";
+  function report(outcome: "match" | "mismatch" | "unavailable") {
+    console.info("[history_dual_read] " + JSON.stringify({ mode, generation, threadId, operation, outcome }));
+  }
+  void compareHistoryTail(local, Math.min(64, requested), async (limit, after) => {
+    const { url, token } = endpoint();
+    const { result } = await historyRequest<{ result: ComparisonPage }>(url, token, "execute", {
+      generation,
+      threadId,
+      operation: { op: operation, backward: true, limit, after },
+    });
+    return result;
+  }).then(
+    (equal) => report(equal ? "match" : "mismatch"),
+    () => report("unavailable"),
+  );
+}
