@@ -1313,6 +1313,26 @@ export class Store {
     return Boolean(group?.busyBotId);
   }
 
+  private busyThreadIds(): Set<string> {
+    const busy = new Set<string>();
+    const decided = new Set<string>();
+    for (const bot of this.bots) {
+      for (const task of bot.tasks ?? []) {
+        if (decided.has(task.threadId)) continue;
+        decided.add(task.threadId);
+        if (task.busy) busy.add(task.threadId);
+      }
+      if (decided.has(bot.threadId)) continue;
+      decided.add(bot.threadId);
+      if (bot.busy) busy.add(bot.threadId);
+    }
+    for (const group of this.groups) {
+      if (!group.busyBotId) continue;
+      for (const id of [group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)]) if (!decided.has(id)) busy.add(id);
+    }
+    return busy;
+  }
+
   private touchCachedThread(threadId: string, state: ThreadState): ThreadState {
     this.threads.delete(threadId);
     this.threads.set(threadId, state);
@@ -1325,9 +1345,10 @@ export class Store {
     let totalMessages = 0;
     for (const state of this.threads.values()) totalMessages += state.messages.length;
     if (this.threads.size <= maxThreads && totalMessages <= maxMessages) return;
+    let busy: Set<string> | undefined;
     for (const [id, state] of this.threads) {
       if (this.threads.size <= maxThreads && totalMessages <= maxMessages) break;
-      if (id === keepThreadId || this.isThreadBusy(id)) continue;
+      if (id === keepThreadId || (busy ??= this.busyThreadIds()).has(id)) continue;
       this.threads.delete(id);
       totalMessages -= state.messages.length;
     }
@@ -2316,6 +2337,8 @@ export class Store {
     const task = this.taskByThread(botId, threadId);
     if (!bot || !task) return null;
     if (patch.projectId !== undefined && !this.project(botId, patch.projectId)) return null;
+    const before = JSON.stringify(task);
+    const unreadBefore = bot.unread;
     for (const key of TASK_PATCH_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(patch, key)) {
         Object.assign(task, { [key]: structuredClone(patch[key]) });
@@ -2327,7 +2350,7 @@ export class Store {
     if (task.routineRunId) task.unread = false;
     if (bot.threadId === threadId) this.mirrorActiveTask(bot, task);
     bot.unread = bot.tasks!.some(taskCountsAsBotUnread);
-    this.saveBots();
+    if (bot.unread !== unreadBefore || JSON.stringify(task) !== before) this.saveBots();
     this.emit({ type: "bot", botId });
     return task;
   }

@@ -2445,6 +2445,45 @@ describe("bookkeeping saves", () => {
 });
 
 
+describe("task patches that change nothing", () => {
+  it("do not write the dogs file when a turn marks an already read chat as read", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.patchTask(bot.id, bot.threadId, { unread: false, surface: undefined });
+    const write = vi.spyOn(store as unknown as { saveBots(): void }, "saveBots");
+    const changes: string[] = [];
+    store.onChange((change) => changes.push(change.type));
+    expect(store.patchTask(bot.id, bot.threadId, { unread: false })).toBe(store.taskByThread(bot.id, bot.threadId));
+    expect(store.patchTask(bot.id, bot.threadId, { surface: undefined, resumeCursors: {} })).toBeTruthy();
+    expect(write).not.toHaveBeenCalled();
+    store.patchTask(bot.id, bot.threadId, { unread: true });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(changes).toEqual(["bot", "bot", "bot"]);
+    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.unread).toBe(true);
+  });
+});
+
+describe("chat cache with many busy dogs", () => {
+  it("reads hundreds of idle chats past a full cache while 200 dogs are busy without stalling", () => {
+    const store = new Store(selection, undefined, undefined, undefined, { maxThreads: 220, maxMessages: 100_000, availableMemory: () => 16 * 1024 ** 3 });
+    const quiet = vi.spyOn(store as unknown as { saveBots(): void }, "saveBots").mockImplementation(() => {});
+    const bots = Array.from({ length: 200 }, () => store.createBot({}, { seedMessages: false }));
+    const idle: string[] = [];
+    for (const bot of bots) {
+      for (let i = 0; i < 14; i++) idle.push(store.createTask(bot.id, `t${i}`, false)!.threadId);
+      store.setTaskActivity(bot.id, bot.threadId, "working");
+      store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "go" });
+    }
+    quiet.mockRestore();
+    const started = performance.now();
+    for (const threadId of idle) store.messagesFor(threadId);
+    const ms = performance.now() - started;
+    expect(store.cachedThreadCount()).toBe(220);
+    for (const bot of bots) expect(store.hasCachedThread(bot.threadId)).toBe(true);
+    expect(ms).toBeLessThan(1_500);
+  }, 60_000);
+});
+
 describe("chat cache under memory pressure", () => {
   it("keeps fewer chats in memory while the home is short of memory", () => {
     let available = 8 * 1024 ** 3;
