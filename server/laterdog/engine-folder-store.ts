@@ -233,11 +233,9 @@ export class FolderStore extends FolderTreeReader {
 
   async put(kind: "manifests" | "blobs", bytes: Buffer): Promise<string> {
     const hash = folderHash(bytes);
-    if (kind === "blobs") {
-      const present = await this.#request("/blobs/" + hash, "HEAD");
-      if (present.ok) return hash;
-      if (present.status !== 404) throw new Error(`Checking working folder content returned ${present.status}`);
-    }
+    const present = await this.#request("/" + kind + "/" + hash, "HEAD");
+    if (present.ok) return hash;
+    if (present.status !== 404) throw new Error(`Checking working folder content returned ${present.status}`);
     const r = await this.#request("/" + kind + "/" + hash, "PUT", bytes);
     if (!r.ok) throw new Error(`Writing a working folder object returned ${r.status}`);
     return hash;
@@ -254,7 +252,23 @@ export class FolderStore extends FolderTreeReader {
   }
 
   async pages(of: Category, items: string[] | WorkFolderEntry[]): Promise<string> {
-    return folderManifestPages(of, items, node => this.#putPage(node));
+    const writes: Promise<unknown>[] = [];
+    let running = 0;
+    const waiting: (() => void)[] = [];
+    const slot = async () => {
+      if (running >= PAGE_WRITES) await new Promise<void>((resolve) => waiting.push(resolve));
+      running++;
+    };
+    const done = () => { running--; waiting.shift()?.(); };
+    const root = await folderManifestPages(of, items, (node) => {
+      const bytes = Buffer.from(JSON.stringify(node)), hash = folderHash(bytes);
+      if (this.cachedPages.has(hash)) return Promise.resolve(hash);
+      this.cachedPages.set(hash, node);
+      writes.push(slot().then(() => this.put("manifests", bytes)).catch((error) => { this.cachedPages.delete(hash); throw error; }).finally(done));
+      return Promise.resolve(hash);
+    });
+    await Promise.all(writes);
+    return root;
   }
 
   async removeEmpty(head: WorkFolderHead): Promise<void> {
@@ -314,6 +328,7 @@ export class FolderStore extends FolderTreeReader {
 }
 
 const PUBLISH_PAGES = 256;
+const PAGE_WRITES = 8;
 const RATE_LIMITED_TRIES = 8;
 const RATE_LIMITED_WAIT_MS = 65_000;
 const RATE_LIMITED_DEFAULT_MS = 30_000;
