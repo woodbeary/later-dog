@@ -337,6 +337,7 @@ import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
 import { BOT_BROADCAST_MS, coalescedBroadcasts } from "./laterdog/coalesced-broadcasts.ts";
 import { chatTailMemo } from "./laterdog/chat-tail-memo.ts";
+import { loopTurns } from "./laterdog/loop-turns.ts";
 import { EdgeArrivals } from "./laterdog/edge-arrivals.ts";
 import { edgeAdmissionDogs, historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
 import { DogObjectCalls, ObjectRoutines } from "./laterdog/object-routines.ts";
@@ -1395,6 +1396,7 @@ if (CLOUD_HOME && process.platform === "linux") accountKeeper.start();
 registerEnginesBinDir();
 registerNativeBinDir();
 
+const turnDispatchTurns = loopTurns();
 const configBroadcasts = coalescedBroadcasts(BOT_BROADCAST_MS, () => broadcast({ kind: "config", ...configStatus() }));
 const accountBattery = new AccountBattery({
   config: () => cfg.accountBattery,
@@ -10289,6 +10291,7 @@ async function startTurn(
         userName: cfg.profile?.name?.trim() || "User",
         docs: memoryDocs,
       }) : "";
+      await turnDispatchTurns();
       if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while recalling notes");
       turnShape.begin(threadId, {
         questions: threadId === bot.threadId && Date.now() - (bot.createdAt ?? 0) < DOG_SETUP_QUESTIONS_MS,
