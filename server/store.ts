@@ -1438,6 +1438,13 @@ export class Store {
     return this.thread(threadId).messages;
   }
 
+  hasWaitingAsk(threadId: string): boolean {
+    const waiting = (message: Message) => message.needsYou?.status === "waiting";
+    const cached = this.threads.get(threadId);
+    if (cached) return cached.messages.some(waiting);
+    return mdb.threadHasWaitingAsk(threadId) ?? this.messagesWithoutCaching(threadId).some(waiting);
+  }
+
   messagesWithoutCaching(threadId: string): readonly Message[] {
     const cached = this.threads.get(threadId);
     if (cached) return cached.messages;

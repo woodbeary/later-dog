@@ -368,6 +368,12 @@ export function hasPendingRequest(threadId: string, legacyFile: string): boolean
   return !known && existsSync(legacyFile);
 }
 
+export function threadHasWaitingAsk(threadId: string): boolean | null {
+  const database = db();
+  if (statement(database, "SELECT 1 FROM messages WHERE thread_id = ? AND json_extract(json, '$.needsYou.status') = 'waiting' LIMIT 1").get(threadId)) return true;
+  return statement(database, "SELECT 1 FROM messages WHERE thread_id = ? LIMIT 1").get(threadId) ? false : null;
+}
+
 export function readThreadTail(threadId: string, legacyFile: string, limit: number): ThreadTailRows {
   const rows = statement(db(), "SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid DESC LIMIT ?")
     .all(threadId, limit + 1) as Array<{ json: string }>;

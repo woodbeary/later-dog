@@ -4271,7 +4271,7 @@ let helpersWorkingIn = (_threadId: string): number => 0;
 const computerJobs = new ComputerJobs(join(DATA_DIR, "computer-jobs.json"), { changed: (threadId) => announceHelpersChanged(threadId) });
 const delegatedWaiting = new Map<string, boolean>();
 function delegatedNeedsYou(threadId: string): boolean {
-  if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.messagesWithoutCaching(threadId).some(message => message.needsYou?.status === "waiting"));
+  if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.hasWaitingAsk(threadId));
   return delegatedWaiting.get(threadId)!;
 }
 const workSignals = new WorkSignals();

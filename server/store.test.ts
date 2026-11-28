@@ -2497,6 +2497,24 @@ describe("task patches that change nothing", () => {
   });
 });
 
+describe("waiting asks in a chat", () => {
+  it("finds a waiting ask in a chat that is not cached without loading the chat, and sees it settle", () => {
+    const seed = new Store(selection);
+    const bot = seed.createBot({}, { seedMessages: false });
+    const quiet = seed.createTask(bot.id, "Quiet", false)!;
+    for (let i = 0; i < 5; i++) seed.appendMessage(bot.threadId, { role: "bot", kind: "text", text: `line ${i}` });
+    const ask = seed.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "Helper needs you", needsYou: { status: "waiting" } } as never);
+    seed.appendMessage(quiet.threadId, { role: "bot", kind: "text", text: "nothing to ask" });
+    const store = new Store(selection, undefined, undefined, undefined, { maxThreads: 8, maxMessages: 1_000, availableMemory: () => 16 * 1024 ** 3 });
+    expect(store.hasWaitingAsk(bot.threadId)).toBe(true);
+    expect(store.hasWaitingAsk(quiet.threadId)).toBe(false);
+    expect(store.hasWaitingAsk("no-such-chat")).toBe(false);
+    expect(store.cachedThreadCount()).toBe(0);
+    store.patchMessage(bot.threadId, ask.id, { needsYou: { status: "answered" } } as never);
+    expect(store.hasWaitingAsk(bot.threadId)).toBe(false);
+  });
+});
+
 describe("finding a chat's task", () => {
   it("finds the task that owns a chat across dogs, and nothing for a group chat", () => {
     const store = new Store(selection);
