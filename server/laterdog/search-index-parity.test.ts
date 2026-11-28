@@ -210,6 +210,28 @@ describe("remote reads", () => {
   });
 });
 
+describe("switching the index off and on", () => {
+  it("answers a chat written while the index was off from the home's database until that chat is fed again", async () => {
+    const chats = ["dog-c-main", "dog-c-task"];
+    const local = () => recallMessagesOffThread("zanzibar", chats, 12);
+    wiring.setMode("off");
+    insertMessage("dog-c-main", { id: "m-while-off", at: T0 + 9_500_000, role: "user", kind: "text", text: "zanzibar ferry tickets" } as unknown as Message);
+    indexMemoryFile("dog-c", "memory/while-off.md", "zanzibar ferry notes", { mtimeMs: T0 + 99, bytes: 20 });
+    wiring.setMode("remote");
+    try {
+      const before = wiring.status().remote;
+      expect((await wiring.recall({ dog: "dog-c", query: "zanzibar", chats, limit: 12 }, local)).map((hit) => hit.messageId)).toEqual(["m-while-off"]);
+      expect(wiring.status().remote).toEqual(before);
+      await wiring.settled();
+      expect(shard("dog-c").recall({ query: "zanzibar", chats, limit: 12 }).map((hit) => hit.messageId)).toEqual(["m-while-off"]);
+      expect(shard("dog-c").memory({ query: "zanzibar", dogs: ["dog-c"], limit: 5 }).map((hit) => hit.file)).toEqual(["memory/while-off.md"]);
+      expect((await wiring.recall({ dog: "dog-c", query: "zanzibar", chats, limit: 12 }, async () => [])).map((hit) => hit.messageId)).toEqual(["m-while-off"]);
+    } finally {
+      wiring.setMode("shadow");
+    }
+  });
+});
+
 const queries = [...WORDS.slice(0, 30), "dentist invoice", "flights lisbon booking", "the", "remind me about my passport and visa", "Taxes receipts", "garden-fence"];
 
 describe("the person index answers exactly as the home's database does", () => {
