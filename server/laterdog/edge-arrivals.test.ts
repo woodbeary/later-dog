@@ -37,6 +37,31 @@ describe("edge arrivals", () => {
     expect(edge.state).toMatchObject({ taken: 3, delivered: 1, refused: 1, failures: 1 });
   });
 
+  it("delivers different chats' arrivals side by side but keeps each chat in order, stopping a chat at its first failure", async () => {
+    const many = Array.from({ length: 20 }, (_, n) => arrival(`m${n}`, `chat-${n}`));
+    const fake = coordinator([arrival("a1", "ordered"), arrival("a2", "ordered"), arrival("a3", "ordered"), ...many]);
+    const delivered: string[] = [];
+    const edge = new EdgeArrivals({
+      origin: "https://home", home: "hfeed", bootstrapSecret: "s", fetch: fake.fetch,
+      sessions: () => [], dogs: () => ["d1"], log: () => {}, undelivered: () => {},
+      deliver: async (item) => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (item.id === "a2") throw new Error("home busy");
+        delivered.push(item.id);
+        return { status: 202, body: {} };
+      },
+    });
+    const began = Date.now();
+    expect(await edge.pollOnce()).toBe(23);
+    expect(Date.now() - began).toBeLessThan(800);
+    expect(delivered.filter((id) => id.startsWith("a"))).toEqual(["a1"]);
+    expect(delivered.filter((id) => id.startsWith("m")).sort()).toEqual(many.map((item) => item.id).sort());
+    const confirmed = fake.calls.at(-1)?.ids as string[];
+    expect(confirmed).toContain("a1");
+    expect(confirmed).not.toContain("a2");
+    expect(confirmed).not.toContain("a3");
+  });
+
   it("sends the owner sessions only while some dog is on the edge", async () => {
     const fake = coordinator([]);
     let dogs = ["*"];

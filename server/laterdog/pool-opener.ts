@@ -32,7 +32,7 @@ const CLEAN_CLOSES = ["closed by the home", "pool relay exited 0", "pool closed 
 const MEMORY_CLOSE = "pool closed the engine: memory";
 
 export function notePoolLoss(botId: string, threadId: string, why = "", now = Date.now()): void {
-  poolLosses.set(poolChat(botId, threadId), { at: now, taken: false, memory: why === MEMORY_CLOSE, avoid: false });
+  poolLosses.set(poolChat(botId, threadId), { at: now, taken: false, memory: why.startsWith(MEMORY_CLOSE), avoid: false });
 }
 
 export function poolAvoided(botId: string, threadId: string, now = Date.now()): boolean {
@@ -160,6 +160,8 @@ export function poolLink(socket: WebSocket, stop: () => Promise<boolean>, timing
   let closed = false;
   let partial: Buffer = Buffer.alloc(0);
   let heard = Date.now();
+  let lastWords = "";
+  const said = (text: string) => { lastWords = `${lastWords}${text}`.slice(-600); link.emit("diagnostic", text); };
   const waiting: string[] = [];
   const deliver = (line: string) => { if (link.listenerCount("line")) link.emit("line", line); else waiting.push(line); };
   link.on("newListener", (name) => { if (name === "line") queueMicrotask(() => { for (const line of waiting.splice(0)) link.emit("line", line); }); });
@@ -167,7 +169,8 @@ export function poolLink(socket: WebSocket, stop: () => Promise<boolean>, timing
     if (closed) return;
     closed = true;
     clearInterval(beat);
-    if (!CLEAN_CLOSES.includes(why)) onLost?.(why);
+    const lastLine = lastWords.trim().split("\n").at(-1)?.trim();
+    if (!CLEAN_CLOSES.includes(why)) onLost?.(lastLine ? `${why}: ${lastLine}` : why);
     try { socket.terminate(); } catch {}
     void stop().catch(() => false).then((stopped) => {
       if (stopped) deliver(POOL_EXIT_LINE);
@@ -190,11 +193,11 @@ export function poolLink(socket: WebSocket, stop: () => Promise<boolean>, timing
       try { frame = JSON.parse(bytes.toString("utf8")); } catch { return; }
       if (frame.channel === "exit") close(`pool relay exited ${String(frame.code)}`);
       else if (frame.channel === "closed") close(`pool closed the engine: ${String(frame.reason)}`);
-      else if (frame.channel === "error") link.emit("diagnostic", String(frame.message ?? "pool stream error"));
+      else if (frame.channel === "error") said(String(frame.message ?? "pool stream error"));
       return;
     }
     const body = bytes.subarray(1);
-    if (bytes[0] === 2) { link.emit("diagnostic", body.toString("utf8")); return; }
+    if (bytes[0] === 2) { said(body.toString("utf8")); return; }
     partial = partial.length ? Buffer.concat([partial, body]) : body;
     let newline: number;
     while ((newline = partial.indexOf(10)) >= 0) {

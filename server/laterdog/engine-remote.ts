@@ -63,6 +63,7 @@ export class NotDispatched extends Error {
 const HANDSHAKE_MS = 30_000;
 const SYNC_REPLY_MS = 10 * 60_000;
 const PUSH_EVERY_MS = 30_000;
+const WORKING_NOTE_MS = 500;
 
 type Pending = { resolve: (body: any) => void; reject: (error: Error) => void };
 
@@ -75,7 +76,15 @@ export class RemoteSession extends EventEmitter {
   #incoming: Promise<void> = Promise.resolve();
   #written: Promise<void> = Promise.resolve();
   #fileAbort = new AbortController();
-  #onFileProgress = () => { this.checkpointProgressAt = Date.now(); };
+  #relayHearsWork = false;
+  #workSaidAt = 0;
+  #onFileProgress = () => {
+    const now = Date.now();
+    this.checkpointProgressAt = now;
+    if (!this.#relayHearsWork || this.#closed || now - this.#workSaidAt < WORKING_NOTE_MS) return;
+    this.#workSaidAt = now;
+    this.#send({ type: "working" });
+  };
   #closed = false;
   #launchSent = false;
   #started = false;
@@ -324,7 +333,7 @@ export class RemoteSession extends EventEmitter {
         this.#onFileProgress();
         return;
       }
-      case "ready": this.emit("relay-ready"); return;
+      case "ready": this.#relayHearsWork = frame.working === true; this.emit("relay-ready"); return;
       case "reply": { const pending = this.#pending.get(frame.id); this.#pending.delete(frame.id); pending?.resolve(frame.body); return; }
       case "stdout": this.emit("stdout", Buffer.from(frame.data, "base64")); return;
       case "stderr": this.emit("stderr", Buffer.from(frame.data, "base64")); return;

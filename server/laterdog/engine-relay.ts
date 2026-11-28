@@ -49,12 +49,23 @@ async function send(frame: unknown): Promise<void> {
   if (transportLost) throw new Error("Engine transport ended");
   if (!process.stdout.write(`${JSON.stringify(frame)}\n`)) await once(process.stdout, "drain");
 }
+const requestedAckMs = Number(process.env.LATERDOG_ENGINE_ACK_MS);
+const ACK_SILENCE_MS = Number.isFinite(requestedAckMs) && requestedAckMs > 0 ? requestedAckMs : 30_000;
+const ACK_LONGEST_MS = 20 * ACK_SILENCE_MS;
+let homeHeardAt = Date.now();
 async function acknowledged(type: "checkpoint" | "file_window", required = false): Promise<void> {
   const id = ++sequence;
+  const askedAt = Date.now();
   const settled = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`Engine ${type} was not acknowledged`)), 30_000);
+    const watch = setInterval(() => {
+      const now = Date.now();
+      if (now - Math.max(askedAt, homeHeardAt) > ACK_SILENCE_MS || now - askedAt > ACK_LONGEST_MS) {
+        clearInterval(watch);
+        reject(new Error(`Engine ${type} was not acknowledged`));
+      }
+    }, Math.min(1_000, Math.max(50, ACK_SILENCE_MS / 4)));
     acknowledgements.set(id, reason => {
-      clearTimeout(timer);
+      clearInterval(watch);
       if (reason) reject(new Error(reason));
       else resolve();
     });
@@ -483,6 +494,7 @@ async function handle(frame: any): Promise<void> {
     case "end": child?.stdin.end(); return;
     case "stop": kill(); setTimeout(() => kill("SIGKILL"), 3_000).unref(); return;
     case "ack": acknowledgements.get(frame.id)?.(frame.error); acknowledgements.delete(frame.id); return;
+    case "working": return;
     case "checkpoint_request":
       await checkpoint();
       await reply(frame.id, { saved: true });
@@ -504,6 +516,7 @@ const lines = createInterface({ input: process.stdin });
 lines.on("error", fail);
 lines.on("line", line => {
   if (line.length > 2 * 1024 * 1024) { fail(); return; }
+  homeHeardAt = Date.now();
   try { void handle(JSON.parse(line)).catch(fail); } catch (error) { fail(error); }
 });
 process.stdin.on("end", fail);
@@ -511,4 +524,4 @@ process.stdin.on("error", fail);
 process.stdout.on("error", fail);
 process.on("SIGTERM", fail);
 process.on("SIGINT", fail);
-void send({ type: "ready" });
+void send({ type: "ready", working: true });

@@ -2,6 +2,7 @@ import { capabilitySecret, signCapabilitySync } from "./signed-capability-node.t
 
 export const ADMISSION_ROUTE = "/api/internal/coordinator/admission";
 export const ARRIVAL_POLL_MS = 250;
+export const ARRIVAL_LANES = 16;
 const CALL_MS = 10_000;
 const TOKEN_MS = 10 * 60_000;
 const CONFIGURE_DELAY_MS = 100;
@@ -101,21 +102,34 @@ export class EdgeArrivals {
       const arrivals = Array.isArray(answer.arrivals) ? (answer.arrivals as Arrival[]) : [];
       this.state.taken += arrivals.length;
       const done: string[] = [];
+      const chats = new Map<string, Arrival[]>();
       for (const arrival of arrivals) {
-        try {
-          const delivered = await this.options.deliver(arrival);
-          if (delivered.status >= 200 && delivered.status < 300) this.state.delivered += 1;
-          else {
-            this.state.refused += 1;
-            this.options.undelivered(arrival, typeof delivered.body.error === "string" ? delivered.body.error : `answered ${delivered.status}`);
-          }
-          done.push(arrival.id);
-        } catch (error) {
-          this.state.failures += 1;
-          this.state.lastError = (error as Error).message;
-          this.log(`[edge arrivals] ${arrival.id} not delivered yet: ${(error as Error).message}`);
-        }
+        const key = `${arrival.dog}\0${arrival.chat}`;
+        chats.set(key, [...(chats.get(key) ?? []), arrival]);
       }
+      const lanes = [...chats.values()];
+      const deliverChat = async (lane: Arrival[]) => {
+        for (const arrival of lane) {
+          try {
+            const delivered = await this.options.deliver(arrival);
+            if (delivered.status >= 200 && delivered.status < 300) this.state.delivered += 1;
+            else {
+              this.state.refused += 1;
+              this.options.undelivered(arrival, typeof delivered.body.error === "string" ? delivered.body.error : `answered ${delivered.status}`);
+            }
+            done.push(arrival.id);
+          } catch (error) {
+            this.state.failures += 1;
+            this.state.lastError = (error as Error).message;
+            this.log(`[edge arrivals] ${arrival.id} not delivered yet: ${(error as Error).message}`);
+            return;
+          }
+        }
+      };
+      const worker = async () => {
+        for (let lane = lanes.shift(); lane; lane = lanes.shift()) await deliverChat(lane);
+      };
+      await Promise.all(Array.from({ length: Math.min(ARRIVAL_LANES, lanes.length) }, worker));
       if (done.length) await this.call({ op: "done", ids: done });
       return arrivals.length;
     } finally {

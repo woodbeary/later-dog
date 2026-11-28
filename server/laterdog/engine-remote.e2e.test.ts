@@ -158,6 +158,35 @@ it("runs a turn on the computer with home-held tools, hooks and authority, and r
   expect(w.launches()).toHaveLength(1);
 }, 60_000);
 
+function slowHome(inner: EngineLink, delayMs: number): EngineLink {
+  const link = new EventEmitter() as EngineLink;
+  let queue = Promise.resolve();
+  const later = (deliver: () => void) => { queue = queue.then(() => new Promise<void>((resolve) => setTimeout(resolve, delayMs))).then(deliver); };
+  inner.on("line", (line: string) => later(() => link.emit("line", line)));
+  inner.on("diagnostic", (text: string) => link.emit("diagnostic", text));
+  inner.on("close", (why: string) => later(() => link.emit("close", why)));
+  link.send = (line) => inner.send(line);
+  link.close = () => inner.close();
+  return link;
+}
+
+it("keeps saving a turn's files to a home that is slow but still working, past the relay's quiet limit", async () => {
+  const w = world();
+  const relay = () => slowHome(commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: w.remoteRoot, LATERDOG_ENGINE_ACK_MS: "1500" }), 80);
+  const { engine, placed } = w.start(w.plan(), async () => relay());
+  const stderr: string[] = [];
+  engine.stderr.on("data", (bytes) => stderr.push(String(bytes)));
+  await turn(engine, "one", undefined, 60_000);
+  const big = Buffer.alloc(ENGINE_WINDOW_BYTES * 2, 7);
+  writeFileSync(w.mirror(join(w.cwd, "big.bin")), big);
+  await turn(engine, "two", undefined, 60_000);
+  expect(placed).toEqual(["computer"]);
+  expect(stderr.join("")).not.toContain("was not acknowledged");
+  expect(readFileSync(join(w.cwd, "big.bin")).equals(big)).toBe(true);
+  engine.stdin.end();
+  expect(await closed(engine)).toBe(0);
+}, 120_000);
+
 it("keeps a progressing checkpoint open beyond its original reply deadline and times out after progress stops", async () => {
   const w = world();
   const launch = w.plan().launch;
