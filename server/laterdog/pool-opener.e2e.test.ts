@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
@@ -25,23 +25,25 @@ afterEach(() => {
 
 function fakePool(root: string) {
   const server = new WebSocketServer({ port: 0 });
-  const engines = new Map<string, ChildProcess>();
+  const engines = new Map<string, ChildProcessWithoutNullStreams>();
   const sockets = new Map<string, WebSocket>();
+  const held = new Map<string, Buffer[]>();
   const closed: string[] = [];
   let slot = 2;
-  let pending: { chat: string; slot: number } | null = null;
+  const send = (chat: string, bytes: Buffer) => {
+    const socket = sockets.get(chat);
+    if (socket?.readyState === WebSocket.OPEN) socket.send(bytes);
+    else held.set(chat, [...(held.get(chat) ?? []), bytes]);
+  };
   server.on("connection", (socket, request) => {
     const chat = new URL(request.url!, "http://pool").searchParams.get("chat")!;
-    const scratchDir = join(root, `slot-${pending!.slot}`, "tmp");
-    mkdirSync(scratchDir, { recursive: true });
-    const child = spawn(process.execPath, [BOOT], { cwd: scratchDir, env: { PATH: process.env.PATH, TMPDIR: scratchDir, LATERDOG_ENGINE_FILES: relayFiles() }, stdio: ["pipe", "pipe", "pipe"] });
-    engines.set(chat, child);
+    const child = engines.get(chat);
+    if (!child || child.exitCode !== null || child.signalCode !== null) { socket.close(1011, "not_warm"); return; }
     sockets.set(chat, socket);
-    socket.send(JSON.stringify({ channel: "attached", chat, buffered: 0 }));
-    child.stdout.on("data", (bytes: Buffer) => socket.send(Buffer.concat([Buffer.from([1]), bytes])));
-    child.stderr.on("data", (bytes: Buffer) => socket.send(Buffer.concat([Buffer.from([2]), bytes])));
-    child.on("close", (code) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ channel: "exit", code })); socket.close(); });
-    child.stdin.on("error", () => {});
+    const backlog = held.get(chat) ?? [];
+    held.delete(chat);
+    socket.send(JSON.stringify({ channel: "attached", chat, buffered: backlog.length }));
+    for (const bytes of backlog) socket.send(bytes);
     socket.on("message", (data, binary) => { if (binary && child.stdin.writable) child.stdin.write(data as Buffer); });
   });
   stops.push(() => { for (const child of engines.values()) child.kill("SIGKILL"); server.close(); });
@@ -49,14 +51,22 @@ function fakePool(root: string) {
   const service: PoolService = {
     async open(chat) {
       slot += 1;
-      pending = { chat, slot };
+      const scratchDir = join(root, `slot-${slot}`, "tmp");
+      mkdirSync(scratchDir, { recursive: true });
+      const child = spawn(process.execPath, [BOOT], { cwd: scratchDir, env: { PATH: process.env.PATH, TMPDIR: scratchDir, LATERDOG_ENGINE_FILES: relayFiles() }, stdio: ["pipe", "pipe", "pipe"] });
+      engines.set(chat, child);
+      child.stdout.on("data", (bytes: Buffer) => send(chat, Buffer.concat([Buffer.from([1]), bytes])));
+      child.stderr.on("data", (bytes: Buffer) => send(chat, Buffer.concat([Buffer.from([2]), bytes])));
+      child.on("close", (code) => { const socket = sockets.get(chat); if (socket?.readyState === WebSocket.OPEN) { socket.send(JSON.stringify({ channel: "exit", code })); socket.close(); } });
+      child.stdin.on("error", () => {});
       return { status: 201, slot, state: "cold" };
     },
     async close(chat) { closed.push(chat); engines.get(chat)?.kill("SIGKILL"); return true; },
     stream(chat, signal) { return attachPool(new WebSocket(`ws://127.0.0.1:${port()}/stream?chat=${chat}`), signal); },
   };
   const die = (chat: string) => { engines.get(chat)?.kill("SIGKILL"); sockets.get(chat)?.terminate(); };
-  return { service, closed, slots: () => slot, die };
+  const drop = (chat: string) => { sockets.get(chat)?.terminate(); sockets.delete(chat); };
+  return { service, closed, slots: () => slot, die, drop };
 }
 
 function world() {
@@ -169,6 +179,20 @@ it("confirms the stop when a pool host dies under a warm chat, so the next turn 
   const second = await poolEngine(w, pool, true);
   expect((await turn(second.engine, "after the host died")).sessionLines).toBe(2);
   second.engine.stdin.end();
+}, 60_000);
+
+it("reattaches to the same pool engine when its stream drops in the middle of a turn, and the turn finishes once", async () => {
+  const w = world();
+  const pool = fakePool(w.poolRoot);
+  const first = await poolEngine(w, pool, false);
+  await turn(first.engine, "one");
+  const opens = pool.slots();
+  const answer = turn(first.engine, "two");
+  setTimeout(() => pool.drop(poolChat("bot-1", "thread-1")), 50);
+  expect((await answer).sessionLines).toBe(2);
+  expect(pool.slots()).toBe(opens);
+  expect((await turn(first.engine, "three")).sessionLines).toBe(3);
+  first.engine.stdin.end();
 }, 60_000);
 
 it("stops a pool engine in the middle of a turn with a confirmed stop, and the chat's next turn starts", async () => {
