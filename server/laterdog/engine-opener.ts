@@ -37,6 +37,54 @@ function checkAssignments(folders: EngineWorkFolder[], computerId: string): void
   }
 }
 
+export type EngineMachine = Awaited<ReturnType<typeof engineComputer>>;
+
+export async function openEngineOnMachine(
+  machine: EngineMachine,
+  botId: string,
+  plan: Parameters<EngineOpener["open"]>[1],
+  options: { workFolders?: EngineWorkFolders } = {},
+) {
+  const relay = engineScripts(Boolean(plan.guestRuntime));
+  const { box, stream } = machine;
+  if (options.workFolders && box.computerId) {
+    const folders = await options.workFolders({
+      botId,
+      threadId: plan.threadId,
+      cwd: plan.launch.cwd,
+      computerId: box.computerId,
+      roots: plan.launch.roots,
+    });
+    checkAssignments(folders, box.computerId);
+    if (folders.length) {
+      const kept = plan.launch.roots.filter(
+        (root) =>
+          !folders.some((folder) => {
+            if (!inside(folder.path, root.path)) return false;
+            if (root.id !== "workspace" && root.id !== "bot" && root.id !== "bot-workspace")
+              throw new Error("An assigned working folder overlaps a private engine profile");
+            return true;
+          }),
+      );
+      plan.launch.roots = kept;
+      plan.launch.outputIds = plan.launch.outputIds.filter((id) => kept.some((root) => root.id === id));
+      const projects = folders.filter(
+        (folder) =>
+          dirname(folder.path) === "/data" &&
+          new URL(folder.grant.baseUrl).pathname.split("/").at(-1)?.startsWith("project-"),
+      );
+      plan.launch.workFolders = [...projects, ...folders.filter((f) => !projects.includes(f))].map((folder) =>
+        projects.includes(folder)
+          ? folder
+          : { ...folder, linkProjects: folder.linkProjects ?? projects.map((project) => project.path) },
+      );
+      await prepareEngineFolderTools(box, folders);
+    }
+  }
+  await prepareEngineComputer(box, plan, relay);
+  return processStreamLink(await stream(), relayCommand(relay));
+}
+
 export function computerEngineOpener(options: { workFolders?: EngineWorkFolders } = {}): EngineOpener {
   return {
     get proxyPath() {
@@ -48,44 +96,7 @@ export function computerEngineOpener(options: { workFolders?: EngineWorkFolders 
     },
     openBudgetMs: ENGINE_OPEN_BUDGET_MS,
     async open(botId, plan, signal) {
-      const relay = engineScripts(Boolean(plan.guestRuntime));
-      const { box, stream } = await engineComputer(botId, signal);
-      if (options.workFolders && box.computerId) {
-        const folders = await options.workFolders({
-          botId,
-          threadId: plan.threadId,
-          cwd: plan.launch.cwd,
-          computerId: box.computerId,
-          roots: plan.launch.roots,
-        });
-        checkAssignments(folders, box.computerId);
-        if (folders.length) {
-          const kept = plan.launch.roots.filter(
-            (root) =>
-              !folders.some((folder) => {
-                if (!inside(folder.path, root.path)) return false;
-                if (root.id !== "workspace" && root.id !== "bot" && root.id !== "bot-workspace")
-                  throw new Error("An assigned working folder overlaps a private engine profile");
-                return true;
-              }),
-          );
-          plan.launch.roots = kept;
-          plan.launch.outputIds = plan.launch.outputIds.filter((id) => kept.some((root) => root.id === id));
-          const projects = folders.filter(
-            (folder) =>
-              dirname(folder.path) === "/data" &&
-              new URL(folder.grant.baseUrl).pathname.split("/").at(-1)?.startsWith("project-"),
-          );
-          plan.launch.workFolders = [...projects, ...folders.filter((f) => !projects.includes(f))].map((folder) =>
-            projects.includes(folder)
-              ? folder
-              : { ...folder, linkProjects: folder.linkProjects ?? projects.map((project) => project.path) },
-          );
-          await prepareEngineFolderTools(box, folders);
-        }
-      }
-      await prepareEngineComputer(box, plan, relay);
-      return processStreamLink(await stream(), relayCommand(relay));
+      return openEngineOnMachine(await engineComputer(botId, signal), botId, plan, options);
     },
   };
 }

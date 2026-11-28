@@ -3,11 +3,11 @@ import { fromLocalTools } from "../request-auth.ts";
 import { SEARCH_INDEX_MODES, type SearchIndexMode, type SearchIndexStatus } from "../laterdog/search-index-wiring.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
-const modeSchema = z.object({ mode: z.enum(SEARCH_INDEX_MODES) }).strict();
+const modeSchema = z.object({ mode: z.enum(SEARCH_INDEX_MODES), refeed: z.boolean().optional() }).strict();
 
 export interface SearchIndexRouteDeps {
   status(): SearchIndexStatus | null;
-  setMode(mode: SearchIndexMode): SearchIndexStatus | null;
+  setMode(mode: SearchIndexMode, refeed: boolean): SearchIndexStatus | null;
 }
 
 export function createSearchIndexRoutes(deps: SearchIndexRouteDeps): RouteHandler {
@@ -22,7 +22,7 @@ export function createSearchIndexRoutes(deps: SearchIndexRouteDeps): RouteHandle
     const parsed = modeSchema.safeParse(await readBody(req));
     if (!parsed.success) return json(res, 400, { error: "Send mode: off, shadow or remote." });
     try {
-      const status = deps.setMode(parsed.data.mode);
+      const status = deps.setMode(parsed.data.mode, parsed.data.refeed === true);
       return status ? json(res, 200, status) : json(res, 404, { error: "The search index runs only on a Cloud home." });
     } catch (error) {
       return json(res, 500, { error: (error as Error).message });
