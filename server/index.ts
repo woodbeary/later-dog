@@ -3297,14 +3297,13 @@ const logArchive = archiveBridge
     archiveCodexSessions: process.env.LATERDOG_ARCHIVE_CODEX_SESSIONS === "1",
     idle: id => {
       if (registry.instances().some(instance => instance.adapter.hasSession(id))) return false;
-      if (store.hasPendingRequest(id)) return false;
       if (roomHandoffs.activeDirect(id)) return false;
       if (groupSpeakers.has(id)) return false;
       const group = store.groupByThread(id);
       if (group && (Boolean(group.busyBotId) || Boolean(groupTurnOperations.get(group.id)?.size))) return false;
       const owner = store.bots.find(bot => (bot.tasks ?? []).some(task => task.threadId === id));
       if (owner && threadBusy(owner.id, id)) return false;
-      return true;
+      return !store.hasPendingRequest(id);
     },
     sessions: id => claudeSessionIds(store.taskForThread(id)?.resumeCursors),
     outsideSessions: () => outsideSessionOwners(store.bots.map(bot => ({ threadId: bot.threadId, resumeCursors: bot.resumeCursors, tasks: bot.tasks ?? [] })), id => Boolean(store.groupByThread(id))),
