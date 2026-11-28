@@ -14414,9 +14414,10 @@ ROUTES.push(createTaskMachineRoutes({
 }));
 ROUTES.push(createSearchIndexRoutes({
   status: () => searchIndex?.status() ?? null,
-  setMode: (mode) => {
+  setMode: (mode, refeed) => {
     if (!searchIndex) return null;
     saveSearchIndexMode(DATA_DIR, mode);
+    if (refeed) searchIndex.refeed();
     searchIndex.setMode(mode);
     return searchIndex.status();
   },
