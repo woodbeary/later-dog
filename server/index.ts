@@ -156,6 +156,7 @@ import { DECIDE_YOURSELF, REPLY_FIRST_HELD, TurnShape } from "./laterdog/turn-sh
 import { DOG_PURGE_AFTER_MS, DogRestStore, findRest, purgeDue, REST_REFUSALS, restRefusal } from "./laterdog/dog-rest.ts";
 import { createRecentlyDeletedRoutes } from "./routes/recently-deleted.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
+import { MachineSizeBook } from "./laterdog/machine-size.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
 import { createDogFolderRoute } from "./routes/dog-folder.ts";
@@ -946,7 +947,7 @@ import { createAntigravityLeftoverRoutes } from "./routes/antigravity-leftovers.
 import { findAntigravityLeftovers, removeAntigravityLeftovers } from "./drivers/antigravity-temp.ts";
 import { createLiveRoutes } from "./routes/live.ts";
 import { withScopeHint } from "./connector-scope-hint.ts";
-import { remoteEngineChoice, remoteEngineDefault, setRemoteEngineDefault, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
+import { notePlacement, remoteEngineChoice, remoteEngineDefault, setRemoteEngineDefault, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
 import { preToolGuardDecision } from "./laterdog/placed-threads.ts";
 import { carryClaudeSession } from "./laterdog/session-carry.ts";
 import { createEnginePlacementRoutes } from "./routes/engine-placement.ts";
@@ -954,7 +955,10 @@ import { ProjectAccessController, type ProjectSelection } from "./laterdog/proje
 import { retireMemberProjects } from "./laterdog/project-member-retirement.ts";
 import { checkpointAssignedFolders } from "./laterdog/portable-work-folders.ts";
 import { assignedCwd, engineFolderScopes, folderGrant, mountedWorkFolders, rememberProjectAccess, visibleAliases } from "./laterdog/work-folder-locations.ts";
-import { computerEngineOpener } from "./laterdog/engine-opener.ts";
+import { computerEngineOpener, openEngineOnMachine, type EngineWorkFolders } from "./laterdog/engine-opener.ts";
+import { machineWaitingText, saveTaskMachineSetting, TASK_MACHINE_RESOURCE, taskLineService, taskMachineOpener, taskMachineSetting } from "./laterdog/task-machines.ts";
+import { createTaskMachineRoutes } from "./routes/task-machines.ts";
+import { taskMachineLoss } from "./laterdog/task-machine-loss.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
 import { poolChosen, poolEngineOpener, poolService, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
@@ -965,7 +969,7 @@ const projectAccess = mountedFolderLayout ? new ProjectAccessController(mountedF
 const changingProjectMembers = new Set<string>();
 const projectSelectionLocks = new Set<string>();
 if (projectAccess?.layout.projects.length) await projectAccess.refresh();
-setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
+const engineFolderOptions: { workFolders?: EngineWorkFolders } = mountedFolderLayout ? {
   workFolders: async input => {
     if (changingProjectMembers.has(input.botId)) throw new Error("This dog's shared project access is being updated.");
     const folders = engineFolderScopes(mountedFolderLayout, DATA_DIR, input);
@@ -973,7 +977,40 @@ setEngineOpener(poolEngineOpener(computerEngineOpener(mountedFolderLayout ? {
       process.env.LATERDOG_PUBLIC_URL!, folderBootstrap!, scope, input.botId, input.computerId,
     ) })));
   },
-} : {}), DATA_DIR, poolService, (path) => dogFiles.mkdir(path)));
+} : {};
+setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFolderOptions), DATA_DIR, poolService, (path) => dogFiles.mkdir(path)), {
+  dataDir: DATA_DIR,
+  ticketClass: (botId, threadId) => startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "task" : null,
+  size: (botId, threadId) => machineSizes.choose(botId, threadId, undefined).size,
+  openOn: async (machineId, botId, plan, signal) => openEngineOnMachine(await boat.taskMachineComputer(machineId, signal), botId, plan, engineFolderOptions),
+  onWait: (botId, threadId, wait) => {
+    if (wait.waiting) {
+      const shown = taskMachineWaits.get(threadId);
+      if (shown !== wait.place) {
+        taskMachineWaits.set(threadId, wait.place);
+        store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: machineWaitingText(wait) } });
+      }
+      bus.publish({ ...archiveWaitEventBase(botId, threadId), type: "turn.wait_started", resource: TASK_MACHINE_RESOURCE, position: wait.place });
+      return;
+    }
+    taskMachineWaits.delete(threadId);
+    bus.publish({ ...archiveWaitEventBase(botId, threadId), type: "turn.wait_ended", resource: TASK_MACHINE_RESOURCE, waitedMs: wait.waitedMs, outcome: wait.outcome });
+  },
+  machineGone: (machineId) => boat.taskMachineGone(machineId),
+  onLost: (botId, threadId, machineId) => {
+    void pickUpLostTaskMachine(botId, threadId, machineId).then(
+      (outcome) => notePlacement(DATA_DIR, `[task-line] ${botId.slice(0, 8)} ${threadId.slice(0, 8)} pickup after losing ${machineId}: ${outcome}`),
+      (error: Error) => notePlacement(DATA_DIR, `[task-line] ${botId.slice(0, 8)} ${threadId.slice(0, 8)} pickup after losing ${machineId} failed: ${error.message}`),
+    );
+  },
+}));
+const taskMachineWaits = new Map<string, number>();
+const pickUpLostTaskMachine = taskMachineLoss({
+  busy: (botId, threadId) => threadBusy(botId, threadId),
+  request: (threadId) => store.activePath(threadId).findLast((message) => message.role === "user")?.id,
+  start: (botId, threadId, prompt, requestMessageId) => startContinuation(botId, threadId, prompt, requestMessageId),
+  note: (threadId, text) => { store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: text } }); },
+});
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);
@@ -1015,6 +1052,7 @@ if (existsSync(join(DATA_DIR, ".backups"))) {
 }
 const workspaceMaintenance = new WorkspaceBackupMaintenance();
 const cloudHold = new CloudHold(join(DATA_DIR, "cloud-hold.json"));
+const machineSizes = new MachineSizeBook(join(DATA_DIR, "machine-sizes.json"));
 const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);
 const signInAllowList = cacheUntilConfigChanges((config) => ({
   admins: parseAllowList(config.signIn?.admins?.join(",")),
@@ -14392,11 +14430,18 @@ ROUTES.push(createEnginePlacementRoutes({
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
 }));
 ROUTES.push(createEnginePoolRoutes({ read: () => poolSetting(DATA_DIR), save: (setting) => savePoolSetting(DATA_DIR, setting) }));
+ROUTES.push(createTaskMachineRoutes({
+  read: () => taskMachineSetting(DATA_DIR),
+  save: (setting) => saveTaskMachineSetting(DATA_DIR, setting),
+  line: async () => { const line = taskLineService(); if (!line) throw new Error("This home has no computers service for task machines."); return line.line(); },
+  configure: async (settings) => { const line = taskLineService(); if (!line) throw new Error("This home has no computers service for task machines."); return line.configure(settings); },
+}));
 ROUTES.push(createSearchIndexRoutes({
   status: () => searchIndex?.status() ?? null,
-  setMode: (mode) => {
+  setMode: (mode, refeed) => {
     if (!searchIndex) return null;
     saveSearchIndexMode(DATA_DIR, mode);
+    if (refeed) searchIndex.refeed();
     searchIndex.setMode(mode);
     return searchIndex.status();
   },
@@ -14671,9 +14716,10 @@ INTERNAL_ROUTES.push(createDogTaskRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   insideTask: (sender, threadId) => startedFromTask(store.taskByThread(sender.id, threadId)?.openedBy, sender.id),
   starter: (sender, threadId) => ({
-    open: (title, openedBy) => {
+    open: (title, openedBy, machine) => {
       const task = store.createTask(sender.id, title, false, undefined, openedBy, undefined, inheritedHelperSelection(sender, threadId));
       if (!task) return null;
+      if (machine) machineSizes.setTaskSize(sender.id, task.threadId, machine);
       threadStarters.set(task.threadId, openerFrom(threadId));
       return task.threadId;
     },

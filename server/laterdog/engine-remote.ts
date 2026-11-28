@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createInterface } from "node:readline";
-import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, workspaceRecovery, decodeEngineChunk, engineFileChunks, engineFileKey, inventoryWork, runFileWork, transcriptPrefixWork, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FRAME_BYTES, ENGINE_WINDOW_BYTES, EngineFileReceiver, sameEngineFile, streamedTree, workspaceRecovery, decodeEngineChunk, engineFileChunks, engineFileKey, inventoryWork, runFileWork, transcriptPrefixWork, fileHash, selectEngineTranscript, selectedTranscript, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 import { createHash } from "node:crypto";
 import { inProcessProxy, type ProxyHandle } from "./in-process-proxies.ts";
 
@@ -232,7 +232,15 @@ export class RemoteSession extends EventEmitter {
       const local = this.#receiver.baseline.get(key);
       const guest = remote.get(key);
       if (local?.hash === guest?.hash || guest?.hash === receipt.before?.hash) continue;
-      if (local?.hash !== receipt.before?.hash) throw new Error("Native transcript changed on both the home and computer. Both copies were preserved.");
+      const computerNewer = Boolean(local && guest && local.size < guest.size && (await this.#request({ type: "transcript_prefix", root: root.id, path: receipt.path, size: local.size }, SYNC_REPLY_MS, true))?.hash === local.hash);
+      if (local?.hash !== receipt.before?.hash && !computerNewer) {
+        if (!guest || local && guest.size <= local.size && await runFileWork(fileHash(root, receipt.path, guest.size), this.#fileAbort.signal) === guest.hash) continue;
+        const aside = await this.#request({ type: "set_aside_transcript", root: root.id, path: receipt.path, hash: guest.hash }, SYNC_REPLY_MS, true);
+        if (typeof aside?.setAside !== "string") throw new Error("Native transcript changed on both the home and computer. Both copies were preserved.");
+        remote.delete(key);
+        this.emit("notice", `This chat's conversation on its computer had changed apart from the home's copy, so the home's copy continues and the computer's is kept beside it as ${aside.setAside.split("/").at(-1)}.`);
+        continue;
+      }
       const recovery = await this.#request({ type: "recover_transcript", root: root.id, path: receipt.path, hash: guest?.hash }, SYNC_REPLY_MS, true);
       if (!recovery?.recovered || this.#receiver.baseline.get(key)?.hash !== guest?.hash) throw new Error("The newer computer transcript could not be recovered. Both copies were preserved.");
       home = home.filter(file => engineFileKey(file) !== key);
@@ -418,6 +426,8 @@ export class RemoteSession extends EventEmitter {
   get launchSent(): boolean { return this.#launchSent; }
 }
 
+export const RELAY_SELF_STOP_MS = 6_000;
+
 export class EngineProcess extends EventEmitter {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
@@ -427,6 +437,7 @@ export class EngineProcess extends EventEmitter {
   pid: number | undefined;
   notDispatched = false;
   placement: "pending" | "computer" | "home" = "pending";
+  #endedAt: number | null = null;
   #local: ChildProcess | null = null;
   #remote: RemoteSession | null = null;
   #stopRequested = false;
@@ -493,6 +504,7 @@ export class EngineProcess extends EventEmitter {
 
   #finish(code: number | null, signal: NodeJS.Signals | null): void {
     if (this.exitCode !== null || this.signalCode !== null) return;
+    this.#endedAt = Date.now();
     this.exitCode = code;
     this.signalCode = signal;
     if (code === null && signal === null) this.exitCode = 1;
@@ -518,14 +530,21 @@ export class EngineProcess extends EventEmitter {
     return !this.#remote || this.#remote.exitConfirmed || !this.#remote.launchSent;
   }
 
+  async #reclaimed(): Promise<boolean> {
+    if (this.#remoteGone()) return true;
+    const left = (this.#endedAt ?? Date.now()) + RELAY_SELF_STOP_MS - Date.now();
+    if (left > 0) await new Promise<void>((resolve) => setTimeout(resolve, left).unref());
+    return true;
+  }
+
   async stopTree(timeoutMs: number, stopLocal: (child: ChildProcess, timeoutMs: number) => Promise<boolean>): Promise<boolean> {
-    if (this.exitCode !== null || this.signalCode !== null) return this.#remoteGone();
+    if (this.exitCode !== null || this.signalCode !== null) return this.#reclaimed();
     this.#stopRequested = true;
     if (this.#local) return stopLocal(this.#local, timeoutMs);
     if (this.#remote && !this.#remote.launchSent) {
       this.#remote.close();
       await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
-      return this.#remoteGone();
+      return this.exitCode !== null || this.signalCode !== null ? this.#reclaimed() : this.#remoteGone();
     }
     this.#remote?.stop();
     const stoppedAt = Date.now();
@@ -541,7 +560,7 @@ export class EngineProcess extends EventEmitter {
       this.#remote?.close();
       await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
     }
-    return !this.#remote || this.#remote.exitConfirmed;
+    return this.exitCode !== null || this.signalCode !== null ? this.#reclaimed() : this.#remoteGone();
   }
 
   kill(): boolean { void this.stopTree(5_000, async (child) => child.kill("SIGTERM")); return true; }

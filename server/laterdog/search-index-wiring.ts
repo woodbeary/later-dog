@@ -150,6 +150,8 @@ export class SearchIndexWiring {
   private start(): void {
     this.generation += 1;
     this.covered.clear();
+    this.staleWhileOff.clear();
+    this.lastScanAt = null;
     for (const { chat, target } of this.deps.coverage.read()) this.coverageOf(chat).add(target);
     this.feed = new SearchIndexFeed((batch) => this.deps.client.feed(batch), (entries) => this.resolve(entries), {
       delayMs: this.deps.feedDelayMs,
@@ -192,6 +194,14 @@ export class SearchIndexWiring {
     this.setMode("off");
   }
 
+  refeed(): void {
+    this.deps.coverage.clear();
+    this.covered.clear();
+    this.queued.clear();
+    this.lastScanAt = null;
+    if (this.feed) this.wake();
+  }
+
   private get shadowClient(): SearchIndexClient {
     return this.deps.shadowClient ?? this.deps.client;
   }
@@ -210,15 +220,27 @@ export class SearchIndexWiring {
     return out;
   }
 
+  private readonly staleWhileOff = new Set<string>();
+
+  private stale(chat: string): void {
+    if (this.staleWhileOff.has(chat)) return;
+    this.staleWhileOff.add(chat);
+    this.deps.coverage.drop(chat);
+  }
+
   wrote = {
     message: (chat: string, id: string) => {
-      if (!this.feed) return;
+      if (!this.feed) return this.stale(chat);
       this.touch(chat);
       this.deps.outbox.put({ kind: "message", chat, id });
       this.feed.message(chat, id);
     },
     chat: (chat: string) => {
-      if (!this.feed) return;
+      if (!this.feed) {
+        this.stale(chat);
+        this.deps.outbox.put({ kind: "chat", chat });
+        return;
+      }
       this.touch(chat);
       const targets = [...(this.covered.get(chat) ?? [])];
       this.cancelled.add(chat);
@@ -229,7 +251,11 @@ export class SearchIndexWiring {
       this.feed.removeChat(chat, { dogs: targets.filter((target) => target !== PERSON_TARGET), person: true });
     },
     memory: (dog: string, path: string) => {
-      if (!this.feed) return;
+      if (!this.feed) {
+        this.stale(`${MEMORY_CHAT}${dog}`);
+        this.deps.outbox.put({ kind: "memory", dog, path });
+        return;
+      }
       this.touch(`${MEMORY_CHAT}${dog}`);
       this.deps.outbox.put({ kind: "memory", dog, path });
       this.feed.memory(dog, path);
