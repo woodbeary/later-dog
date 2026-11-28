@@ -133,6 +133,13 @@ export class RoomHandoffs {
     this.hooks.changed(new Set(nodes.flatMap(node => node.groupId ? [node.groupId] : [])),
       new Set(nodes.filter(node => !node.groupId).map(node => node.threadId)));
   }
+  delivery(id: string): "waiting" | "started" | "lost" | "ended" | null {
+    const n = this.nodes.get(id);
+    if (!n) return null;
+    if (n.startedAt !== undefined) return "started";
+    if (!terminal(n)) return "waiting";
+    return n.endedBy === "restart" ? "lost" : "ended";
+  }
   children(id: string) { return [...this.nodes.values()].filter(n => n.parentId === id); }
   awaited(id: string) { return this.children(id).filter(awaitsReply); }
   root(n: RoomHandoff) { return this.nodes.get(n.rootId)!; }
@@ -568,6 +575,7 @@ export class RoomHandoffs {
         else if (partResultsDue(children, this.now(), this.limits, n.startedAt)) { n.status = "resume"; this.publish(n); }
       }
       if (n.status !== "queued" && n.status !== "resume") continue;
+      if (!n.groupId && this.directRunning(n)) continue;
       if (parent && (parent.status === "source" || parent.status === "running") &&
         (parent.threadId === n.threadId || (n.groupId && n.groupId === parent.groupId))) continue;
       if (parent && terminal(parent) && n.status === "queued" && awaitsReply(n)) { this.cancelTree(n, endWords("origin", this.limits), "cancelled", "origin"); continue; }
@@ -594,6 +602,13 @@ export class RoomHandoffs {
       void this.hooks.run(n, resumed, controller.signal).then(result => this.ended(n, run, result)).catch(e => this.threw(n, run, e))
         .finally(() => { if (this.controllers.get(n.id) === controller) this.controllers.delete(n.id); });
     }
+  }
+
+  private directRunning(n: RoomHandoff): boolean {
+    for (const other of this.nodes.values()) {
+      if (other !== n && !other.groupId && other.threadId === n.threadId && other.status === "running" && this.runs.has(other.id)) return true;
+    }
+    return false;
   }
 
   private current(n: RoomHandoff, run: RunTurn): boolean {
