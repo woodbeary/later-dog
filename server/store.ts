@@ -1367,8 +1367,8 @@ export class Store {
     } else {
       const tail = mdb.readThreadTail(threadId, messagesFile(threadId), limit);
       const legacyRows = tail.hasMore !== undefined && tail.messages.some((m) => m.parentId === undefined);
-      if (tail.hasMore !== true || legacyRows) {
-        state = this.cacheThread(threadId, legacyRows ? mdb.readThread(threadId, messagesFile(threadId)) : tail);
+      if (legacyRows) {
+        state = this.cacheThread(threadId, mdb.readThread(threadId, messagesFile(threadId)));
       } else {
         return {
           messages: tail.messages,
@@ -2133,7 +2133,7 @@ export class Store {
       ? { window: Math.trunc(context.window), windowSource: "provider" as const }
       : usage.context?.window ? { window: usage.context.window, ...(usage.context.windowSource ? { windowSource: usage.context.windowSource } : {}) } : {};
     task.usage = { ...usage, context: { tokens, ...window } };
-    this.saveBots();
+    this.saveBotsSoon();
     this.emit({ type: "bot", botId });
     return true;
   }

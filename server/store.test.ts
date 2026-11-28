@@ -608,7 +608,7 @@ describe("Store", () => {
     expect(whole.hasMore).toBe(false);
   });
 
-  it("caches a complete tail but never caches a zero-message page as an empty thread", () => {
+  it("reads a tail without caching the chat, and never caches a zero-message page as an empty thread", () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });
     store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "keep this" });
@@ -616,9 +616,10 @@ describe("Store", () => {
     try {
       const fresh = new Store(selection);
       expect(fresh.messagesTail(bot.threadId, 10)).toMatchObject({ hasMore: false });
+      expect(fresh.hasCachedThread(bot.threadId)).toBe(false);
       read.mockClear();
       expect(fresh.messagesFor(bot.threadId)).toHaveLength(1);
-      expect(read).not.toHaveBeenCalled();
+      expect(read).toHaveBeenCalledTimes(1);
 
       const zeroPage = new Store(selection);
       expect(zeroPage.messagesTail(bot.threadId, 0)).toMatchObject({ messages: [], hasMore: true });
@@ -838,6 +839,7 @@ describe("Store", () => {
     store.addTaskUsage(bot.id, bot.threadId, { input: 100, output: 10, costUsd: null, context: { tokens: 120_000, window: 1_000_000, windowSource: "provider" } });
     expect(store.showTaskContext(bot.id, bot.threadId, { tokens: 240_000 })).toBe(true);
     expect(store.taskByThread(bot.id, bot.threadId)?.usage).toMatchObject({ input: 100, output: 10, turns: 1, context: { tokens: 240_000, window: 1_000_000, windowSource: "provider" } });
+    store.flushBots();
     expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.usage?.context).toEqual({ tokens: 240_000, window: 1_000_000, windowSource: "provider" });
     expect(store.showTaskContext(bot.id, "no-such-thread", { tokens: 5 })).toBe(false);
     expect(store.showTaskContext(bot.id, bot.threadId, { tokens: Number.NaN })).toBe(false);
