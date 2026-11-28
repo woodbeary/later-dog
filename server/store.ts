@@ -2178,21 +2178,21 @@ export class Store {
     if (!bot || !task) return null;
     if (opts.privateOnly && task.cwd === undefined) {
       task.cwd = fallbackCwd ?? null;
-      this.saveBots();
+      this.saveBotsSoon();
       this.emit({ type: "bot", botId });
       return task.cwd;
     }
     if (opts.none) {
       if (task.cwd !== null) {
         task.cwd = null;
-        this.saveBots();
+        this.saveBotsSoon();
         this.emit({ type: "bot", botId });
       }
       return null;
     }
     if (task.cwd === undefined) {
       task.cwd = Object.keys(task.resumeCursors).length === 0 ? (bot.cwd ?? fallbackCwd ?? null) : null;
-      this.saveBots();
+      this.saveBotsSoon();
       this.emit({ type: "bot", botId });
     }
     return task.cwd;
