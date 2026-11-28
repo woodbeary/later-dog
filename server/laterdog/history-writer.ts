@@ -5,6 +5,7 @@ import {
   clearCoverageOutside,
   coveredHistory,
   fillFromObject,
+  isCovered,
   localHistoryPage,
   localHistoryStats,
   localHistoryThreads,
@@ -163,7 +164,7 @@ export class HistoryWriter {
 
   async ensureChat(threadId: string): Promise<void> {
     if (this.current !== "object-writer" || !this.covers(threadId)) return;
-    if (this.options.database.read(coveredHistory).has(threadId)) return;
+    if (this.options.database.read((database) => isCovered(database, threadId))) return;
     await Promise.race([
       this.reconcile(threadId, "record").catch(() => false),
       new Promise((resolve) => setTimeout(resolve, ENSURE_MS).unref?.()),

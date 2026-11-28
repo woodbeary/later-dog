@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
-import { writeFileAtomic, writeFileAtomicIfChanged } from "./atomic.ts";
+import { writeFileAtomic, writeFileAtomicIfChanged, writeFileAtomicWhileCurrent } from "./atomic.ts";
 import { parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import { ensureSections, readSections, changeEmptySection, orderSections } from "./section-context.ts";
 import type { TeamComputers } from "./team-computers.ts";
@@ -105,13 +105,14 @@ export function toWireTask(task: TaskRecord, botModel: ModelSelection, bots: rea
 
 const ASK_NOW = { approvalMode: "ask" as const, autoApprove: false, alwaysAllow: [] as string[] };
 
-export const BOTS_FLUSH_MS = 250;
+export const BOTS_FLUSH_MS = 1_000;
 const TASK_PATCH_FIELDS = [
   "title", "projectId", "modelSelection", "approvalMode", "autoApprove", "alwaysAllow",
   "unread", "rewound", "archivedAt", "pinned", "pinnedMessageId", "resumeCursors", "lastInstanceId", "cwd",
   "routineRunId", "surface", "surfaceSource", "snoozedUntil", "appliedCompactionId", "contextFloor", "lastContextModel", "ownerModelSelection",
 ] as const satisfies readonly (keyof TaskRecord)[];
 export type TaskPatch = Partial<Pick<TaskRecord, typeof TASK_PATCH_FIELDS[number]>>;
+const BOOKKEEPING_TASK_FIELDS: ReadonlySet<string> = new Set(["unread", "lastInstanceId", "lastContextModel"] satisfies (keyof TaskRecord)[]);
 
 function persistedPin<T extends { pinned?: boolean }>(task: T): T {
   if (task.pinned === true) return task;
@@ -911,33 +912,66 @@ export class Store {
   }
 
   private botsFlush: ReturnType<typeof setTimeout> | null = null;
+  private botsWriting: Promise<void> | null = null;
+  private botsGeneration = 0;
+  private botsWritten: string | null = null;
 
   private saveBotsSoon(): void {
     if (this.botsFlush) return;
     this.botsFlush = setTimeout(() => {
       this.botsFlush = null;
-      try {
-        this.saveBots();
-      } catch (error) {
-        console.error(`[store] could not save dogs: ${(error as Error).message}`);
-      }
+      this.writeBotsInBackground();
     }, BOTS_FLUSH_MS);
     this.botsFlush.unref?.();
   }
 
+  private writeBotsInBackground(): void {
+    if (this.botsWriting) {
+      this.saveBotsSoon();
+      return;
+    }
+    let text: string;
+    try {
+      text = this.botsText(this.bots);
+    } catch (error) {
+      console.error(`[store] could not save dogs: ${(error as Error).message}`);
+      return;
+    }
+    const generation = ++this.botsGeneration;
+    if (text === this.botsWritten) return;
+    this.botsWriting = writeFileAtomicWhileCurrent(BOTS_FILE, text, () => generation === this.botsGeneration, { mode: 0o600 })
+      .then((wrote) => { if (wrote) this.botsWritten = text; })
+      .catch((error) => {
+        console.error(`[store] could not save dogs: ${(error as Error).message}`);
+        this.saveBotsSoon();
+      })
+      .finally(() => { this.botsWriting = null; });
+  }
+
   flushBots(): void {
-    if (!this.botsFlush) return;
-    clearTimeout(this.botsFlush);
+    if (!this.botsFlush && !this.botsWriting) return;
+    if (this.botsFlush) clearTimeout(this.botsFlush);
     this.botsFlush = null;
     this.saveBots();
   }
 
-  private saveBots(bots: BotRecord[] = this.bots, registerSections = true) {
-    if (registerSections) this.rememberSections([...this.bots, ...bots].map((bot) => bot.section));
-    writeFileAtomicIfChanged(BOTS_FILE, JSON.stringify(bots.map(({ busy: _busy, activity: _activity, ...bot }) => ({
+  async settledBots(): Promise<void> {
+    while (this.botsWriting) await this.botsWriting;
+  }
+
+  private botsText(bots: BotRecord[]): string {
+    return JSON.stringify(bots.map(({ busy: _busy, activity: _activity, ...bot }) => ({
       ...bot,
       tasks: bot.tasks?.map(({ busy: _taskBusy, activity: _taskActivity, turnStartedAt: _taskTurnStarted, workingStartedAt: _taskWorkingStarted, ...task }) => persistedPin(task)),
-    })), null, 2), { mode: 0o600 });
+    })));
+  }
+
+  private saveBots(bots: BotRecord[] = this.bots, registerSections = true) {
+    if (registerSections) this.rememberSections([...this.bots, ...bots].map((bot) => bot.section));
+    const text = this.botsText(bots);
+    this.botsGeneration++;
+    writeFileAtomicIfChanged(BOTS_FILE, text, { mode: 0o600 });
+    this.botsWritten = text;
   }
 
   private saveGroups(groups: GroupRecord[] = this.groups, registerSections = true) {
@@ -1313,6 +1347,26 @@ export class Store {
     return Boolean(group?.busyBotId);
   }
 
+  private busyThreadIds(): Set<string> {
+    const busy = new Set<string>();
+    const decided = new Set<string>();
+    for (const bot of this.bots) {
+      for (const task of bot.tasks ?? []) {
+        if (decided.has(task.threadId)) continue;
+        decided.add(task.threadId);
+        if (task.busy) busy.add(task.threadId);
+      }
+      if (decided.has(bot.threadId)) continue;
+      decided.add(bot.threadId);
+      if (bot.busy) busy.add(bot.threadId);
+    }
+    for (const group of this.groups) {
+      if (!group.busyBotId) continue;
+      for (const id of [group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)]) if (!decided.has(id)) busy.add(id);
+    }
+    return busy;
+  }
+
   private touchCachedThread(threadId: string, state: ThreadState): ThreadState {
     this.threads.delete(threadId);
     this.threads.set(threadId, state);
@@ -1325,9 +1379,10 @@ export class Store {
     let totalMessages = 0;
     for (const state of this.threads.values()) totalMessages += state.messages.length;
     if (this.threads.size <= maxThreads && totalMessages <= maxMessages) return;
+    let busy: Set<string> | undefined;
     for (const [id, state] of this.threads) {
       if (this.threads.size <= maxThreads && totalMessages <= maxMessages) break;
-      if (id === keepThreadId || this.isThreadBusy(id)) continue;
+      if (id === keepThreadId || (busy ??= this.busyThreadIds()).has(id)) continue;
       this.threads.delete(id);
       totalMessages -= state.messages.length;
     }
@@ -1382,6 +1437,25 @@ export class Store {
 
   messagesFor(threadId: string): Message[] {
     return this.thread(threadId).messages;
+  }
+
+  hasWaitingAsk(threadId: string): boolean {
+    const waiting = (message: Message) => message.needsYou?.status === "waiting";
+    const cached = this.threads.get(threadId);
+    if (cached) return cached.messages.some(waiting);
+    return mdb.threadHasWaitingAsk(threadId) ?? this.messagesWithoutCaching(threadId).some(waiting);
+  }
+
+  messagesWithoutCaching(threadId: string): readonly Message[] {
+    const cached = this.threads.get(threadId);
+    if (cached) return cached.messages;
+    const { messages } = mdb.readThread(threadId, messagesFile(threadId));
+    let prev: string | null = null;
+    for (const m of messages) {
+      if (m.parentId === undefined) m.parentId = prev;
+      prev = m.id;
+    }
+    return messages;
   }
 
   messagesTail(threadId: string, limit: number): { messages: Message[]; hasMore: boolean; activeLeafId: string | null } {
@@ -1578,8 +1652,24 @@ export class Store {
     return this.bots.find((b) => b.id === id) ?? null;
   }
 
+  private threadOwners = new Map<string, BotRecord>();
+
   botByThread(threadId: string) {
-    return this.bots.find((b) => b.threadId === threadId || b.tasks?.some((t) => t.threadId === threadId)) ?? null;
+    const owns = (bot: BotRecord) => bot.threadId === threadId || Boolean(bot.tasks?.some((t) => t.threadId === threadId));
+    const known = this.threadOwners.get(threadId);
+    if (known && owns(known) && this.bots.includes(known)) return known;
+    const found = this.bots.find(owns) ?? null;
+    if (found) this.threadOwners.set(threadId, found);
+    else this.threadOwners.delete(threadId);
+    return found;
+  }
+
+  taskForThread(threadId: string): TaskRecord | undefined {
+    for (const bot of this.bots) {
+      const task = bot.tasks?.find((candidate) => candidate.threadId === threadId);
+      if (task) return task;
+    }
+    return undefined;
   }
 
   private newBotSelection(requested?: ModelSelection): ModelSelection {
@@ -2316,6 +2406,8 @@ export class Store {
     const task = this.taskByThread(botId, threadId);
     if (!bot || !task) return null;
     if (patch.projectId !== undefined && !this.project(botId, patch.projectId)) return null;
+    const before = JSON.stringify(task);
+    const unreadBefore = bot.unread;
     for (const key of TASK_PATCH_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(patch, key)) {
         Object.assign(task, { [key]: structuredClone(patch[key]) });
@@ -2327,7 +2419,10 @@ export class Store {
     if (task.routineRunId) task.unread = false;
     if (bot.threadId === threadId) this.mirrorActiveTask(bot, task);
     bot.unread = bot.tasks!.some(taskCountsAsBotUnread);
-    this.saveBots();
+    if (bot.unread !== unreadBefore || JSON.stringify(task) !== before) {
+      if (Object.keys(patch).every((key) => BOOKKEEPING_TASK_FIELDS.has(key))) this.saveBotsSoon();
+      else this.saveBots();
+    }
     this.emit({ type: "bot", botId });
     return task;
   }

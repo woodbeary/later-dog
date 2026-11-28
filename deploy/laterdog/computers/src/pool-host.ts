@@ -114,7 +114,7 @@ export class PoolHost extends DurableObject<Env> {
       () => console.error(`laterdog computers: [pool] ${next.id} generation ${next.generation} stopped after ${Date.now() - started} ms`),
       (error: unknown) => console.error(`laterdog computers: [pool] ${next.id} generation ${next.generation} failed after ${Date.now() - started} ms: ${error instanceof Error ? error.message : String(error)}`),
     );
-    console.log(`laterdog computers: [pool] start ${next.id} (generation ${next.generation})`);
+    console.log(`laterdog computers: [pool] start ${next.id} (generation ${next.generation}, ${POOL_INSTANCE})`);
     await this.ctx.storage.setAlarm(Date.now() + KEEP_AWAKE_MS);
     return { started: true, generation: next.generation };
   }

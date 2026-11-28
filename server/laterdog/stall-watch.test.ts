@@ -251,6 +251,15 @@ describe("the stall watch on the home", () => {
     expect(lines[0]).toContain("the engine closed");
   });
 
+  it("the timed sweep checks the same chats in slices and gives the same verdicts as a full sweep", async () => {
+    const { watch, append } = host(cut());
+    const verdicts = await watch.sweepInSlices();
+    expect(verdicts.map((verdict) => verdict.kind)).toEqual(host(cut()).watch.sweep().map((verdict) => verdict.kind));
+    await Promise.resolve();
+    expect(append).toHaveBeenCalledOnce();
+    expect(await Promise.all([watch.sweepInSlices(), watch.sweepInSlices()])).toHaveLength(2);
+  });
+
   it("an explained chat stays quiet across further sweeps and keeps showing stopped", () => {
     const { watch, append, start } = host(cut(), { mayContinue: false });
     watch.sweep();

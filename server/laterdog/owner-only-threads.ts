@@ -2,8 +2,8 @@ import type { Message } from "../store.ts";
 
 export interface OwnerOnlyThreadsDeps {
   lastMessage(threadId: string): Message | undefined;
-  wholeThread(threadId: string): Message[];
-  decide(threadId: string, thread: Message[]): boolean;
+  wholeThread(threadId: string): readonly Message[];
+  decide(threadId: string, thread: readonly Message[]): boolean;
 }
 
 const KEPT = 5_000;
@@ -15,7 +15,11 @@ export function lastMessageKey(last: Message | undefined): string {
 export class OwnerOnlyThreads {
   private readonly known = new Map<string, { last: string; owner: boolean }>();
 
-  constructor(private readonly deps: OwnerOnlyThreadsDeps) {}
+  private readonly deps: OwnerOnlyThreadsDeps;
+
+  constructor(deps: OwnerOnlyThreadsDeps) {
+    this.deps = deps;
+  }
 
   ownerOnly(threadId: string): boolean {
     const last = lastMessageKey(this.deps.lastMessage(threadId));

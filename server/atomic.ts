@@ -11,6 +11,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { open as openAsync, unlink as unlinkAsync } from "node:fs/promises";
 
 export type AtomicWriteOptions = {
   mode?: number;
@@ -61,6 +62,26 @@ export function writeFileAtomic(path: string, data: string | Uint8Array, options
       unlinkSync(tmp);
     } catch {}
     throw e;
+  }
+}
+
+export async function writeFileAtomicWhileCurrent(path: string, data: string, current: () => boolean, options: AtomicWriteOptions = {}): Promise<boolean> {
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  let renamed = false;
+  try {
+    const handle = await openAsync(tmp, "w", options.mode);
+    try {
+      await handle.writeFile(data);
+      if (options.durable !== false) await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    if (!current()) return false;
+    renameWithRetry(tmp, path);
+    renamed = true;
+    return true;
+  } finally {
+    if (!renamed) await unlinkAsync(tmp).catch(() => {});
   }
 }
 

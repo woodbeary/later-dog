@@ -129,7 +129,7 @@ describe("the warm engine pool", () => {
     const [hostId] = [...made.keys()];
     expect(first.body.host).toBe(hostId);
     const start = w.containers.get(`pool-host:${[...w.poolLines.instances.keys()][0]!.slice("pool-line:".length)}:${hostId}`)!.starts[0] as Record<string, unknown>;
-    expect(start).toMatchObject({ instance: "standard-3", image: "laterdog-pool:test", entrypoint: ["/usr/local/bin/laterdog-pool-agent", "serve"] });
+    expect(start).toMatchObject({ instance: "standard-4", image: "laterdog-pool:test", entrypoint: ["/usr/local/bin/laterdog-pool-agent", "serve"] });
 
     const again = await open(w, "chat-1");
     expect(again.status).toBe(200);

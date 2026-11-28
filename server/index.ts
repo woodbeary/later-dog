@@ -336,6 +336,8 @@ import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-inde
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
 import { BOT_BROADCAST_MS, coalescedBroadcasts } from "./laterdog/coalesced-broadcasts.ts";
+import { chatTailMemo } from "./laterdog/chat-tail-memo.ts";
+import { loopTurns } from "./laterdog/loop-turns.ts";
 import { EdgeArrivals } from "./laterdog/edge-arrivals.ts";
 import { edgeAdmissionDogs, historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
 import { DogObjectCalls, ObjectRoutines } from "./laterdog/object-routines.ts";
@@ -604,7 +606,7 @@ import { managedDeviceApproval } from "./laterdog/managed-device-approval.ts";
 import { managedJobFolders } from "./laterdog/managed-job-folders.ts";
 
 import { homeMountPaths } from "./laterdog/work-folder-maintenance.ts";
-import { workFolderChats } from "./laterdog/work-folder-chats.ts";
+import { workFolderChat, workFolderChats, workFolderChatsInSlices, type WorkFolderChatsDeps } from "./laterdog/work-folder-chats.ts";
 import { savesForStorage } from "./laterdog/save-status.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
@@ -1394,6 +1396,8 @@ if (CLOUD_HOME && process.platform === "linux") accountKeeper.start();
 registerEnginesBinDir();
 registerNativeBinDir();
 
+const turnDispatchTurns = loopTurns();
+const configBroadcasts = coalescedBroadcasts(BOT_BROADCAST_MS, () => broadcast({ kind: "config", ...configStatus() }));
 const accountBattery = new AccountBattery({
   config: () => cfg.accountBattery,
   accounts: batteryAccounts,
@@ -1411,7 +1415,7 @@ const accountBattery = new AccountBattery({
     if (hostedModels) return;
     await loadPlanUsage({ accounts: planAccountsFromInstances(instanceConfigs(cfg)).filter((account) => account.driver !== "grok"), refresh: true });
   },
-  onChange: () => broadcast({ kind: "config", ...configStatus() }),
+  onChange: () => configBroadcasts.soon("config"),
 });
 function batteryThreadBot(threadId: string): BotRecord | null {
   return store.botByThread(threadId) ?? store.bot(groupBatteryTurns.get(threadId)?.botId ?? "");
@@ -1773,7 +1777,7 @@ function attestCloudRoutineRun(run: RoutineRun): void {
 
 const ownerOnlyCache = new OwnerOnlyThreads({
   lastMessage: (threadId) => store.messagesTail(threadId, 1).messages.at(-1),
-  wholeThread: (threadId) => store.messagesFor(threadId),
+  wholeThread: (threadId) => store.messagesWithoutCaching(threadId),
   decide: (threadId, thread) => ownerOnlyConversation(thread, cloudProvenOwnerPerson, cloudCardAnswerer, undefined, ownersOwnDogs(threadId)) && !thread.some((line) => cloudReportFromOthers(line, threadId)),
 });
 function ownersOwnDogs(threadId: string): boolean {
@@ -1922,7 +1926,7 @@ function cloudGuestDriven(threadId: string): boolean {
   const writer = run ? cloudRoutineAuthors?.writer(run.routineId) : undefined;
   if (writer && !cloudOwnerPerson(writer)) return true;
   if (!store.groupByThread(threadId)) return false;
-  const person = store.messagesFor(threadId).findLast((line) => line.role === "user" && !line.peerAsk && line.sender?.id)?.sender?.id;
+  const person = store.messagesWithoutCaching(threadId).findLast((line) => line.role === "user" && !line.peerAsk && line.sender?.id)?.sender?.id;
   return person !== undefined && !cloudOwnerPerson(person);
 }
 
@@ -3287,7 +3291,7 @@ const logArchive = archiveBridge
     bridge: archiveBridge,
     threads: () => [
       ...new Set([
-        ...store.bots.flatMap(bot => store.tasks(bot.id).map(task => task.threadId)),
+        ...store.bots.flatMap(bot => (bot.tasks ?? []).map(task => task.threadId)),
         ...store.groups.flatMap(group => [group.threadId, ...(group.tasks ?? []).map(task => task.threadId)]),
       ]),
     ],
@@ -3295,17 +3299,16 @@ const logArchive = archiveBridge
     archiveCodexSessions: process.env.LATERDOG_ARCHIVE_CODEX_SESSIONS === "1",
     idle: id => {
       if (registry.instances().some(instance => instance.adapter.hasSession(id))) return false;
-      if (store.hasPendingRequest(id)) return false;
       if (roomHandoffs.activeDirect(id)) return false;
       if (groupSpeakers.has(id)) return false;
       const group = store.groupByThread(id);
       if (group && (Boolean(group.busyBotId) || Boolean(groupTurnOperations.get(group.id)?.size))) return false;
-      const owner = store.bots.find(bot => store.tasks(bot.id).some(task => task.threadId === id));
+      const owner = store.bots.find(bot => (bot.tasks ?? []).some(task => task.threadId === id));
       if (owner && threadBusy(owner.id, id)) return false;
-      return true;
+      return !store.hasPendingRequest(id);
     },
-    sessions: id => claudeSessionIds(store.bots.flatMap(bot => store.tasks(bot.id)).find(task => task.threadId === id)?.resumeCursors),
-    outsideSessions: () => outsideSessionOwners(store.bots.map(bot => ({ threadId: bot.threadId, resumeCursors: bot.resumeCursors, tasks: store.tasks(bot.id) })), id => Boolean(store.groupByThread(id))),
+    sessions: id => claudeSessionIds(store.taskForThread(id)?.resumeCursors),
+    outsideSessions: () => outsideSessionOwners(store.bots.map(bot => ({ threadId: bot.threadId, resumeCursors: bot.resumeCursors, tasks: bot.tasks ?? [] })), id => Boolean(store.groupByThread(id))),
     sweep: () => archiveSweep(archiveDisk()),
     room: () => roomToRestore(archiveDisk()),
     report: message => console.log(`[log archive] ${message}`),
@@ -3316,7 +3319,9 @@ const workFolders = !mountedFolderLayout && archiveBridge && logArchive
     dataDir: DATA_DIR,
     workspacesDir: TASK_WORKSPACES_DIR,
     bridge: archiveBridge,
-    chats: () => workFolderChats({ workspacesDir: TASK_WORKSPACES_DIR, bots: store.bots, groups: store.groups, damaged: store.damaged, thread: janitorThread, atWork: threadAtWork }),
+    chats: () => workFolderChats(workFolderChatSources()),
+    chatsInSlices: () => workFolderChatsInSlices(workFolderChatSources()),
+    chat: (dir) => workFolderChat(workFolderChatSources(), dir),
     inUse: (botId, threadId) => chatInUse(botId, threadId),
     limits: () => workFolderSweep(archiveDisk()),
     room: bytes => roomFor(archiveDisk(), bytes),
@@ -4270,15 +4275,17 @@ let helpersWorkingIn = (_threadId: string): number => 0;
 const computerJobs = new ComputerJobs(join(DATA_DIR, "computer-jobs.json"), { changed: (threadId) => announceHelpersChanged(threadId) });
 const delegatedWaiting = new Map<string, boolean>();
 function delegatedNeedsYou(threadId: string): boolean {
-  if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.messagesFor(threadId).some(message => message.needsYou?.status === "waiting"));
+  if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.hasWaitingAsk(threadId));
   return delegatedWaiting.get(threadId)!;
 }
 const workSignals = new WorkSignals();
 let exchangeLookup: ExchangeLookup | undefined;
 let waitingOnPerson = (_threadId: string): boolean => false;
 let stallFacts = (_threadId: string): StallFacts => ({});
+const signInAsks = chatTailMemo((threadId) => deviceApprovalNeedsYou(store.messagesTail(threadId, 60).messages));
+store.onChange((change) => signInAsks.changed(change));
 function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
-  const signIn = busy ? undefined : deviceApprovalNeedsYou(store.messagesTail(threadId, 60).messages);
+  const signIn = busy ? undefined : signInAsks.get(threadId);
   const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId) || signIn !== undefined;
   const until = limitHold.heldUntil(threadId);
   const usageWait = until !== undefined || (!busy && usageStranded(threadId));
@@ -4297,7 +4304,7 @@ const planOf = (threadId: string) => {
 };
 const planChanged = (threadId: string) => {
   const bot = store.botByThread(threadId);
-  if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+  if (bot) botBroadcasts.soon(bot.id);
 };
 forgetDeletedChats(store, dogPlans);
 const planAnchor = (threadId: string) => store.activePath(threadId).findLast(isPersonText)?.id;
@@ -4336,6 +4343,18 @@ const wireBot = (bot: BotRecord): WireBot => {
     work, step: liveSteps.step(bot.threadId), ...planOf(bot.threadId),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
+
+const sentThreads = new Map<string, string>();
+for (const record of [...store.bots, ...store.groups]) sentThreads.set(record.id, record.threadId);
+function pageIfThreadChanged(id: string, threadId: string) {
+  if (sentThreads.get(id) === threadId) return {};
+  sentThreads.set(id, threadId);
+  return messagePage(threadId, DEFAULT_PAGE);
+}
+const botBroadcasts = coalescedBroadcasts(BOT_BROADCAST_MS, (botId) => {
+  const bot = store.bot(botId);
+  if (bot) broadcast({ kind: "bot", bot: { ...wireBot(bot), ...pageIfThreadChanged(bot.id, bot.threadId) } });
+});
 
 function toolScopeForTurn(botId: string) {
   const bot = store.bot(botId);
@@ -5693,7 +5712,7 @@ async function waitForChatRoomMember(
 function newestPeerActivityAt(botId: string): number {
   let newest = 0;
   for (const task of store.tasks(botId)) {
-    const at = store.messagesTail(task.threadId, 1).messages.at(-1)?.at ?? task.createdAt;
+    const at = task.updatedAt ?? task.createdAt;
     if (at > newest) newest = at;
   }
   return newest;
@@ -5766,17 +5785,6 @@ const groupWithThread = (group: GroupRecord) => ({
   ...(group.dm ? {} : { tasks: store.groupTasks(group.id) }),
 });
 
-const sentThreads = new Map<string, string>();
-for (const record of [...store.bots, ...store.groups]) sentThreads.set(record.id, record.threadId);
-function pageIfThreadChanged(id: string, threadId: string) {
-  if (sentThreads.get(id) === threadId) return {};
-  sentThreads.set(id, threadId);
-  return messagePage(threadId, DEFAULT_PAGE);
-}
-const botBroadcasts = coalescedBroadcasts(BOT_BROADCAST_MS, (botId) => {
-  const bot = store.bot(botId);
-  if (bot) broadcast({ kind: "bot", bot: { ...wireBot(bot), ...pageIfThreadChanged(bot.id, bot.threadId) } });
-});
 store.onChange((change) => {
   if (change.type !== "message" && change.type !== "message.patch" && change.type !== "thread" && change.type !== "sections") forgetVisibility();
   switch (change.type) {
@@ -6314,8 +6322,7 @@ function announceHelpersChanged(threadId: string): void {
     if (room) broadcast({ kind: "group", group: publicGroupState(room) });
     return;
   }
-  const current = store.bot(owner.id);
-  if (current) broadcast({ kind: "bot", bot: wireBot(current) });
+  botBroadcasts.soon(owner.id);
 }
 const watchdog = new TurnWatchdog({
   helpersMaxMs: Math.max(1_000, Number(process.env.LATERDOG_HELPERS_MAX_MS) || 4 * 60 * 60_000),
@@ -6466,7 +6473,7 @@ store.onChange((change) => {
   if ((change.type === "message" || change.type === "message.patch") && change.message.needsYou) {
     delegatedWaiting.delete(change.threadId);
     const owner = store.botByThread(change.threadId);
-    if (owner) broadcast({ kind: "bot", bot: wireBot(owner) });
+    if (owner) botBroadcasts.soon(owner.id);
   }
   if ((change.type === "message" || change.type === "message.patch") && !change.message.needsYou) {
     const node = [...roomHandoffs.nodes.values()].findLast(node => node.parentId && node.threadId === change.threadId && ["running", "needs-you", "waiting"].includes(node.status));
@@ -7508,8 +7515,9 @@ if (CLOUD_HOME || process.env.LATERDOG_REVIVE_DOGS === "1") {
 }
 
 function usageStranded(threadId: string): boolean {
+  if (!batteryContinuationPending(threadId)) return false;
   const owner = store.botByThread(threadId);
-  return Boolean(owner) && batteryContinuationPending(threadId) && !(threadId in limitHold.waiting()) && !limitHold.waitsOnPerson(threadId) && !threadBusy(owner!.id, threadId);
+  return Boolean(owner) && !(threadId in limitHold.waiting()) && !limitHold.waitsOnPerson(threadId) && !threadBusy(owner!.id, threadId);
 }
 function chatSelection(threadId: string): ModelSelection | undefined {
   const owner = store.botByThread(threadId);
@@ -8668,8 +8676,7 @@ function settleWaitingOnPersonChips(threadId: string, requestId?: string) {
 }
 
 function activeRoutineRunForThread(threadId: string): RoutineRun | null {
-  const run = routines?.runForThread(threadId);
-  return run && ["running", "waiting"].includes(run.status) ? run : null;
+  return routines?.activeRunForThread(threadId) ?? null;
 }
 
 function routineTurnBelongsToRun(run: Pick<RoutineRun, "id" | "threadId">): boolean {
@@ -10286,6 +10293,7 @@ async function startTurn(
         userName: cfg.profile?.name?.trim() || "User",
         docs: memoryDocs,
       }) : "";
+      await turnDispatchTurns();
       if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while recalling notes");
       turnShape.begin(threadId, {
         questions: threadId === bot.threadId && Date.now() - (bot.createdAt ?? 0) < DOG_SETUP_QUESTIONS_MS,
@@ -22743,6 +22751,10 @@ setInterval(sweepThreadEventLogsNow, THREAD_LOG_RETENTION_SWEEP_MS).unref();
 
 function threadLogCap(): number | null {
   return threadEventLogMaxBytes(cfg) ?? (CLOUD_HOME ? CLOUD_THREAD_LOG_MAX_BYTES : null);
+}
+
+function workFolderChatSources(): WorkFolderChatsDeps {
+  return { workspacesDir: TASK_WORKSPACES_DIR, bots: store.bots, groups: store.groups, damaged: store.damaged, thread: janitorThread, atWork: threadAtWork };
 }
 
 function janitorThread(botId: string, threadId: string): ReaperThreadState {

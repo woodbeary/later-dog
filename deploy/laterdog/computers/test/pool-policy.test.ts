@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ENGINES_PER_HOST, HEADROOM_ENGINES, type HostLoad, MINUTE, type PoolHostRecord, hostHourlyUsd, nearlyFull, observe, parseEngineSpec, place, planScale, poolSettings } from "../src/pool-policy";
+import { ENGINES_PER_HOST, HEADROOM_ENGINES, type HostLoad, MINUTE, POOL_INSTANCE, POOL_VCPUS, type PoolHostRecord, hostHourlyUsd, nearlyFull, observe, parseEngineSpec, place, planScale, poolSettings } from "../src/pool-policy";
 
 const GIB = 1024 ** 3;
 const settings = poolSettings({ POOL_HOSTS_MAX: "4" });
@@ -88,9 +88,14 @@ describe("engine requests", () => {
 });
 
 describe("cost", () => {
-  it("prices a standard-3 host from the documented memory, disk and active-CPU rates", () => {
-    expect(hostHourlyUsd(0)).toBeCloseTo(0.07603, 4);
-    expect(hostHourlyUsd(0.2)).toBeCloseTo(0.10483, 4);
+  it("prices a standard-4 host from the documented memory, disk and active-CPU rates", () => {
+    expect(hostHourlyUsd(0)).toBeCloseTo(0.11304, 4);
+    expect(hostHourlyUsd(0.2)).toBeCloseTo(0.17064, 4);
+  });
+
+  it("gives every engine on a full host at least a third of a processor, since a burst of engine starts is bound by processor time", () => {
+    expect(POOL_VCPUS / ENGINES_PER_HOST).toBeGreaterThanOrEqual(1 / 3);
+    expect(POOL_INSTANCE).toBe("standard-4");
   });
 
   it("spreads a burst: a host at its engine cap takes no new chat while another host has room", () => {

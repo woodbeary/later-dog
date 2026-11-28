@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { NativeActivity, NativeObservation } from "../../shared/native-runs.ts";
 import type { RuntimeEvent } from "../../shared/runtime-events.ts";
 import { NativeRunProjector } from "./native-run-projector.ts";
-import { ensureNativeRuns, NativeRunStore } from "./native-run-store.ts";
+import { deleteNativeRuns, ensureNativeRuns, NativeRunStore } from "./native-run-store.ts";
 
 const databases: DatabaseSync[] = [];
 afterEach(() => { for (const database of databases.splice(0)) database.close(); });
@@ -59,5 +59,31 @@ describe("when the run last moved", () => {
     const finished = projector.observe(event(20, { type: "turn.completed", ok: true }))!;
     expect(finished).toMatchObject({ observation: "complete", lastActivityAt: ms(12) });
     expect(store.get(finished.id)!.lastActivityAt).toBe(ms(12));
+  });
+});
+
+describe("live runs of a chat", () => {
+  it("are read once while nothing changes and follow every save, a rolled back write and a deleted chat", () => {
+    const { store, projector } = fixture();
+    const database = databases.at(-1)!;
+    expect(store.live("chat")).toEqual([]);
+    projector.observe(event(0, { type: "turn.started" }));
+    projector.observe(step(1, "read"));
+    expect(store.live("chat").map((run) => run.observation)).toEqual(["live"]);
+    const queries: string[] = [];
+    const prepare = database.prepare.bind(database);
+    database.prepare = ((sql: string) => { queries.push(sql); return prepare(sql); }) as typeof database.prepare;
+    for (let i = 0; i < 20; i++) store.live("chat").push(store.live("chat")[0]!);
+    expect(queries).toEqual([]);
+    expect(store.live("chat")).toHaveLength(1);
+    database.prepare = prepare;
+    expect(() => store.apply(store.live("chat")[0]!.id, "boom", ms(2), {}, () => { throw new Error("boom"); })).toThrow("boom");
+    expect(store.live("chat")).toHaveLength(1);
+    projector.observe(event(3, { type: "turn.completed", ok: true }));
+    expect(store.live("chat")).toEqual([]);
+    projector.observe(event(4, { type: "turn.started", turnId: "turn-2" }));
+    expect(store.live("chat")).toHaveLength(1);
+    deleteNativeRuns(database, "chat");
+    expect(store.live("chat")).toEqual([]);
   });
 });

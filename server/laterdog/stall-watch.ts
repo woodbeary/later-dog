@@ -5,6 +5,7 @@ import type { WireMessage } from "../../shared/wire.ts";
 import type { WorkStopCause } from "../../shared/work-state.ts";
 import { endsOnPromise } from "./promise-nudge.ts";
 import { onlyTapbackText } from "./tapback.ts";
+import { scanYielding } from "./yielding-scan.ts";
 
 type Message = WireMessage;
 type NewMessage = Omit<Message, "id" | "at">;
@@ -289,20 +290,34 @@ export function createStallWatch(host: StallWatchHost, options: { everyMs?: numb
     }).finally(() => starting.delete(threadId));
   };
 
+  const check = ({ botId, threadId }: { botId: string; threadId: string }, verdicts: StallVerdict[]) => {
+    if (starting.has(threadId)) return;
+    try {
+      const chat = host.look(botId, threadId);
+      if (!chat) return;
+      const verdict = judgeChat(chat, options);
+      act(botId, threadId, verdict);
+      verdicts.push(verdict);
+    } catch (error) {
+      log(`stall watch: ${threadId} could not be checked: ${reasonOf(error)}`);
+    }
+  };
+  let sweeping = false;
+
   return {
     sweep(): StallVerdict[] {
       const verdicts: StallVerdict[] = [];
-      for (const { botId, threadId } of host.chats()) {
-        if (starting.has(threadId)) continue;
-        try {
-          const chat = host.look(botId, threadId);
-          if (!chat) continue;
-          const verdict = judgeChat(chat, options);
-          act(botId, threadId, verdict);
-          verdicts.push(verdict);
-        } catch (error) {
-          log(`stall watch: ${threadId} could not be checked: ${reasonOf(error)}`);
-        }
+      for (const chat of host.chats()) check(chat, verdicts);
+      return verdicts;
+    },
+    async sweepInSlices(): Promise<StallVerdict[]> {
+      const verdicts: StallVerdict[] = [];
+      if (sweeping) return verdicts;
+      sweeping = true;
+      try {
+        await scanYielding([...host.chats()], (chat) => check(chat, verdicts));
+      } finally {
+        sweeping = false;
       }
       return verdicts;
     },
@@ -317,7 +332,7 @@ export function createStallWatch(host: StallWatchHost, options: { everyMs?: numb
       started = true;
       const begin = () => {
         if (!started || timer) return;
-        timer = setInterval(() => { this.sweep(); }, options.everyMs ?? STALL_CHECK_MS);
+        timer = setInterval(() => { void this.sweepInSlices(); }, options.everyMs ?? STALL_CHECK_MS);
         timer.unref?.();
       };
       if (options.ready) void options.ready.then(begin, begin);

@@ -2,10 +2,10 @@ import type { Refusal } from "./auth";
 import { bounded } from "./idle";
 
 export const MINUTE = 60_000;
-export const POOL_INSTANCE = "standard-3";
-export const POOL_MEMORY_GIB = 8;
-export const POOL_DISK_GB = 16;
-export const POOL_VCPUS = 2;
+export const POOL_INSTANCE = "standard-4";
+export const POOL_MEMORY_GIB = 12;
+export const POOL_DISK_GB = 20;
+export const POOL_VCPUS = 4;
 const MEMORY_GIB_SECOND_USD = 0.0000025;
 const DISK_GB_SECOND_USD = 0.00000007;
 const VCPU_SECOND_USD = 0.00002;

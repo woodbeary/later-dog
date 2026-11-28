@@ -65,6 +65,7 @@ import { quietWorkEnvironment } from "../laterdog/work-updates.ts";
 import { ENGINE_BYTES, engineIdleLimit, warmEngines } from "../laterdog/warm-engines.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
 import { placedThreads } from "../laterdog/placed-threads.ts";
+import { commsTokenByFile, commsTokenFile, type TurnCommsToken, writeTurnCommsToken } from "../laterdog/comms-token-file.ts";
 import { sessionIdlePolicy } from "./session-idle.ts";
 import { EngineContextAsk, writeEngineLine } from "../laterdog/engine-context-ask.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
@@ -1162,6 +1163,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       s.broker = undefined;
       broker?.close();
       appendNative(threadId, { dir: "out", source: "claude.session", msg: { close: why } });
+      notePlacement(DATA_DIR, `[engine] ${threadId.slice(0, 8)} closes: ${why}`);
       s.contextAsk.close();
       try {
         s.child.stdin.end();
@@ -1322,6 +1324,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       let systemPromptPath: string | null = null;
 
       const mcpServers: Record<string, unknown> = {};
+      let turnCommsToken: TurnCommsToken | null = null;
       const allowed: string[] = [];
       if (turn.integrations?.composio) {
         mcpServers.composio = { ...turn.integrations.composio };
@@ -1341,7 +1344,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           model: injected.model, injected: injected.injected, managed: Boolean(config.managed), env: turnEnvironment,
         });
         rareLaunches.set(threadId, rareOnDemand);
-        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, rareOnDemand);
+        const byFile = commsTokenByFile(agentsServerLaunch(turn.integrations.agents, rareOnDemand), commsTokenFile(DATA_DIR, threadId, botId));
+        mcpServers.agents = byFile.server;
+        turnCommsToken = byFile.token;
         allowed.push("mcp__agents");
       }
       if (turn.integrations?.browser) {
@@ -1484,6 +1489,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           live.volatile = seen;
           rememberVolatile(threadId, live);
           const running = live.turn;
+          writeTurnCommsToken(turnCommsToken);
           if (!(await writeUser(live, threadId, message)) && !running?.stopRequested) closeSession(threadId, "stdin write failed");
           startPhases.end(threadId, "prompt sent to warm engine");
           if (mcpConfigPath) {
@@ -1497,9 +1503,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const changed = Object.keys(argsParts).filter((key) => live.argsParts[key] !== argsParts[key]);
           if (live.turn || live.helpers.running()) throw new Error("The previous engine is still working.");
           appendNative(threadId, { dir: "out", source: "claude.session", msg: turn.sessionReset ? { close: "context reset" } : { changed } });
+          notePlacement(DATA_DIR, `[engine] ${threadId.slice(0, 8)} restarts: ${turn.sessionReset ? "context reset" : `changed ${changed.join(", ")}`}`);
           await warmEngines.retire(ownershipKey(threadId), live);
           checkStart();
         }
+        writeTurnCommsToken(turnCommsToken);
       } catch (error) {
         cleanupUnownedLaunch();
         throw error;
@@ -1619,8 +1627,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           if ("stay" in remote) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`);
         }
         child = remote && "plan" in remote
-          ? spawnPlacedEngine(remote.plan, (plan, signal) => opener!.open(botId!, plan, signal), required ? undefined : local, (where, why) =>
-            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`), undefined,
+          ? spawnPlacedEngine(remote.plan, (plan, signal) => opener!.open(botId!, plan, signal), required ? undefined : local, (where, why, steps) =>
+            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}${steps ? `; start: ${steps}` : ""}`), undefined,
             { openBudgetMs: opener!.openBudgetMs, onWaiting: (wait) => emit({ ...base(threadId, turnId), ...engineWaitEvent(wait) }), onNotice: (message) => emit({ ...base(threadId, turnId), type: "runtime.notice", message }) }) as unknown as ReturnType<typeof spawnCli>
           : local();
       } catch (error) {
@@ -2287,6 +2295,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (confirmed && sessions.get(threadId) === session) sessions.delete(threadId);
       };
       child.on("close", (code) => {
+        if (!session.closing) notePlacement(DATA_DIR, `[engine] ${threadId.slice(0, 8)} ended by itself (code ${code})`);
         session.finishClose = () => finalizeClose(code);
         void session.finishClose().finally(markClosed);
       });

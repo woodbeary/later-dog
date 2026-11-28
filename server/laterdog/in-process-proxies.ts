@@ -2,6 +2,8 @@ import { StringDecoder } from "node:string_decoder";
 
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { agentsMcpSession } from "./agents-mcp-session.ts";
+import { harnessMcpSession } from "./harness-mcp-session.ts";
+import { parseHarnessMcpKind } from "../harness-mcp-request.ts";
 import { permissionMcpSession } from "./permission-mcp-session.ts";
 
 export interface ProxyHandle {
@@ -23,6 +25,8 @@ function startFor(spec: { command: string; args?: string[] }): Start | null {
   const args = spec.args ?? [];
   if (args.length === 1 && args[0] === SPAWNED_PROXIES.agents) return (env, send) => agentsMcpSession(env, send);
   if (args.length === 2 && args[0] === SPAWNED_PROXIES.permission) return (env, send) => permissionMcpSession(env, args[1], send);
+  const harness = args.length === 2 && args[0] === SPAWNED_PROXIES.harnessMcp ? parseHarnessMcpKind(args[1]) : null;
+  if (harness) return (env, send) => harnessMcpSession(env, harness, send);
   return null;
 }
 

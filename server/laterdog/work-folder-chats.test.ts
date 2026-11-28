@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { workFolderChats, type WorkFolderChatsDeps } from "./work-folder-chats.ts";
+import { workFolderChat, workFolderChats, workFolderChatsInSlices, type WorkFolderChatsDeps } from "./work-folder-chats.ts";
 
 const base = (): WorkFolderChatsDeps => ({
   workspacesDir: "/synthetic/task-workspaces",
@@ -55,4 +55,19 @@ it("deduplicates default and task pointers", () => {
 it.each(["bots", "groups"])("defers the sweep when %s ownership metadata is damaged", name => {
   const deps = Object.assign(base(), { damaged: [{ name }] });
   expect(() => workFolderChats(deps)).toThrow(/chat.*read/i);
+});
+
+it("builds the same chat list in short slices, handing the server back between them, and finds one chat without building the list", async () => {
+  const deps = base();
+  deps.bots = Array.from({ length: 40 }, (_, i) => ({ id: `dog${i}`, threadId: `main${i}`, tasks: [{ threadId: `task${i}`, title: "Work", createdAt: 0, resumeCursors: {} }] }));
+  const slow = deps.thread;
+  deps.thread = (botId, threadId) => { const until = performance.now() + 1; while (performance.now() < until); return slow(botId, threadId); };
+  let passes = 0;
+  const sliced = await workFolderChatsInSlices(deps, async () => { passes += 1; });
+  expect(sliced).toEqual(workFolderChats(deps));
+  expect(passes).toBeGreaterThan(2);
+  let looked = 0;
+  deps.thread = (botId, threadId) => { looked += 1; return slow(botId, threadId); };
+  expect(workFolderChat(deps, join(deps.workspacesDir, "dog7", "task7"))).toEqual({ dir: join(deps.workspacesDir, "dog7", "task7"), busy: false, closed: false, lastActiveAt: 123 });
+  expect(looked).toBe(1);
 });

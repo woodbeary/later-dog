@@ -32,7 +32,15 @@ export function ensureNativeRuns(database: DatabaseSync): void {
   database.prepare("UPDATE native_run_events SET json = 'null' WHERE json != 'null'").run();
 }
 
+const liveRuns = new WeakMap<DatabaseSync, Map<string, NativeRun[]>>();
+const liveRunsOf = (database: DatabaseSync): Map<string, NativeRun[]> => {
+  let known = liveRuns.get(database);
+  if (!known) liveRuns.set(database, known = new Map());
+  return known;
+};
+
 export function deleteNativeRuns(database: DatabaseSync, threadId: string): void {
+  liveRunsOf(database).delete(threadId);
   database.prepare("DELETE FROM native_run_events WHERE run_id IN (SELECT id FROM native_runs WHERE thread_id = ?)").run(threadId);
   database.prepare("DELETE FROM native_run_items WHERE run_id IN (SELECT id FROM native_runs WHERE thread_id = ?)").run(threadId);
   database.prepare("DELETE FROM native_runs WHERE thread_id = ?").run(threadId);
@@ -46,6 +54,7 @@ const readRun = (database: DatabaseSync, id: string): NativeRun | undefined => {
 };
 
 const saveRun = (database: DatabaseSync, run: NativeRun): void => {
+  liveRunsOf(database).delete(run.threadId);
   database.prepare("INSERT INTO native_runs(id, thread_id, started_at, json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json")
     .run(run.id, run.threadId, run.startedAt, JSON.stringify(run));
 };
@@ -59,7 +68,14 @@ export class NativeRunStore {
   }
 
   live(threadId: string): NativeRun[] {
-    return this.access.read(database => (database.prepare("SELECT json FROM native_runs WHERE thread_id = ? AND json_extract(json, '$.observation') = 'live' ORDER BY started_at DESC, id DESC").all(threadId) as Array<{ json: string }>).map(row => JSON.parse(row.json) as NativeRun));
+    return this.access.read(database => {
+      const known = liveRunsOf(database);
+      const remembered = known.get(threadId);
+      if (remembered) return [...remembered];
+      const runs = (database.prepare("SELECT json FROM native_runs WHERE thread_id = ? AND json_extract(json, '$.observation') = 'live' ORDER BY started_at DESC, id DESC").all(threadId) as Array<{ json: string }>).map(row => JSON.parse(row.json) as NativeRun);
+      if (!database.isTransaction) known.set(threadId, runs);
+      return [...runs];
+    });
   }
 
   list(threadId: string, before?: string, limit = 30): NativeRunList {

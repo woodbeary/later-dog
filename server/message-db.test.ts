@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
 import { closeMessageDb,
@@ -40,6 +40,25 @@ describe("message-db", () => {
     closeMessageDb();
     rmSync(DATA_DIR, { recursive: true, force: true });
     mkdirSync(DATA_DIR, { recursive: true });
+  });
+
+  it("prepares a chat's read and write statements once and reuses them", () => {
+    insertMessage("prepared", msg("a", "one"));
+    readThread("prepared", legacy("prepared"));
+    readThreadTail("prepared", legacy("prepared"), 5);
+    const prepare = vi.spyOn(DatabaseSync.prototype, "prepare");
+    try {
+      for (let i = 0; i < 20; i++) {
+        insertMessage("prepared", msg(`m${i}`, `line ${i}`));
+        updateMessage("prepared", msg(`m${i}`, `line ${i} edited`));
+        readThread("prepared", legacy("prepared"));
+        readThreadTail("prepared", legacy("prepared"), 5);
+      }
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(readThreadTail("prepared", legacy("prepared"), 2).messages.map((m) => m.text)).toEqual(["line 18 edited", "line 19 edited"]);
+    } finally {
+      prepare.mockRestore();
+    }
   });
 
   it("checks pending requests without loading a transcript, protects legacy data and permits cancelled requests", () => {
