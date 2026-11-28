@@ -958,6 +958,7 @@ import { computerEngineOpener, openEngineOnMachine, type EngineWorkFolders } fro
 import { machineWaitingText, saveTaskMachineSetting, TASK_MACHINE_RESOURCE, taskLineService, taskMachineOpener, taskMachineSetting } from "./laterdog/task-machines.ts";
 import { createTaskMachineRoutes } from "./routes/task-machines.ts";
 import { taskMachineLoss } from "./laterdog/task-machine-loss.ts";
+import { NEW_TASK_MS, publishNewTaskFolders } from "./laterdog/task-machine-folders.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
 import { poolChosen, poolEngineOpener, poolService, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
@@ -981,7 +982,7 @@ setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFo
   dataDir: DATA_DIR,
   ticketClass: (botId, threadId) => startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "task" : null,
   size: (botId, threadId) => machineSizes.choose(botId, threadId, undefined).size,
-  openOn: async (machineId, botId, plan, signal) => openEngineOnMachine(await boat.taskMachineComputer(machineId, signal), botId, plan, engineFolderOptions),
+  openOn: async (machineId, botId, plan, signal) => openEngineOnMachine(await boat.taskMachineComputer(machineId, signal), botId, plan, taskMachineFolderOptions(plan.threadId)),
   onWait: (botId, threadId, wait) => {
     if (wait.waiting) {
       const shown = taskMachineWaits.get(threadId);
@@ -1004,6 +1005,19 @@ setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFo
   },
 }));
 const taskMachineWaits = new Map<string, number>();
+function taskMachineFolderOptions(threadId: string): { workFolders?: EngineWorkFolders } {
+  const assign = engineFolderOptions.workFolders;
+  if (!assign) return engineFolderOptions;
+  return {
+    workFolders: async (input) => {
+      const folders = await assign(input);
+      const created = store.taskByThread(input.botId, threadId)?.createdAt;
+      const published = await publishNewTaskFolders(folders, threadId, typeof created === "number" && Date.now() - created < NEW_TASK_MS);
+      if (published.length) notePlacement(DATA_DIR, `[task-line] ${input.botId.slice(0, 8)} ${threadId.slice(0, 8)} published the new task's empty folder for its machine`);
+      return folders;
+    },
+  };
+}
 const pickUpLostTaskMachine = taskMachineLoss({
   busy: (botId, threadId) => threadBusy(botId, threadId),
   request: (threadId) => store.activePath(threadId).findLast((message) => message.role === "user")?.id,
