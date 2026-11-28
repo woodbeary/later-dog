@@ -211,6 +211,17 @@ describe("restore points on upgrade, through the home Worker's state store", () 
     expect([...referencedBlobs(before.manifest)].every((hash) => bucket.objects.has(`homes/${CONTAINER}/blobs/${hash}`))).toBe(true);
   });
 
+  it("removes the other older restore points when storage holds one of them, and names the held one", async () => {
+    const bucket = memoryBucket();
+    const reliable = workerStore(bucket);
+    for (const at of [1, 2, 3, 4, 5]) await keepRestorePoint(reliable, { version: 1, createdAt: at, entries: [] });
+    const store = { ...reliable, deleteRestorePoint: async (name: string) => { if (name === "1.json") throw new TypeError("fetch failed"); return reliable.deleteRestorePoint(name); } };
+    const logs: string[] = [];
+    await upgradeKeeper(store, { version: 1, createdAt: 6, entries: [] }, { app: "0.3.43", limit: 3, log: (line: string) => logs.push(line) }).keep();
+    expect(await reliable.restorePoints()).toEqual(["1.json", "4.json", "5.json", "6.json"]);
+    expect(logs).toEqual(["kept restore point 6.json", "removed 2 older restore point(s)", "kept 1 older restore point(s) storage would not remove, first 1.json (fetch failed)"]);
+  });
+
   it("still keeps the restore point when removing older ones fails, and says so", async () => {
     const bucket = memoryBucket();
     const reliable = workerStore(bucket);
