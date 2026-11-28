@@ -428,15 +428,23 @@ describe("official Antigravity runtime", () => {
     expect(readdirSync(acpDirectory).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 
+  it("does not count a token file the engine cannot sign in with", async () => {
+    const fake = fakeRuntime();
+    const runtime = await resolveAntigravityRuntime(fake.executable);
+    const profile = await prepareAntigravityProfile({ instanceId: "foreign-layout", runtime, baseEnv: {}, baseDir: fake.directory });
+    writeFileSync(profile.tokenPath, '{"token":{"access_token":"fixture","refresh_token":"fixture"},"auth_method":"consumer"}', { mode: 0o600 });
+    expect(await antigravityProfileAuthenticated(profile)).toBe(false);
+  });
+
   it("keeps the existing Google sign-in when the runtime version changes", async () => {
     const fake = fakeRuntime();
     const runtime = await resolveAntigravityRuntime(fake.executable);
     const input = { instanceId: "persistent", runtime, baseEnv: {}, baseDir: fake.directory };
     const before = await prepareAntigravityProfile(input);
-    writeFileSync(before.tokenPath, '{"fixture":"existing-login"}', { mode: 0o600 });
+    writeFileSync(before.tokenPath, '{"client_id":"fixture-client","refresh_token":"existing-login"}', { mode: 0o600 });
     const after = await prepareAntigravityProfile({ ...input, runtime: { ...runtime, version: "new-version" } });
     expect(after.tokenPath).toBe(before.tokenPath);
-    expect(readFileSync(after.tokenPath, "utf8")).toBe('{"fixture":"existing-login"}');
+    expect(readFileSync(after.tokenPath, "utf8")).toBe('{"client_id":"fixture-client","refresh_token":"existing-login"}');
     expect(await antigravityProfileAuthenticated(after)).toBe(true);
   });
 
@@ -682,7 +690,7 @@ describe("Antigravity driver over shared ACP", () => {
     const instanceId = "antigravity-work";
     const tokenDirectory = join(antigravityProfileDirectory(instanceId), "antigravity-acp");
     mkdirSync(tokenDirectory, { recursive: true });
-    writeFileSync(join(tokenDirectory, "acp_token.json"), "{}", { mode: 0o600 });
+    writeFileSync(join(tokenDirectory, "acp_token.json"), '{"client_id":"fixture-client","refresh_token":"fixture-refresh"}', { mode: 0o600 });
     instance = await AntigravityDriver.create({
       instanceId,
       displayName: "Antigravity Work",
@@ -740,7 +748,7 @@ describe("Antigravity driver over shared ACP", () => {
     const instanceId = "antigravity-pooled";
     const tokenDirectory = join(antigravityProfileDirectory(instanceId), "antigravity-acp");
     mkdirSync(tokenDirectory, { recursive: true });
-    writeFileSync(join(tokenDirectory, "acp_token.json"), "{}", { mode: 0o600 });
+    writeFileSync(join(tokenDirectory, "acp_token.json"), '{"client_id":"fixture-client","refresh_token":"fixture-refresh"}', { mode: 0o600 });
     instance = await AntigravityDriver.create({
       instanceId,
       displayName: "Antigravity",
@@ -783,7 +791,7 @@ describe("Antigravity driver over shared ACP", () => {
     const instanceId = "antigravity-unavailable";
     const tokenDirectory = join(antigravityProfileDirectory(instanceId), "antigravity-acp");
     mkdirSync(tokenDirectory, { recursive: true });
-    writeFileSync(join(tokenDirectory, "acp_token.json"), "{}", { mode: 0o600 });
+    writeFileSync(join(tokenDirectory, "acp_token.json"), '{"client_id":"fixture-client","refresh_token":"fixture-refresh"}', { mode: 0o600 });
     instance = await AntigravityDriver.create({
       instanceId,
       displayName: "Antigravity",
@@ -820,7 +828,7 @@ describe("Antigravity driver over shared ACP", () => {
     const instanceId = "antigravity-unconfirmed-mode";
     const tokenDirectory = join(antigravityProfileDirectory(instanceId), "antigravity-acp");
     mkdirSync(tokenDirectory, { recursive: true });
-    writeFileSync(join(tokenDirectory, "acp_token.json"), "{}", { mode: 0o600 });
+    writeFileSync(join(tokenDirectory, "acp_token.json"), '{"client_id":"fixture-client","refresh_token":"fixture-refresh"}', { mode: 0o600 });
     instance = await AntigravityDriver.create({
       instanceId,
       displayName: undefined,
@@ -856,7 +864,7 @@ describe("Antigravity driver over shared ACP", () => {
     const instanceId = "antigravity-mode-per-turn";
     const tokenDirectory = join(antigravityProfileDirectory(instanceId), "antigravity-acp");
     mkdirSync(tokenDirectory, { recursive: true });
-    writeFileSync(join(tokenDirectory, "acp_token.json"), "{}", { mode: 0o600 });
+    writeFileSync(join(tokenDirectory, "acp_token.json"), '{"client_id":"fixture-client","refresh_token":"fixture-refresh"}', { mode: 0o600 });
     instance = await AntigravityDriver.create({
       instanceId,
       displayName: "Antigravity",
@@ -908,7 +916,7 @@ describe("Antigravity driver over shared ACP", () => {
       const instanceId = `antigravity-unconfirmed-downgrade-${answer}`;
       const tokenDirectory = join(antigravityProfileDirectory(instanceId), "antigravity-acp");
       mkdirSync(tokenDirectory, { recursive: true });
-      writeFileSync(join(tokenDirectory, "acp_token.json"), "{}", { mode: 0o600 });
+      writeFileSync(join(tokenDirectory, "acp_token.json"), '{"client_id":"fixture-client","refresh_token":"fixture-refresh"}', { mode: 0o600 });
       instance = await AntigravityDriver.create({
         instanceId,
         displayName: "Antigravity",
@@ -970,7 +978,7 @@ describe("Antigravity driver over shared ACP", () => {
     const instanceId = "antigravity-question";
     const tokenDirectory = join(antigravityProfileDirectory(instanceId), "antigravity-acp");
     mkdirSync(tokenDirectory, { recursive: true });
-    writeFileSync(join(tokenDirectory, "acp_token.json"), "{}", { mode: 0o600 });
+    writeFileSync(join(tokenDirectory, "acp_token.json"), '{"client_id":"fixture-client","refresh_token":"fixture-refresh"}', { mode: 0o600 });
     instance = await AntigravityDriver.create({
       instanceId,
       displayName: undefined,

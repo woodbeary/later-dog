@@ -75,7 +75,10 @@ export async function guestCliCredentials(driver: string, instanceId: string, en
     const login = await accountJson(join(antigravityProfileDirectory(instanceId), "antigravity-acp", "acp_token.json"));
     if (!login) throw new Error("Antigravity needs a sign-in for the selected account.");
     const nested = login.token && typeof login.token === "object" && !Array.isArray(login.token) ? login.token as Record<string, unknown> : null;
-    if (nested) {
+    if (text(login.refresh_token) && text(login.client_id)) {
+      const scopes = Array.isArray(login.scopes) && login.scopes.every(text) ? { scopes: login.scopes } : {};
+      out.files.antigravity = JSON.stringify({ ...selected(login, ["type", "client_id", "client_secret", "refresh_token", "token_uri", "project_id", "universe_domain", "account"]), ...scopes });
+    } else if (nested) {
       if (!text(nested.access_token) || !fresh(nested.expiry, now)) throw new Error("Antigravity needs a current access token for the selected account.");
       out.files.antigravity = JSON.stringify({ ...selected(login, ["auth_method", "id_token_email"]), token: selected(nested, ["access_token", "token_type", "expiry", "expires_in"]) });
     } else {

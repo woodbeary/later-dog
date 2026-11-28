@@ -26,6 +26,22 @@ beforeAll(async () => {
 afterAll(() => { vi.unstubAllEnvs(); });
 
 describe("a handed-over Antigravity sign-in on a dog's computer", () => {
+  it("lends the engine's own saved sign-in whole, so the computer's engine renews its access token", async () => {
+    const { antigravityProfileDirectory } = await import("../drivers/antigravity-acp.ts");
+    const id = "antigravity-0a7e3c11-9b2d-4f60-8c5e-1d2f3a4b5c6d";
+    const dir = join(antigravityProfileDirectory(id), "antigravity-acp");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "acp_token.json"), JSON.stringify({
+      client_id: "fixture-client", client_secret: "fixture-secret", refresh_token: "fixture-native-refresh",
+      token_uri: "https://oauth2.example.test/token", scopes: ["scope-a", "scope-b"], project_id: "fixture-project",
+    }));
+    const lent = JSON.parse((await guestCliCredentials("antigravityAgent", id, {}, NOW)).files.antigravity!);
+    expect(lent).toEqual({
+      client_id: "fixture-client", client_secret: "fixture-secret", refresh_token: "fixture-native-refresh",
+      token_uri: "https://oauth2.example.test/token", scopes: ["scope-a", "scope-b"], project_id: "fixture-project",
+    });
+  });
+
   it("lends the current access token in the layout the home holds, without the refresh token", async () => {
     const out = await guestCliCredentials("antigravityAgent", ID, {}, NOW);
     const lent = JSON.parse(out.files.antigravity!);
