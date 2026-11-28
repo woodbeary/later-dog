@@ -53,8 +53,8 @@ it("lists a sleeping dog's memory folder page by page with the mount's numeric p
   expect(first.entries).toHaveLength(64);
   expect(first.next).toBe("64");
   const second = await reader.operate(memory, { op: "readdir", root: "dog", path: "", cursor: "64" });
-  expect(second.entries!.map((entry: { name: string }) => entry.name)).toEqual([...notes.slice(64).map((note) => note.path.slice("memory/".length)), "log"]);
+  expect((second.entries as { name: string }[]).map((entry) => entry.name)).toEqual([...notes.slice(64).map((note) => note.path.slice("memory/".length)), "log"]);
   expect(second.next).toBeUndefined();
   const top = await reader.operate(await reader.lookup(""), { op: "readdir", root: "dog", path: "", cursor: "0" });
-  expect(top.entries!.map((entry: { name: string }) => entry.name)).toEqual(["AGENTS.md", "memory", "notes.txt"]);
+  expect((top.entries as { name: string }[]).map((entry) => entry.name)).toEqual(["AGENTS.md", "memory", "notes.txt"]);
 });
