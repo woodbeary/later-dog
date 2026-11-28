@@ -391,7 +391,7 @@ export interface PlacedEngineOptions {
 }
 
 export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: ClaudeRemotePlan, signal: AbortSignal) => Promise<EngineLink>, local: (() => ChildProcess) | undefined,
-  onPlaced?: (where: "computer" | "home", why?: string) => void, renewer: Pick<typeof claudeRenewer, "hold"> = claudeRenewer, options: PlacedEngineOptions = {}): EngineProcess {
+  onPlaced?: (where: "computer" | "home", why?: string, steps?: string) => void, renewer: Pick<typeof claudeRenewer, "hold"> = claudeRenewer, options: PlacedEngineOptions = {}): EngineProcess {
   let opened: Promise<EngineLink>;
   const abort = new AbortController();
   try { opened = openLink(plan, abort.signal); }
@@ -410,7 +410,7 @@ export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: Claud
       if (!why && !unplace) unplace = placed.place(plan.threadId);
     }
     if (where === "home") { unplace?.(); unplace = null; }
-    onPlaced?.(where, why);
+    onPlaced?.(where, why, session.startSteps.map(([name, ms]) => `${name} ${(ms / 1000).toFixed(1)} s`).join(", "));
   });
   registerTreeStopper(engine, (timeoutMs) => engine.stopTree(timeoutMs, killCliTree));
   engine.once("close", () => {

@@ -1619,8 +1619,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           if ("stay" in remote) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`);
         }
         child = remote && "plan" in remote
-          ? spawnPlacedEngine(remote.plan, (plan, signal) => opener!.open(botId!, plan, signal), required ? undefined : local, (where, why) =>
-            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`), undefined,
+          ? spawnPlacedEngine(remote.plan, (plan, signal) => opener!.open(botId!, plan, signal), required ? undefined : local, (where, why, steps) =>
+            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}${steps ? `; start: ${steps}` : ""}`), undefined,
             { openBudgetMs: opener!.openBudgetMs, onWaiting: (wait) => emit({ ...base(threadId, turnId), ...engineWaitEvent(wait) }), onNotice: (message) => emit({ ...base(threadId, turnId), type: "runtime.notice", message }) }) as unknown as ReturnType<typeof spawnCli>
           : local();
       } catch (error) {

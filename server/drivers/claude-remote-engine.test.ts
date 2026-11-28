@@ -142,6 +142,7 @@ it("runs a chosen dog's Claude turn on its computer with the same model and sess
   expect(seen.env.LATERDOG_HOOK_TOKEN_FILE).toBeUndefined();
   expect(existsSync(`${remoteRoot}${cwd}/brief.md`)).toBe(true);
   expect(logs.some((line) => line.includes("runs on the dog's cloud computer"))).toBe(true);
+  expect(logs.find((line) => line.includes("runs on the dog's cloud computer"))).toMatch(/start: link [\d.]+ s, files listed [\d.]+ s, configured [\d.]+ s, files sent [\d.]+ s, launched [\d.]+ s/);
 
   const homeDump = join(base, "home-dump.json");
   process.env.FAKE_CLAUDE_DUMP = homeDump;

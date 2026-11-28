@@ -197,8 +197,18 @@ export class RemoteSession extends EventEmitter {
     }
   }
 
+  readonly startSteps: Array<[string, number]> = [];
+
+  #step(name: string, since: number): number {
+    const now = performance.now();
+    this.startSteps.push([name, now - since]);
+    return now;
+  }
+
   async start(): Promise<void> {
+    let mark = performance.now();
     await this.#ready;
+    mark = this.#step("link", mark);
     const launch = this.#launch;
     let configured: { files: EngineFile[]; trees?: string[]; refused?: string; transcripts?: { root: string; path: string; before: EngineFile | null }[] };
     let home: EngineFile[];
@@ -212,12 +222,14 @@ export class RemoteSession extends EventEmitter {
     } catch (error) {
       throw new NotDispatched(`The working files cannot move to the cloud computer: ${(error as Error).message}`);
     }
+    mark = this.#step("files listed", mark);
     try {
       this.#inventory = { resident: [], previous: [] };
       configured = await this.#request({ type: "configure", stateFile: launch.stateFile, lockFile: launch.lockFile, workFolders: launch.workFolders, ephemeralCodexHome: launch.ephemeralCodexHome, roots: launch.roots.map((root) => ({ ...root, writable: true })), outputIds: launch.outputIds, names: Object.keys(launch.mcp) }, SYNC_REPLY_MS, true);
     } catch (error) { throw new NotDispatched((error as Error).message); }
     if (configured.refused && configured.refused !== "busy") throw new NotDispatched(configured.refused);
     if (configured.refused === "busy") throw new Error("This chat's engine is still running on the cloud computer; it was not started a second time.");
+    mark = this.#step("configured", mark);
     const received = this.#inventory;
     this.#inventory = null;
     const trees = launch.roots.filter(streamedTree);
@@ -269,6 +281,7 @@ export class RemoteSession extends EventEmitter {
       await this.#request({ type: "prepared" }, SYNC_REPLY_MS);
     } catch (error) { throw new NotDispatched((error as Error).message); }
     if (this.#closed) throw new NotDispatched("The cloud computer's connection closed before launch.");
+    mark = this.#step("files sent", mark);
     this.#launchSent = true;
     let body: any;
     try {
@@ -280,6 +293,7 @@ export class RemoteSession extends EventEmitter {
     if (body?.refused === "spawn_failed") throw new NotDispatched("The engine could not start on the cloud computer.", "spawn_failed");
     if (body?.refused === "busy") throw new Error("This chat's engine is still running on the cloud computer; it was not started a second time.");
     if (!body?.started) throw new Error("The cloud computer gave an unexpected answer to the engine launch.");
+    this.#step("launched", mark);
     if (this.#exited) return;
     if (this.#closed || this.#fileAbort.signal.aborted) throw new Error("The connection to the cloud computer ended before the engine could be used.");
     this.#started = true;
