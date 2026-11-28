@@ -175,7 +175,13 @@ export async function visitFolder(
   async function walk(at: string): Promise<void> {
     const directory = at ? await diskPath(folder, at) : folder;
     const names = await readdir(directory, { encoding: "buffer" });
-    for (const raw of names) {
+    const found = await Promise.all(names.map(async (raw) => {
+      const filename = raw.toString("utf8");
+      const name = at ? at + "/" + filename : filename;
+      if ((!at && aliases?.has(filename)) || !Buffer.from(filename).equals(raw) || !safeWorkFolderPath(name)) return undefined;
+      return statPhysical(join(directory, filename));
+    }));
+    for (const [index, raw] of names.entries()) {
       progress();
       const filename = raw.toString("utf8");
       if (!at && aliases?.has(filename)) {
@@ -186,9 +192,10 @@ export async function visitFolder(
       }
       if (!Buffer.from(filename).equals(raw))
         throw new Error("The working folder has a filename that cannot be represented in UTF-8");
-      const name = at ? at + "/" + filename : filename,
-        path = await diskPath(folder, name),
-        s = await statPhysical(path);
+      const name = at ? at + "/" + filename : filename;
+      if (!safeWorkFolderPath(name)) throw new Error("Invalid working folder path");
+      const path = join(directory, filename),
+        s = found[index] ?? await statPhysical(path);
       let e: WorkFolderEntry;
       if (s.isDirectory()) {
         e = { path: name, kind: "dir", mode: mode(s) };

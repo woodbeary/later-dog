@@ -1,0 +1,5 @@
+ARG DESKTOP_IMAGE
+FROM ${DESKTOP_IMAGE}
+COPY box-agent.mjs /usr/local/lib/laterdog/box-agent.mjs
+EXPOSE 7070
+ENTRYPOINT ["/usr/bin/tini", "--", "node", "/usr/local/lib/laterdog/box-agent.mjs"]

@@ -492,6 +492,7 @@ import { armSyncTripwire, onMountedSyncCall } from "./laterdog/sync-tripwire.ts"
 import { skillsCall, skillsPromptReady } from "./skills-thread.ts";
 import type { SkillPackageStamp } from "./skills.ts";
 import { prepareTurnFolders } from "./laterdog/turn-folders.ts";
+import { quickMemorySnapshot } from "./laterdog/memory-prompt-snapshot.ts";
 import { SearchUnavailable } from "./message-search-worker.ts";
 import {
   beginMemoryTurnInBackground,
@@ -909,6 +910,7 @@ import { createVoiceStreams } from "./laterdog/voice-stream.ts";
 import { createTimeZoneRoutes, currentTimeZone, restoreTimeZone } from "./laterdog/time-zone.ts";
 import { withScheduleLabel } from "./laterdog/routine-schedule-label.ts";
 import { heldAccountReason } from "./laterdog/held-accounts.ts";
+import { boxScreenExec, createBoxScreenRoutes, screensOnBox } from "./laterdog/box-screen.ts";
 import { createAccountKeeper, createSignInRoutes, keeperRenewing, keptAccounts } from "./laterdog/account-keeper.ts";
 import { createHomeAccountRoutes, withHandedOverEmail } from "./laterdog/home-accounts.ts";
 import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
@@ -963,6 +965,7 @@ import { computerEngineOpener, openEngineOnMachine, type EngineWorkFolders } fro
 import { machineWaitingText, saveTaskMachineSetting, TASK_MACHINE_RESOURCE, taskLineService, taskMachineOpener, taskMachineSetting } from "./laterdog/task-machines.ts";
 import { createTaskMachineRoutes } from "./routes/task-machines.ts";
 import { taskMachineLoss } from "./laterdog/task-machine-loss.ts";
+import { NEW_TASK_MS, publishNewTaskFolders } from "./laterdog/task-machine-folders.ts";
 import { claudeSignInRefresh } from "./laterdog/claude-sign-in-refresh.ts";
 import { poolChosen, poolEngineOpener, poolService, poolSetting, savePoolSetting } from "./laterdog/pool-opener.ts";
 import { createEnginePoolRoutes } from "./routes/engine-pool.ts";
@@ -986,7 +989,7 @@ setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFo
   dataDir: DATA_DIR,
   ticketClass: (botId, threadId) => startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "task" : null,
   size: (botId, threadId) => machineSizes.choose(botId, threadId, undefined).size,
-  openOn: async (machineId, botId, plan, signal) => openEngineOnMachine(await boat.taskMachineComputer(machineId, signal), botId, plan, engineFolderOptions),
+  openOn: async (machineId, botId, plan, signal) => openEngineOnMachine(await boat.taskMachineComputer(machineId, signal), botId, plan, taskMachineFolderOptions(plan.threadId)),
   onWait: (botId, threadId, wait) => {
     if (wait.waiting) {
       const shown = taskMachineWaits.get(threadId);
@@ -1009,6 +1012,19 @@ setEngineOpener(taskMachineOpener(poolEngineOpener(computerEngineOpener(engineFo
   },
 }));
 const taskMachineWaits = new Map<string, number>();
+function taskMachineFolderOptions(threadId: string): { workFolders?: EngineWorkFolders } {
+  const assign = engineFolderOptions.workFolders;
+  if (!assign) return engineFolderOptions;
+  return {
+    workFolders: async (input) => {
+      const folders = await assign(input);
+      const created = store.taskByThread(input.botId, threadId)?.createdAt;
+      const published = await publishNewTaskFolders(folders, threadId, typeof created === "number" && Date.now() - created < NEW_TASK_MS);
+      if (published.length) notePlacement(DATA_DIR, `[task-line] ${input.botId.slice(0, 8)} ${threadId.slice(0, 8)} published the new task's empty folder for its machine`);
+      return folders;
+    },
+  };
+}
 const pickUpLostTaskMachine = taskMachineLoss({
   busy: (botId, threadId) => threadBusy(botId, threadId),
   request: (threadId) => store.activePath(threadId).findLast((message) => message.role === "user")?.id,
@@ -1366,6 +1382,7 @@ const HELD_ACCOUNTS_FILE = join(DATA_DIR, "providers", "held-accounts.json");
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId), snapshotFile: join(DATA_DIR, "account-snapshots.json") });
 const supportsApprovalMode = createApprovalModeSupport(registry);
 claudeSignInRefresh.onChange((instanceId) => registry.forgetSnapshot(instanceId));
+const BOX_SCREENS_FILE = join(DATA_DIR, "laterdog", "box-screens.json");
 const ACCOUNT_KEEPER_FILE = join(DATA_DIR, "providers", "account-keeper.json");
 const accountKeeper = createAccountKeeper({
   renewing: () => keeperRenewing(ACCOUNT_KEEPER_FILE),
@@ -10145,8 +10162,10 @@ async function startTurn(
 
       turnPhases.mark(threadId, "computer and prompt");
       if (memoryHead) {
-        memoryDocs = promptFromIndex() && searchIndex ? await searchIndex.promptMemory(bot.id, memoryHead)
-          : await Promise.race([memoryHead, new Promise<null>((resolve) => setTimeout(() => resolve(null), MOUNTED_FOLDER_ANSWER_MS).unref())]);
+        const head = memoryHead;
+        memoryDocs = await quickMemorySnapshot(head, new Map([...memorySnapshotFiles(bot.id)].map(([path, file]) => [path, file.text])))
+          ?? (promptFromIndex() && searchIndex ? await searchIndex.promptMemory(bot.id, head)
+          : await Promise.race([head, new Promise<null>((resolve) => setTimeout(() => resolve(null), MOUNTED_FOLDER_ANSWER_MS).unref())]));
         turnPhases.mark(threadId, "memory snapshot wait");
       }
       const assignedSkills = skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined;
@@ -14711,6 +14730,7 @@ ROUTES.push(createMacAccountRoutes({
   exclusive: withProviderConfig,
   reload: reloadProviderInstance,
 }));
+ROUTES.push(createBoxScreenRoutes({ file: BOX_SCREENS_FILE, allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth), dogExists: (id) => Boolean(store.bot(id)) }));
 ROUTES.push(createSignInRoutes({ keeper: accountKeeper, file: ACCOUNT_KEEPER_FILE, allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth) }));
 ROUTES.push(createHomeAccountRoutes({
   cloudHome: Boolean(CLOUD_HOME),
@@ -15911,7 +15931,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/computer/mcp") {
         const body = await readInternalBody();
-        if (internalCapability.boxId === undefined) return json(res, 403, { error: "this turn has no cloud computer" });
+        const screen = screensOnBox(BOX_SCREENS_FILE, internalSender.id) ? boxScreenExec(internalSender.id) : undefined;
+        if (internalCapability.boxId === undefined && !screen) return json(res, 403, { error: "this turn has no cloud computer" });
         const abort = new AbortController();
         res.once("close", () => { if (!res.writableEnded) abort.abort(); });
         return json(res, 200, { result: await cloudComputerRpc(body, {
@@ -15934,6 +15955,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           secureForms: secureForms.desk(internalSender.id, internalCapability.threadId),
           tabs: (boxId, tool) => cloudTabs.watch({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId, tool),
           vault: vaultItemsFor(internalCapability),
+          screen,
+          screenGate: async () => ({ held: botComputerControlSnapshot(internalCapability.botId, internalCapability.teamComputerId).held }),
         }) });
       }
       if (method === "GET" && path === "/api/internal/shared-computers" && lendingEnabled()) {

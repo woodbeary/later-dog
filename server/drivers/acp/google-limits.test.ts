@@ -207,7 +207,7 @@ describe("Google limits through the ACP core", () => {
     const instanceId = "antigravity-limit";
     const tokens = join(antigravityProfileDirectory(instanceId), "antigravity-acp");
     mkdirSync(tokens, { recursive: true });
-    writeFileSync(join(tokens, "acp_token.json"), "{}", { mode: 0o600 });
+    writeFileSync(join(tokens, "acp_token.json"), '{"client_id":"fixture-client","refresh_token":"fixture-refresh"}', { mode: 0o600 });
     instance = await AntigravityDriver.create({
       instanceId, displayName: "Antigravity", enabled: true, config: { cli: executable, fullAuto: false },
       environment: { FAKE_ACP_AUTH_METHOD: "oauth-personal", FAKE_ACP_MODELS: "gemini-3.8-flash-high", FAKE_ACP_MODES: "default,yolo,auto_edit", FAKE_ACP_RPC_FAILURE_FILE: failure, TEMP: dir, TMP: dir },

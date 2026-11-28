@@ -303,10 +303,9 @@ export async function syncFolder(
           ? "The assigned working folder was deleted in durable storage. The computer's files were preserved."
           : "The assigned working folder has not been published yet",
       );
-    const remote =
-      saved?.revision === head.revision && saved.manifest === head.manifest && before
-        ? before.tree
-        : await store.tree(head.manifest);
+    const known = saved?.revision === head.revision && saved.manifest === head.manifest && before;
+    const remote = known ? before.tree : await store.tree(head.manifest);
+    if (known) await store.rememberStored(remote, head.manifest);
     validateLinks(remote);
     reconcileAliases(binding.path, previousAliases, aliases, remote);
     write(identity, { ...binding, grant: store.grant });

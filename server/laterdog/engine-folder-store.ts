@@ -282,6 +282,20 @@ export class FolderStore extends FolderTreeReader {
     if (!result.ok || (await this.head())?.state !== "tombstone") throw Object.assign(new Error("Folder changed during removal"), { code: "EBUSY" });
   }
 
+  async rememberStored(tree: FolderTree, manifest: string): Promise<boolean> {
+    const found = new Map<string, WorkFolderNode>();
+    const collect = async (node: WorkFolderNode) => {
+      const hash = folderHash(JSON.stringify(node));
+      found.set(hash, node);
+      return hash;
+    };
+    const entries = await folderManifestPages("entries", [...tree.entries.values()].sort((a, b) => compareWorkFolderPaths(a.path, b.path)), collect);
+    const root = await collect({ v: 1, kind: "root", mode: tree.mode, ...(tree.mtimeMs === undefined ? {} : { mtimeMs: tree.mtimeMs }), entries });
+    if (root !== manifest) return false;
+    for (const [hash, node] of found) this.cachedPages.set(hash, node);
+    return true;
+  }
+
   async publish(tree: FolderTree, parent: string | null): Promise<WorkFolderHead | null> {
     if (!this.#publishRouteMissing) {
       const fresh: { sha256: string; json: string; node: WorkFolderNode }[] = [];

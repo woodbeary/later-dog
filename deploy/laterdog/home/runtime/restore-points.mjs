@@ -45,11 +45,19 @@ export async function keepRestorePoint(store, manifest, { app, now = Date.now } 
   return name;
 }
 
-export async function pruneRestorePoints(store, { limit = RESTORE_POINTS } = {}) {
+export async function pruneRestorePoints(store, { limit = RESTORE_POINTS, held = [] } = {}) {
   const names = await store.restorePoints();
   const stale = names.slice(0, Math.max(0, names.length - Math.max(1, limit)));
-  for (const name of stale) await store.deleteRestorePoint(name);
-  return stale;
+  const removed = [];
+  for (const name of stale) {
+    try {
+      await store.deleteRestorePoint(name);
+      removed.push(name);
+    } catch (error) {
+      held.push({ name, reason: error.message });
+    }
+  }
+  return removed;
 }
 
 export function upgradeKeeper(store, upgraded, { app, limit = RESTORE_POINTS, log = () => {}, now = Date.now } = {}) {
@@ -74,8 +82,10 @@ export function upgradeKeeper(store, upgraded, { app, limit = RESTORE_POINTS, lo
         return;
       }
       try {
-        const removed = await pruneRestorePoints(store, { limit });
+        const held = [];
+        const removed = await pruneRestorePoints(store, { limit, held });
         if (removed.length) log(`removed ${removed.length} older restore point(s)`);
+        if (held.length) log(`kept ${held.length} older restore point(s) storage would not remove, first ${held[0].name} (${held[0].reason})`);
       } catch (error) {
         log(`could not remove older restore points: ${error.message}`);
       }
