@@ -1923,7 +1923,7 @@ function cloudGuestDriven(threadId: string): boolean {
   const writer = run ? cloudRoutineAuthors?.writer(run.routineId) : undefined;
   if (writer && !cloudOwnerPerson(writer)) return true;
   if (!store.groupByThread(threadId)) return false;
-  const person = store.messagesFor(threadId).findLast((line) => line.role === "user" && !line.peerAsk && line.sender?.id)?.sender?.id;
+  const person = store.messagesWithoutCaching(threadId).findLast((line) => line.role === "user" && !line.peerAsk && line.sender?.id)?.sender?.id;
   return person !== undefined && !cloudOwnerPerson(person);
 }
 
@@ -5708,7 +5708,7 @@ async function waitForChatRoomMember(
 function newestPeerActivityAt(botId: string): number {
   let newest = 0;
   for (const task of store.tasks(botId)) {
-    const at = store.messagesTail(task.threadId, 1).messages.at(-1)?.at ?? task.createdAt;
+    const at = task.updatedAt ?? task.createdAt;
     if (at > newest) newest = at;
   }
   return newest;
@@ -7511,8 +7511,9 @@ if (CLOUD_HOME || process.env.LATERDOG_REVIVE_DOGS === "1") {
 }
 
 function usageStranded(threadId: string): boolean {
+  if (!batteryContinuationPending(threadId)) return false;
   const owner = store.botByThread(threadId);
-  return Boolean(owner) && batteryContinuationPending(threadId) && !(threadId in limitHold.waiting()) && !limitHold.waitsOnPerson(threadId) && !threadBusy(owner!.id, threadId);
+  return Boolean(owner) && !(threadId in limitHold.waiting()) && !limitHold.waitsOnPerson(threadId) && !threadBusy(owner!.id, threadId);
 }
 function chatSelection(threadId: string): ModelSelection | undefined {
   const owner = store.botByThread(threadId);

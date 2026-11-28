@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, rmSync } from "node:fs";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { DATA_DIR } from "./config.ts";
+import { closeMessageDb, insertMessage } from "./message-db.ts";
 
 import {
   botThreads,
   parseSince,
   parseUntil,
+  recentWork,
   recentWorkLines,
   recentWorkPrompt,
   RECENT_WORK_MAX_CHARS,
@@ -11,7 +16,7 @@ import {
   whenLabel,
   type RecentWorkStore,
 } from "./recent-work.ts";
-import type { GroupRecord, TaskRecord } from "./store.ts";
+import type { GroupRecord, Message, TaskRecord } from "./store.ts";
 
 const task = (threadId: string, title: string): TaskRecord => ({ threadId, title, createdAt: 1, resumeCursors: {} } as TaskRecord);
 const group = (partial: Partial<GroupRecord> & Pick<GroupRecord, "id" | "threadId" | "name" | "memberIds">): GroupRecord =>
@@ -148,5 +153,25 @@ describe("parseUntil", () => {
     expect(parseUntil("2026-09-01T00:00:00Z", now)).toBe(Date.UTC(2026, 8, 1));
     expect(parseUntil("soon", now)).toBeNull();
     expect(parseUntil("", now)).toBeNull();
+  });
+});
+
+describe("recentWork with a per-chat check", () => {
+  beforeEach(() => {
+    closeMessageDb();
+    rmSync(DATA_DIR, { recursive: true, force: true });
+    mkdirSync(DATA_DIR, { recursive: true });
+  });
+
+  it("checks only chats with something recent to show, newest first, and stops once the list is full", () => {
+    const now = Date.now();
+    const tasks = Array.from({ length: 30 }, (_, i) => task(`chat-${i}`, `Chat ${i}`));
+    tasks.slice(0, 15).forEach((chat, i) => insertMessage(chat.threadId, { id: `said-${i}`, role: "bot", kind: "text", text: `Did thing ${i}`, at: now - 60_000 + i } as Message));
+    const asked: string[] = [];
+    const lines = recentWork({ groups: [], taskByThread: () => undefined }, { id: "me", threadId: "main", tasks }, {
+      userName: "Sam", now, include: (threadId) => { asked.push(threadId); return threadId !== "chat-14"; },
+    });
+    expect(lines.map((line) => line.threadId)).toEqual(Array.from({ length: 10 }, (_, i) => `chat-${13 - i}`));
+    expect(asked).toEqual(Array.from({ length: 11 }, (_, i) => `chat-${14 - i}`));
   });
 });
