@@ -6,7 +6,7 @@ import type { z } from "zod";
 export interface CoordinatorRouteDeps {
   available(): boolean;
   read(): CoordinatorSetting & Record<string, unknown>;
-  change(change: z.infer<typeof coordinatorSettingSchema>): CoordinatorSetting;
+  change(change: z.infer<typeof coordinatorSettingSchema>): CoordinatorSetting | Promise<CoordinatorSetting>;
 }
 
 export function createCoordinatorRoutes(deps: CoordinatorRouteDeps): RouteHandler {
@@ -17,7 +17,7 @@ export function createCoordinatorRoutes(deps: CoordinatorRouteDeps): RouteHandle
     if (!deps.available()) return json(res, 404, { error: "The coordinator runs only on a Cloud home." });
     if (method === "GET") return json(res, 200, deps.read());
     const parsed = coordinatorSettingSchema.safeParse(await readBody(req));
-    if (!parsed.success) return json(res, 400, { error: "Send capabilities (random or signed) and/or queue ({dogId or *: container, object or null})." });
-    return json(res, 200, deps.change(parsed.data));
+    if (!parsed.success) return json(res, 400, { error: "Send capabilities (random or signed) and/or queue, routines and inbox ({dogId or *: container, object or null})." });
+    return json(res, 200, await deps.change(parsed.data));
   };
 }
