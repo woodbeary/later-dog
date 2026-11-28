@@ -1,19 +1,14 @@
-import { readFileSync } from "node:fs";
+import { answerHook, hookBudget } from "./hook-answer.ts";
 
-const CONTEXT_EVENTS = new Set(["SessionStart", "UserPromptSubmit"]);
-const requestedBudget = Number(process.env.LATERDOG_HOOK_TIMEOUT_MS);
-const budgetMs = Number.isFinite(requestedBudget) && requestedBudget > 0 ? Math.min(requestedBudget, 4_000) : 4_000;
 const MAX_INPUT_BYTES = 1024 * 1024;
 const [argUrl, argTokenFile] = process.argv.slice(2);
 const fromCommand = argUrl !== undefined && argTokenFile !== undefined;
 const url = (fromCommand ? argUrl : process.env.LATERDOG_HOOK_URL) ?? "";
 const tokenFile = (fromCommand ? argTokenFile : process.env.LATERDOG_HOOK_TOKEN_FILE) ?? "";
+const requireReply = process.env.LATERDOG_REQUIRE_HOOK_REPLY === "1";
+const budgetMs = hookBudget(process.env);
 
-const unavailable = () => process.exit(process.env.LATERDOG_REQUIRE_HOOK_REPLY === "1" ? 2 : 0);
-const done = (out?: string) => {
-  if (out === undefined) process.exit(0);
-  process.stdout.write(out, () => process.exit(0));
-};
+const unavailable = () => process.exit(requireReply ? 2 : 0);
 process.stdout.on("error", () => process.exit(0));
 const fuse = setTimeout(unavailable, budgetMs);
 fuse.unref();
@@ -35,48 +30,16 @@ function readStdin(): Promise<string> {
 
 async function main(): Promise<void> {
   const raw = await readStdin();
-  let payload: Record<string, unknown>;
+  let payload: unknown;
   try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return unavailable();
-    payload = parsed as Record<string, unknown>;
+    payload = JSON.parse(raw);
   } catch {
     return unavailable();
   }
-  const event = typeof payload.hook_event_name === "string" ? payload.hook_event_name : "";
-  if (!event || !/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(url) || !tokenFile) return unavailable();
-  let token = "";
-  try {
-    token = readFileSync(tokenFile, "utf8").trim();
-  } catch {
-    return unavailable();
-  }
-  if (!token) return unavailable();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Math.max(200, budgetMs - 300));
-  try {
-    const response = await fetch(`${url}/api/internal/hook`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ event, payload }),
-      redirect: "error",
-      signal: controller.signal,
-    });
-    if (!response.ok) return unavailable();
-    const body = (await response.json().catch(() => null)) as { ok?: unknown; hookSpecificOutput?: unknown; context?: unknown } | null;
-    if (body && typeof body === "object" && body.hookSpecificOutput && typeof body.hookSpecificOutput === "object") {
-      return done(JSON.stringify({ hookSpecificOutput: body.hookSpecificOutput }));
-    }
-    if (body && typeof body === "object" && typeof body.context === "string" && body.context && CONTEXT_EVENTS.has(event)) {
-      return done(body.context);
-    }
-    if (body?.ok === true) return done();
-    return unavailable();
-  } catch {
-    return unavailable();
-  } finally {
-    clearTimeout(timer);
-  }
+  const answer = await answerHook({ url, tokenFile, payload, budgetMs, requireReply });
+  if (answer.code !== 0) return process.exit(answer.code);
+  if (!answer.stdout) return process.exit(0);
+  process.stdout.write(answer.stdout, () => process.exit(0));
 }
 
 void main();

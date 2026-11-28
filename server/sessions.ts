@@ -205,12 +205,34 @@ export class SessionRegistry {
     try { fsyncSync(fd); } finally { closeSync(fd); }
   }
 
+  private readonly changeListeners = new Set<() => void>();
+
+  onSessionsChanged(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => { this.changeListeners.delete(listener); };
+  }
+
+  liveSessions(): Array<{ hash: string; id: string; scopes: Scope[]; expiresAt: number }> {
+    const now = this.now();
+    return this.sessions
+      .filter((session) => session.expiresAt > now && !this.personal(session.scopes) && session.membershipAuthority === undefined && !session.localTools)
+      .map((session) => ({ hash: session.tokenHash, id: session.id, scopes: [...session.scopes], expiresAt: session.expiresAt }));
+  }
+
+  liveSession(id: string): SessionRecord | null {
+    const record = this.sessions.find((session) => session.id === id);
+    return record && record.expiresAt > this.now() && !this.personal(record.scopes) ? record : null;
+  }
+
   private persist(): void {
     if (this.closed) throw new Error("Session registry is closed.");
     const dir = dirname(this.options.file);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     writeFileAtomic(this.options.file, JSON.stringify({ version: 1, sessions: this.sessions }, null, 2) + "\n", { mode: 0o600 });
     this.syncDirectory();
+    for (const listener of this.changeListeners) {
+      try { listener(); } catch { console.warn("sessions: change listener failed"); }
+    }
   }
 
   close(): void {

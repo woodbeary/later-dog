@@ -140,6 +140,37 @@ describe("history writer", () => {
     expect(instance.state().mismatched).toEqual([]);
   });
 
+  it("puts a chat object back in the chat's order when its rows landed out of order with the same count and size", async () => {
+    const database = localDatabase();
+    const remote = objects();
+    for (let i = 1; i <= 3; i += 1) write(database, "chat-o", `m${i}`, `t${i}`, 100 + i);
+    database.prepare("DELETE FROM history_outbox").run();
+    const json = (id: string) => (database.prepare("SELECT json FROM messages WHERE id = ?").get(id) as { json: string }).json;
+    await remote.chatFor(HOME, "chat-o").write([{ op: "put", id: "m3", at: 103, json: json("m3") }]);
+    await remote.chatFor(HOME, "chat-o").write([{ op: "put", id: "m1", at: 101, json: json("m1") }, { op: "put", id: "m2", at: 102, json: json("m2") }]);
+    const { instance } = writer(database, remote, ["chat-o"]);
+    instance.setMode("object-writer");
+    await instance.idle();
+    const page = await remote.chatFor(HOME, "chat-o").pageBefore(null, 10);
+    expect(page.rows.map((row) => row.id)).toEqual(["m1", "m2", "m3"]);
+    expect(instance.state().covered).toBe(1);
+    expect(instance.state().mismatched).toEqual([]);
+  });
+
+  it("copies a chat again when the object holds a different message of the same count and size", async () => {
+    const database = localDatabase();
+    const remote = objects();
+    write(database, "chat-p", "m1", "one", 5);
+    database.prepare("DELETE FROM history_outbox").run();
+    const json = (database.prepare("SELECT json FROM messages WHERE id = 'm1'").get() as { json: string }).json;
+    await remote.chatFor(HOME, "chat-p").write([{ op: "put", id: "x1", at: 5, json: json.replace('"m1"', '"x1"') }]);
+    const { instance } = writer(database, remote, ["chat-p"]);
+    instance.setMode("shadow");
+    await instance.idle();
+    const page = await remote.chatFor(HOME, "chat-p").pageBefore(null, 10);
+    expect(page.rows.map((row) => row.id)).toEqual(["m1"]);
+  });
+
   it("refills a chat from its object after the local copy is lost, before the turn reads it", async () => {
     const remote = objects();
     const first = localDatabase();

@@ -6,7 +6,6 @@ import {
   coveredHistory,
   fillFromObject,
   localHistoryPage,
-  localOnlyRows,
   localHistoryStats,
   localHistoryThreads,
   markCovered,
@@ -278,49 +277,54 @@ export class HistoryWriter {
 
   private async reconcileChat(threadId: string, kind: "copy" | "record" | "reverse"): Promise<boolean> {
     const db = this.options.database;
-    let local = db.read((database) => localHistoryStats(database, threadId));
-    let remote = await this.objectStats(threadId);
-    if (same(local, remote)) return this.covered(threadId, local);
-    if (kind !== "copy" && remote.count > 0) {
-      const rows = await this.objectRows(threadId);
+    const remote = await this.objectStats(threadId);
+    let rows = remote.count > 0 ? await this.objectRows(threadId) : [];
+    if (this.matches(threadId, rows)) return this.covered(threadId, this.localStats(threadId));
+    if (kind !== "copy" && rows.length) {
       const { added, replaced } = db.write((database) => fillFromObject(database, threadId, rows, remote.leaf));
       this.counts.filled += added + replaced;
       if (added || replaced) this.options.filled?.(threadId);
-      local = db.read((database) => localHistoryStats(database, threadId));
-      if (same(local, remote)) return this.covered(threadId, local);
-      if (kind === "record") {
-        const ids = new Set(rows.map((row) => row.id));
-        const extra = db.read((database) => localOnlyRows(database, threadId, ids));
-        await this.sendChanges(threadId, extra.filter((row) => jsonBytes(row.json) <= MAX_HISTORY_MESSAGE_BYTES)
-          .map((row): HistoryChange => ({ op: "put", id: row.id, at: row.at, json: row.json })));
-        this.counts.pushed += extra.length;
-        remote = await this.objectStats(threadId);
-        local = db.read((database) => localHistoryStats(database, threadId));
-        if (same(local, remote)) return this.covered(threadId, local);
-      }
+      if (this.matches(threadId, rows)) return this.covered(threadId, this.localStats(threadId));
     }
-    if (kind === "reverse" || (kind === "record" && remote.count > 0)) {
+    if (kind === "reverse") {
       this.mismatched.add(threadId);
       return false;
     }
     await this.call(threadId, { op: "clear" });
     let after = Number.MIN_SAFE_INTEGER;
     for (;;) {
-      const rows = db.read((database) => localHistoryPage(database, threadId, after, RECONCILE_PAGE));
-      if (!rows.length) break;
-      after = rows.at(-1)!.rowid;
-      const changes = rows.filter((row) => historyIdOk(row.id) && jsonBytes(row.json) <= MAX_HISTORY_MESSAGE_BYTES)
-        .map((row): HistoryChange => ({ op: "put", id: row.id, at: row.at, json: row.json }));
-      this.counts.oversized += rows.length - changes.length;
+      const page = db.read((database) => localHistoryPage(database, threadId, after, RECONCILE_PAGE));
+      if (!page.length) break;
+      after = page.at(-1)!.rowid;
+      const changes = page.filter(sendable).map((row): HistoryChange => ({ op: "put", id: row.id, at: row.at, json: row.json }));
+      this.counts.oversized += page.length - changes.length;
       await this.sendChanges(threadId, changes);
       this.counts.pushed += changes.length;
     }
-    local = db.read((database) => localHistoryStats(database, threadId));
-    await this.call(threadId, { op: "write", changes: [], leaf: { id: local.leaf } });
-    remote = await this.objectStats(threadId);
-    if (same(local, remote)) return this.covered(threadId, local);
+    await this.call(threadId, { op: "write", changes: [], leaf: { id: this.localStats(threadId).leaf } });
+    rows = await this.objectRows(threadId);
+    if (this.matches(threadId, rows)) return this.covered(threadId, this.localStats(threadId));
     this.mismatched.add(threadId);
     return false;
+  }
+
+  private localStats(threadId: string) {
+    return this.options.database.read((database) => localHistoryStats(database, threadId));
+  }
+
+  private matches(threadId: string, rows: ReadonlyArray<{ id: string; json: string }>): boolean {
+    let index = 0;
+    let after = Number.MIN_SAFE_INTEGER;
+    for (;;) {
+      const page = this.options.database.read((database) => localHistoryPage(database, threadId, after, RECONCILE_PAGE));
+      if (!page.length) return index === rows.length;
+      after = page.at(-1)!.rowid;
+      for (const row of page) {
+        if (!sendable(row)) continue;
+        const remote = rows[index++];
+        if (!remote || remote.id !== row.id || remote.json !== row.json) return false;
+      }
+    }
   }
 
   private covered(threadId: string, stats: { count: number; bytes: number }): boolean {
@@ -356,7 +360,7 @@ export class HistoryWriter {
   }
 }
 
-function same(local: { count: number; bytes: number; leaf: string | null }, remote: HistoryStats): boolean {
-  return local.count === remote.count && local.bytes === remote.bytes;
+function sendable(row: { id: string; json: string }): boolean {
+  return historyIdOk(row.id) && jsonBytes(row.json) <= MAX_HISTORY_MESSAGE_BYTES;
 }
 
