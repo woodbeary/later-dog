@@ -152,9 +152,9 @@ async function main() {
         if (result.unsaved.length) log(`could not save ${result.unsaved.length} file(s) this time, first ${result.unsaved[0]} (${result.unsavedReason}); the next save tries again`);
         if (result.deferred) log(`${result.deferred} changed file(s) wait for the next save, which carries on where this one stopped`);
         saves += 1;
-        if (final || (!cleanupLeft && saves % GC_EVERY_SAVES !== 0)) return;
+        if (final || stopping || (!cleanupLeft && saves % GC_EVERY_SAVES !== 0)) return;
         try {
-          const cleanup = await collectGarbageWithin(store, manifest, { pending: restorePoints.pending(), budgetMs: CLEANUP_BUDGET_MS });
+          const cleanup = await collectGarbageWithin(store, manifest, { pending: restorePoints.pending(), budgetMs: CLEANUP_BUDGET_MS, stopped: () => stopping });
           cleanupLeft = !cleanup.finished;
           if (cleanup.removed) log(`removed ${cleanup.removed} saved pieces nothing uses any more${cleanupLeft ? "; the next save removes more" : ""}`);
         } catch (error) {

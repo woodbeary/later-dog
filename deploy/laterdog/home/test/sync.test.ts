@@ -992,6 +992,24 @@ describe("cleaning up saved pieces", () => {
     expect(new Set(store.blobs.keys())).toEqual(referencedBlobs(saved.manifest));
   });
 
+  it("stops a cleanup as soon as the home is asked to stop, so the last save never waits behind it", async () => {
+    const home = folder();
+    const store = memoryStore();
+    writeFileSync(join(home, "notes.md"), "kept");
+    const saved = await snapshot(home, store, null);
+    for (let index = 0; index < 20; index += 1) store.blobs.set(createHash("sha256").update(`old ${index}`).digest("hex"), new Uint8Array([index]));
+    let stopping = false;
+    let listed = 0;
+    const listing = { ...store, listBlobs: async (cursor?: string) => { listed += 1; if (listed === 3) stopping = true; return store.listBlobs(cursor); } };
+    expect(await collectGarbageWithin(listing, saved.manifest, { stopped: () => stopping })).toEqual({ removed: 0, finished: false });
+    expect(listed).toBe(3);
+    let deleted = 0;
+    const deleting = { ...store, deleteBlob: async (hash: string) => { deleted += 1; stopping = true; await store.deleteBlob(hash); } };
+    stopping = false;
+    expect(await collectGarbageWithin(deleting, saved.manifest, { parallel: 1, stopped: () => stopping })).toEqual({ removed: 1, finished: false });
+    expect(deleted).toBe(1);
+  });
+
   it("deletes eight pieces at a time, and still removes one round when the time is already up", async () => {
     const home = folder();
     const store = memoryStore();

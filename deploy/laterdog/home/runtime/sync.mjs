@@ -579,20 +579,21 @@ export async function keptRestorePoints(store) {
 
 export const CLEANUP_PARALLEL = 8;
 
-export async function collectGarbageWithin(store, manifest, { pending = [], budgetMs = Infinity, now = Date.now, parallel = CLEANUP_PARALLEL } = {}) {
+export async function collectGarbageWithin(store, manifest, { pending = [], budgetMs = Infinity, now = Date.now, parallel = CLEANUP_PARALLEL, stopped = () => false } = {}) {
   if (!manifest) return { removed: 0, finished: true };
   const keep = referencedBlobs(manifest);
   for (const kept of [...pending, ...(await keptRestorePoints(store))]) for (const hash of referencedBlobs(kept)) keep.add(hash);
   const unused = [];
   let cursor;
   do {
+    if (stopped()) return { removed: 0, finished: false };
     const page = await store.listBlobs(cursor);
     for (const hash of page.hashes) if (!keep.has(hash)) unused.push(hash);
     cursor = page.cursor;
   } while (cursor);
   const deadline = now() + budgetMs;
   let removed = 0;
-  while (removed < unused.length && (removed === 0 || now() < deadline)) {
+  while (removed < unused.length && !stopped() && (removed === 0 || now() < deadline)) {
     const batch = unused.slice(removed, removed + parallel);
     await Promise.all(batch.map((hash) => store.deleteBlob(hash)));
     removed += batch.length;
