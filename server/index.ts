@@ -4277,8 +4277,16 @@ const workSignals = new WorkSignals();
 let exchangeLookup: ExchangeLookup | undefined;
 let waitingOnPerson = (_threadId: string): boolean => false;
 let stallFacts = (_threadId: string): StallFacts => ({});
+const signInAsks = new Map<string, string | undefined>();
+function signInAsk(threadId: string): string | undefined {
+  if (!signInAsks.has(threadId)) signInAsks.set(threadId, deviceApprovalNeedsYou(store.messagesTail(threadId, 60).messages));
+  return signInAsks.get(threadId);
+}
+store.onChange((change) => {
+  if ("threadId" in change) signInAsks.delete(change.threadId);
+});
 function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
-  const signIn = busy ? undefined : deviceApprovalNeedsYou(store.messagesTail(threadId, 60).messages);
+  const signIn = busy ? undefined : signInAsk(threadId);
   const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId) || signIn !== undefined;
   const until = limitHold.heldUntil(threadId);
   const usageWait = until !== undefined || (!busy && usageStranded(threadId));
@@ -4297,7 +4305,7 @@ const planOf = (threadId: string) => {
 };
 const planChanged = (threadId: string) => {
   const bot = store.botByThread(threadId);
-  if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+  if (bot) botBroadcasts.soon(bot.id);
 };
 forgetDeletedChats(store, dogPlans);
 const planAnchor = (threadId: string) => store.activePath(threadId).findLast(isPersonText)?.id;
@@ -4336,6 +4344,18 @@ const wireBot = (bot: BotRecord): WireBot => {
     work, step: liveSteps.step(bot.threadId), ...planOf(bot.threadId),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
+
+const sentThreads = new Map<string, string>();
+for (const record of [...store.bots, ...store.groups]) sentThreads.set(record.id, record.threadId);
+function pageIfThreadChanged(id: string, threadId: string) {
+  if (sentThreads.get(id) === threadId) return {};
+  sentThreads.set(id, threadId);
+  return messagePage(threadId, DEFAULT_PAGE);
+}
+const botBroadcasts = coalescedBroadcasts(BOT_BROADCAST_MS, (botId) => {
+  const bot = store.bot(botId);
+  if (bot) broadcast({ kind: "bot", bot: { ...wireBot(bot), ...pageIfThreadChanged(bot.id, bot.threadId) } });
+});
 
 function toolScopeForTurn(botId: string) {
   const bot = store.bot(botId);
@@ -5766,17 +5786,6 @@ const groupWithThread = (group: GroupRecord) => ({
   ...(group.dm ? {} : { tasks: store.groupTasks(group.id) }),
 });
 
-const sentThreads = new Map<string, string>();
-for (const record of [...store.bots, ...store.groups]) sentThreads.set(record.id, record.threadId);
-function pageIfThreadChanged(id: string, threadId: string) {
-  if (sentThreads.get(id) === threadId) return {};
-  sentThreads.set(id, threadId);
-  return messagePage(threadId, DEFAULT_PAGE);
-}
-const botBroadcasts = coalescedBroadcasts(BOT_BROADCAST_MS, (botId) => {
-  const bot = store.bot(botId);
-  if (bot) broadcast({ kind: "bot", bot: { ...wireBot(bot), ...pageIfThreadChanged(bot.id, bot.threadId) } });
-});
 store.onChange((change) => {
   if (change.type !== "message" && change.type !== "message.patch" && change.type !== "thread" && change.type !== "sections") forgetVisibility();
   switch (change.type) {
@@ -6314,8 +6323,7 @@ function announceHelpersChanged(threadId: string): void {
     if (room) broadcast({ kind: "group", group: publicGroupState(room) });
     return;
   }
-  const current = store.bot(owner.id);
-  if (current) broadcast({ kind: "bot", bot: wireBot(current) });
+  botBroadcasts.soon(owner.id);
 }
 const watchdog = new TurnWatchdog({
   helpersMaxMs: Math.max(1_000, Number(process.env.LATERDOG_HELPERS_MAX_MS) || 4 * 60 * 60_000),
@@ -6466,7 +6474,7 @@ store.onChange((change) => {
   if ((change.type === "message" || change.type === "message.patch") && change.message.needsYou) {
     delegatedWaiting.delete(change.threadId);
     const owner = store.botByThread(change.threadId);
-    if (owner) broadcast({ kind: "bot", bot: wireBot(owner) });
+    if (owner) botBroadcasts.soon(owner.id);
   }
   if ((change.type === "message" || change.type === "message.patch") && !change.message.needsYou) {
     const node = [...roomHandoffs.nodes.values()].findLast(node => node.parentId && node.threadId === change.threadId && ["running", "needs-you", "waiting"].includes(node.status));
