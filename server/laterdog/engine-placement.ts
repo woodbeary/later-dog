@@ -387,6 +387,7 @@ export interface PlacedEngineOptions {
   onWaiting?: (wait: EngineWait) => void;
   waitNoticeMs?: number;
   placed?: PlacedThreads;
+  onNotice?: (message: string) => void;
 }
 
 export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: ClaudeRemotePlan, signal: AbortSignal) => Promise<EngineLink>, local: (() => ChildProcess) | undefined,
@@ -398,6 +399,7 @@ export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: Claud
   const link = deferredLink(opened, options.openBudgetMs, () => abort.abort());
   if (options.onWaiting) watchEngineOpening(link, options.onWaiting, options.waitNoticeMs ?? ENGINE_WAIT_NOTICE_MS);
   const session = new RemoteSession(link, plan.launch);
+  if (options.onNotice) session.on("notice", options.onNotice);
   const placed = options.placed ?? placedThreads;
   let release: (() => void) | null = null;
   let unplace: (() => void) | null = null;

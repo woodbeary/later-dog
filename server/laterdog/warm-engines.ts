@@ -20,7 +20,7 @@ export interface OwnedEngine {
 }
 
 export interface WarmEngines {
-  assertVacant(key: string): void;
+  vacated(key: string, waitMs: number): Promise<void>;
   own(key: string, engine: object, owned: OwnedEngine): void;
   release(key: string, engine: object): void;
   retire(key: string, engine: object): Promise<void>;
@@ -65,6 +65,7 @@ export function createWarmEngines({
   checkEveryMs?: number;
 }): WarmEngines {
   const owners = new Map<string, OwnedEngine & { engine: object; draining?: Promise<void> }>();
+  const leaving = new Map<string, Set<() => void>>();
   const launches = new Map<string, object>();
   const resting = new Map<object, RestingEngine & { since: number; timer: ReturnType<typeof setTimeout> | null }>();
   let watch: ReturnType<typeof setInterval> | null = null;
@@ -105,8 +106,14 @@ export function createWarmEngines({
   };
 
   return {
-    assertVacant(key) {
-      if (owners.has(key)) throw new Error("The previous engine stop was not confirmed.");
+    async vacated(key, waitMs) {
+      if (!owners.has(key)) return;
+      const freed = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => { leaving.get(key)?.delete(done); resolve(false); }, waitMs);
+        const done = () => { clearTimeout(timer); resolve(true); };
+        leaving.set(key, (leaving.get(key) ?? new Set()).add(done));
+      });
+      if (!freed && owners.has(key)) throw new Error("The previous engine stop was not confirmed.");
     },
     retire,
     own(key, engine, owned) {
@@ -114,7 +121,10 @@ export function createWarmEngines({
       owners.set(key, { ...owned, engine });
     },
     release(key, engine) {
-      if (owners.get(key)?.engine === engine) owners.delete(key);
+      if (owners.get(key)?.engine !== engine) return;
+      owners.delete(key);
+      for (const done of leaving.get(key) ?? []) done();
+      leaving.delete(key);
     },
     async launch(key, adapter, signal, run) {
       const request = {};
