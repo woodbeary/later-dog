@@ -162,8 +162,12 @@ export class RemoteSession extends EventEmitter {
     for (let offset = 0; offset < bytes.length; offset += ENGINE_FRAME_BYTES) this.#send({ type: "file_chunk", data: bytes.subarray(offset, offset + ENGINE_FRAME_BYTES).toString("base64") });
     this.#send({ type: "file_end" });
   }
+  readonly sent = { files: 0, bytes: 0 };
+
   async #sendWorkingFile(root: EngineFileRoot, file: EngineFile, before?: EngineFile): Promise<void> {
     const prefix = await runFileWork(transcriptPrefixWork(root, file, before), this.#fileAbort.signal);
+    this.sent.files += 1;
+    this.sent.bytes += file.size - (prefix?.size ?? 0);
     const begin = { type: "file_begin", prefix, file: { ...file, mode: root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode } };
     this.#pendingFileBytes += 256 + Buffer.byteLength(file.path);
     if (selectedTranscript(root, file.path) || (streamedTree(root) && file.size >= 8 * ENGINE_WINDOW_BYTES)) {
@@ -281,7 +285,7 @@ export class RemoteSession extends EventEmitter {
       await this.#request({ type: "prepared" }, SYNC_REPLY_MS);
     } catch (error) { throw new NotDispatched((error as Error).message); }
     if (this.#closed) throw new NotDispatched("The cloud computer's connection closed before launch.");
-    mark = this.#step("files sent", mark);
+    mark = this.#step(`${this.sent.files} files (${(this.sent.bytes / 1e6).toFixed(1)} MB) sent`, mark);
     this.#launchSent = true;
     let body: any;
     try {
