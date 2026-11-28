@@ -123,6 +123,12 @@ describe("the routines card", () => {
     const stale = card();
     expect(stale.html).toContain("Couldn&#x27;t load routines");
     expect(stale.html).toContain("Routine soon");
+    expect(stale.html).not.toContain("data-pane-error-count");
+    fixture.storeState = { routinesLoadState: "error", paneErrors: { routines: { id: 2, line: "Couldn't load routines", retryable: true, count: 3, signIn: true } } };
+    const repeated = card();
+    expect(repeated.html).toContain("×3");
+    expect(repeated.html).toContain("Sign in");
+    expect(repeated.html).toContain("Try again");
     fixture.storeState = { routinesLoadState: "ready" };
     expect(card().html).toContain("Ask Scout to do something every morning, or every Friday, and it shows up here.");
   });
