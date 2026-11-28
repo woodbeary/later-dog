@@ -1,6 +1,6 @@
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "node:sqlite";
 
 import { DATA_DIR } from "./config.ts";
 import { peerProvenanceAuthor } from "./peer-provenance.ts";
@@ -176,6 +176,15 @@ const UPSERT_MESSAGE =
   "ON CONFLICT(thread_id, id) DO UPDATE SET at = excluded.at, role = excluded.role, kind = excluded.kind, " +
   "text = excluded.text, json = excluded.json";
 
+const statements = new WeakMap<DatabaseSync, Map<string, StatementSync>>();
+function statement(database: DatabaseSync, sql: string): StatementSync {
+  let known = statements.get(database);
+  if (!known) statements.set(database, known = new Map());
+  let prepared = known.get(sql);
+  if (!prepared) known.set(sql, prepared = database.prepare(sql));
+  return prepared;
+}
+
 function db(): DatabaseSync {
   if (handle && handlePath === DB_FILE() && existsSync(DB_FILE())) return handle;
   try {
@@ -266,8 +275,7 @@ export interface StoredCommandReceipt {
 }
 
 export function readCommandReceipt(kind: string, key: string): StoredCommandReceipt | null {
-  const row = db()
-    .prepare("SELECT kind, key, at, result FROM command_receipts WHERE kind = ? AND key = ?")
+  const row = statement(db(), "SELECT kind, key, at, result FROM command_receipts WHERE kind = ? AND key = ?")
     .get(kind, key) as StoredCommandReceipt | undefined;
   return row ?? null;
 }
@@ -279,13 +287,11 @@ export function withCommandReceipt(
   at: number,
 ): { result: string; replayed: boolean } {
   return transaction((database) => {
-    const existing = database
-      .prepare("SELECT result FROM command_receipts WHERE kind = ? AND key = ?")
+    const existing = statement(database, "SELECT result FROM command_receipts WHERE kind = ? AND key = ?")
       .get(kind, key) as { result: string } | undefined;
     if (existing) return { result: existing.result, replayed: true };
     const result = apply();
-    database
-      .prepare("INSERT INTO command_receipts(kind, key, at, result) VALUES (?, ?, ?, ?)")
+    statement(database, "INSERT INTO command_receipts(kind, key, at, result) VALUES (?, ?, ?, ?)")
       .run(kind, key, at, result);
     return { result, replayed: false };
   });
@@ -314,8 +320,8 @@ export function settleChatFollowups(ids: string[], status: FollowupStatus | null
 
 export function chatFollowups(kind?: ChatFollowup["kind"]): ChatFollowup[] {
   const rows = (kind
-    ? db().prepare("SELECT * FROM chat_followups WHERE kind = ? ORDER BY rowid").all(kind)
-    : db().prepare("SELECT * FROM chat_followups ORDER BY rowid").all()) as Array<{
+    ? statement(db(), "SELECT * FROM chat_followups WHERE kind = ? ORDER BY rowid").all(kind)
+    : statement(db(), "SELECT * FROM chat_followups ORDER BY rowid").all()) as Array<{
       id: string; kind: ChatFollowup["kind"]; owner_id: string; thread_id: string; status: FollowupStatus; payload: string;
     }>;
   return rows.map((row) => ({ id: row.id, kind: row.kind, ownerId: row.owner_id, threadId: row.thread_id,
@@ -336,12 +342,10 @@ export interface ThreadRows {
 }
 
 export function readThread(threadId: string, legacyFile: string): ThreadRows {
-  const rows = db()
-    .prepare("SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid")
+  const rows = statement(db(), "SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid")
     .all(threadId) as Array<{ json: string }>;
   if (rows.length) {
-    const state = db()
-      .prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?")
+    const state = statement(db(), "SELECT active_leaf_id FROM thread_state WHERE thread_id = ?")
       .get(threadId) as { active_leaf_id: string | null } | undefined;
     return { messages: rows.map(rowToMessage), activeLeafId: state?.active_leaf_id ?? null };
   }
@@ -359,21 +363,19 @@ export function hasPendingRequest(threadId: string, legacyFile: string): boolean
     "AND json_extract(json, '$.requestPending') = 1 AND json_extract(json, '$.requestCancelled') IS NOT 1 LIMIT 1",
   ).get(threadId);
   if (pending) return true;
-  const known = database.prepare("SELECT 1 FROM thread_state WHERE thread_id = ?").get(threadId)
-    || database.prepare("SELECT 1 FROM messages WHERE thread_id = ? LIMIT 1").get(threadId);
+  const known = statement(database, "SELECT 1 FROM thread_state WHERE thread_id = ?").get(threadId)
+    || statement(database, "SELECT 1 FROM messages WHERE thread_id = ? LIMIT 1").get(threadId);
   return !known && existsSync(legacyFile);
 }
 
 export function readThreadTail(threadId: string, legacyFile: string, limit: number): ThreadTailRows {
-  const rows = db()
-    .prepare("SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid DESC LIMIT ?")
+  const rows = statement(db(), "SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid DESC LIMIT ?")
     .all(threadId, limit + 1) as Array<{ json: string }>;
   if (rows.length) {
     const hasMore = rows.length > limit;
     if (hasMore) rows.length = limit;
     rows.reverse();
-    const state = db()
-      .prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?")
+    const state = statement(db(), "SELECT active_leaf_id FROM thread_state WHERE thread_id = ?")
       .get(threadId) as { active_leaf_id: string | null } | undefined;
     return { messages: rows.map(rowToMessage), activeLeafId: state?.active_leaf_id ?? null, hasMore };
   }
@@ -394,7 +396,7 @@ function importLegacy(threadId: string, legacyFile: string): ThreadRows {
     messages = ((raw as { messages?: Message[] }).messages ?? []) as Message[];
     activeLeafId = (raw as { activeLeafId?: string | null }).activeLeafId ?? null;
   }
-  const insert = db().prepare(UPSERT_MESSAGE);
+  const insert = statement(db(), UPSERT_MESSAGE);
   db().exec("BEGIN");
   try {
     for (const message of messages) {
@@ -417,8 +419,7 @@ function importLegacy(threadId: string, legacyFile: string): ThreadRows {
 
 export function insertMessage(threadId: string, message: Message): void {
   const database = db();
-  database
-    .prepare(UPSERT_MESSAGE)
+  statement(database, UPSERT_MESSAGE)
     .run(threadId, message.id, message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message));
   if (historyOutbox) noteHistoryMessage(database, threadId, message.id);
   writes?.message(threadId, message.id);
@@ -426,8 +427,8 @@ export function insertMessage(threadId: string, message: Message): void {
 
 export function importThread(threadId: string, messages: Message[], activeLeafId: string | null): void {
   transaction((database) => {
-    if (database.prepare("SELECT 1 FROM messages WHERE thread_id = ? LIMIT 1").get(threadId) ||
-        database.prepare("SELECT 1 FROM thread_state WHERE thread_id = ?").get(threadId)) {
+    if (statement(database, "SELECT 1 FROM messages WHERE thread_id = ? LIMIT 1").get(threadId) ||
+        statement(database, "SELECT 1 FROM thread_state WHERE thread_id = ?").get(threadId)) {
       throw new Error("Cannot import over an existing conversation");
     }
     for (const message of messages) insertMessage(threadId, message);
@@ -451,8 +452,7 @@ export function appendMessage(threadId: string, message: Message): void {
 export function updateMessage(threadId: string, message: Message): void {
   writeMessage(message, () => {
     const database = db();
-    database
-      .prepare("UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
+    statement(database, "UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
       .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id);
     if (historyOutbox) noteHistoryMessage(database, threadId, message.id);
   });
@@ -535,9 +535,9 @@ function latestAtsWhere(threadIds: readonly string[], condition: string): Map<st
 export function deleteThread(threadId: string): void {
   writeFollowups((connection) => {
     deleteNativeRuns(connection, threadId);
-    connection.prepare("DELETE FROM chat_followups WHERE thread_id = ?").run(threadId);
-    connection.prepare("DELETE FROM messages WHERE thread_id = ?").run(threadId);
-    connection.prepare("DELETE FROM thread_state WHERE thread_id = ?").run(threadId);
+    statement(connection, "DELETE FROM chat_followups WHERE thread_id = ?").run(threadId);
+    statement(connection, "DELETE FROM messages WHERE thread_id = ?").run(threadId);
+    statement(connection, "DELETE FROM thread_state WHERE thread_id = ?").run(threadId);
     if (historyOutbox) noteHistoryChat(connection, threadId, true);
   });
   writes?.chat(threadId);
@@ -555,7 +555,7 @@ export const nativeRunDatabase = {
 
 export function threadsReferencing(fragment: string): string[] {
   if (!fragment) return [];
-  const rows = db().prepare("SELECT DISTINCT thread_id FROM messages WHERE instr(json, ?) > 0").all(fragment) as Array<{ thread_id: string }>;
+  const rows = statement(db(), "SELECT DISTINCT thread_id FROM messages WHERE instr(json, ?) > 0").all(fragment) as Array<{ thread_id: string }>;
   return rows.map((row) => row.thread_id);
 }
 
@@ -738,8 +738,7 @@ export interface ThreadLatest {
 export function latestSaidByBot(threadIds: readonly string[], botId: string, since: number, limit = 20): ThreadLatest[] {
   if (!threadIds.length) return [];
   const placeholders = threadIds.map(() => "?").join(", ");
-  const rows = db()
-    .prepare(
+  const rows = statement(db(),
       "SELECT thread_id, id, at, head FROM (" +
         "SELECT m.thread_id, m.id, m.at, substr(m.text, 1, 400) AS head, " +
         "ROW_NUMBER() OVER (PARTITION BY m.thread_id ORDER BY m.at DESC) AS rn " +
@@ -747,7 +746,7 @@ export function latestSaidByBot(threadIds: readonly string[], botId: string, sin
         `WHERE m.kind = 'text' AND m.role = 'bot' AND m.text IS NOT NULL AND m.at >= ? AND m.thread_id IN (${placeholders}) ` +
         "AND (json_extract(m.json, '$.from.botId') IS NULL OR json_extract(m.json, '$.from.botId') = ?)" +
         ") WHERE rn = 1 ORDER BY at DESC LIMIT ?",
-    )
+  )
     .all(since, ...threadIds, botId, limit) as Array<{ thread_id: string; id: string; at: number; head: string }>;
   return rows.map((row) => ({
     threadId: row.thread_id,
@@ -774,7 +773,7 @@ export function indexMemoryFile(botId: string, path: string, text: string, stat:
 }
 
 export function removeMemoryFile(botId: string, path: string): void {
-  db().prepare("DELETE FROM memory_files WHERE bot_id = ? AND path = ?").run(botId, path);
+  statement(db(), "DELETE FROM memory_files WHERE bot_id = ? AND path = ?").run(botId, path);
   writes?.memory(botId, path);
 }
 
@@ -794,33 +793,32 @@ function outboxRow(key: IndexOutboxKey): [string, string, string] {
 }
 
 export const indexOutbox = {
-  put: (key: IndexOutboxKey): void => void db().prepare("INSERT OR IGNORE INTO search_index_outbox (kind, a, b) VALUES (?, ?, ?)").run(...outboxRow(key)),
-  all: (): IndexOutboxKey[] => (db().prepare("SELECT kind, a, b FROM search_index_outbox").all() as Array<{ kind: string; a: string; b: string }>)
+  put: (key: IndexOutboxKey): void => void statement(db(), "INSERT OR IGNORE INTO search_index_outbox (kind, a, b) VALUES (?, ?, ?)").run(...outboxRow(key)),
+  all: (): IndexOutboxKey[] => (statement(db(), "SELECT kind, a, b FROM search_index_outbox").all() as Array<{ kind: string; a: string; b: string }>)
     .map((row) => row.kind === "m" ? { kind: "message" as const, chat: row.a, id: row.b } : row.kind === "c" ? { kind: "chat" as const, chat: row.a } : { kind: "memory" as const, dog: row.a, path: row.b }),
   remove: (keys: readonly IndexOutboxKey[]): void => {
     if (!keys.length) return;
     transaction((database) => {
-      const remove = database.prepare("DELETE FROM search_index_outbox WHERE kind = ? AND a = ? AND b = ?");
+      const remove = statement(database, "DELETE FROM search_index_outbox WHERE kind = ? AND a = ? AND b = ?");
       for (const key of keys) remove.run(...outboxRow(key));
     });
   },
-  clear: (): void => void db().prepare("DELETE FROM search_index_outbox").run(),
+  clear: (): void => void statement(db(), "DELETE FROM search_index_outbox").run(),
 };
 
 export const indexCoverageTable = {
   read: (home: string): Array<{ chat: string; target: string }> =>
-    db().prepare("SELECT chat, target FROM search_index_coverage WHERE home = ?").all(home) as Array<{ chat: string; target: string }>,
+    statement(db(), "SELECT chat, target FROM search_index_coverage WHERE home = ?").all(home) as Array<{ chat: string; target: string }>,
   add: (home: string, chat: string, targets: readonly string[]): void => transaction((database) => {
-    const insert = database.prepare("INSERT OR IGNORE INTO search_index_coverage (home, chat, target) VALUES (?, ?, ?)");
+    const insert = statement(database, "INSERT OR IGNORE INTO search_index_coverage (home, chat, target) VALUES (?, ?, ?)");
     for (const target of targets) insert.run(home, chat, target);
   }),
-  drop: (home: string, chat: string): void => void db().prepare("DELETE FROM search_index_coverage WHERE home = ? AND chat = ?").run(home, chat),
-  clear: (home: string): void => void db().prepare("DELETE FROM search_index_coverage WHERE home = ?").run(home),
+  drop: (home: string, chat: string): void => void statement(db(), "DELETE FROM search_index_coverage WHERE home = ? AND chat = ?").run(home, chat),
+  clear: (home: string): void => void statement(db(), "DELETE FROM search_index_coverage WHERE home = ?").run(home),
 };
 
 export function indexedMemoryFiles(botId: string): MemoryFileStat[] {
-  const rows = db()
-    .prepare("SELECT path, mtime_ms, bytes FROM memory_files WHERE bot_id = ?")
+  const rows = statement(db(), "SELECT path, mtime_ms, bytes FROM memory_files WHERE bot_id = ?")
     .all(botId) as Array<{ path: string; mtime_ms: number; bytes: number }>;
   return rows.map((row) => ({ path: row.path, mtimeMs: row.mtime_ms, bytes: row.bytes }));
 }
@@ -885,9 +883,9 @@ export const VACUUM_MIN_FREE_BYTES = 64 * 1024 * 1024;
 
 export function reclaimFreePages(diskFreeBytes: number, minFree = VACUUM_MIN_FREE_BYTES): number {
   const database = db();
-  const pageSize = Number((database.prepare("PRAGMA page_size").get() as { page_size: number }).page_size);
-  const pages = Number((database.prepare("PRAGMA page_count").get() as { page_count: number }).page_count);
-  const free = Number((database.prepare("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count);
+  const pageSize = Number((statement(database, "PRAGMA page_size").get() as { page_size: number }).page_size);
+  const pages = Number((statement(database, "PRAGMA page_count").get() as { page_count: number }).page_count);
+  const free = Number((statement(database, "PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count);
   const reclaimable = free * pageSize;
   if (reclaimable < minFree || diskFreeBytes < pages * pageSize) return 0;
   database.exec("VACUUM");
