@@ -15649,6 +15649,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           tabs: (boxId, tool) => cloudTabs.watch({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId, tool),
           vault: vaultItemsFor(internalCapability),
           screen,
+          screenGate: async () => ({ held: botComputerControlSnapshot(internalCapability.botId, internalCapability.teamComputerId).held }),
         }) });
       }
       if (method === "GET" && path === "/api/internal/shared-computers" && lendingEnabled()) {

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -25,7 +25,6 @@ it("runs a screen command on the dog's own desktop in the box", async () => {
   const dir = folder();
   process.env.LATERDOG_COMPUTERS_API = "https://computers.example.test/v1";
   process.env.LATERDOG_COMPUTERS_KEY_FILE = join(dir, "key");
-  const { writeFileSync } = await import("node:fs");
   writeFileSync(join(dir, "key"), "ldc_stand_in_key_for_tests_only_000000000000000");
   const seen: Array<{ url: string; body: unknown }> = [];
   const send = (async (url: string, init: RequestInit) => {
@@ -42,14 +41,14 @@ it("runs a screen command on the dog's own desktop in the box", async () => {
   delete process.env.LATERDOG_COMPUTERS_KEY_FILE;
 });
 
-it("sends screen tools to the box, even without a cloud computer, and keeps exec on the dog's computer", async () => {
+it("sends screen tools to the box past the dog's own computer, and keeps exec on the dog's computer", async () => {
   const commands: string[] = [];
   const screen = async (command: string) => { commands.push(command); return { ok: true, exitCode: 0, stdout: "", stderr: "" }; };
-  const deps = { cfg: {} as AppConfig, boxId: () => undefined, gate: async () => ({ held: false }), assertActive: () => {}, signal: new AbortController().signal, screen };
+  const deps = { cfg: {} as AppConfig, boxId: () => undefined, gate: async () => ({ held: true, blockedReason: "the dog's own computer did not start" }), screenGate: async () => ({ held: false }), assertActive: () => {}, signal: new AbortController().signal, screen };
   const clicked = await cloudComputerRpc({ method: "tools/call", params: { name: "click", arguments: { x: 10, y: 20 } } }, deps);
   expect("isError" in clicked && clicked.isError).toBeFalsy();
   expect(commands[0]).toContain("xdotool");
   const ran = await cloudComputerRpc({ method: "tools/call", params: { name: "exec", arguments: { command: "ls" } } }, deps);
-  expect(ran).toMatchObject({ isError: true });
+  expect(ran).toMatchObject({ isError: true, content: [{ text: "the dog's own computer did not start" }] });
   expect(commands).toHaveLength(1);
 });
