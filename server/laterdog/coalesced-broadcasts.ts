@@ -1,4 +1,4 @@
-export const BOT_BROADCAST_MS = 100;
+export const BOT_BROADCAST_MS = 250;
 export const BROADCAST_SLICE_MS = 20;
 
 export interface CoalescedBroadcasts {
