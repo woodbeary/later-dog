@@ -1395,6 +1395,7 @@ if (CLOUD_HOME && process.platform === "linux") accountKeeper.start();
 registerEnginesBinDir();
 registerNativeBinDir();
 
+const configBroadcasts = coalescedBroadcasts(BOT_BROADCAST_MS, () => broadcast({ kind: "config", ...configStatus() }));
 const accountBattery = new AccountBattery({
   config: () => cfg.accountBattery,
   accounts: batteryAccounts,
@@ -1412,7 +1413,7 @@ const accountBattery = new AccountBattery({
     if (hostedModels) return;
     await loadPlanUsage({ accounts: planAccountsFromInstances(instanceConfigs(cfg)).filter((account) => account.driver !== "grok"), refresh: true });
   },
-  onChange: () => broadcast({ kind: "config", ...configStatus() }),
+  onChange: () => configBroadcasts.soon("config"),
 });
 function batteryThreadBot(threadId: string): BotRecord | null {
   return store.botByThread(threadId) ?? store.bot(groupBatteryTurns.get(threadId)?.botId ?? "");

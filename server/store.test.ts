@@ -2480,7 +2480,7 @@ describe("bookkeeping saves", () => {
 
 
 describe("task patches that change nothing", () => {
-  it("do not write the dogs file when a turn marks an already read chat as read", () => {
+  it("do not write the dogs file when a turn marks an already read chat as read, and save read marks with the bookkeeping", () => {
     const store = new Store(selection);
     const bot = store.createBot();
     store.patchTask(bot.id, bot.threadId, { unread: false, surface: undefined });
@@ -2490,10 +2490,14 @@ describe("task patches that change nothing", () => {
     expect(store.patchTask(bot.id, bot.threadId, { unread: false })).toBe(store.taskByThread(bot.id, bot.threadId));
     expect(store.patchTask(bot.id, bot.threadId, { surface: undefined, resumeCursors: {} })).toBeTruthy();
     expect(write).not.toHaveBeenCalled();
-    store.patchTask(bot.id, bot.threadId, { unread: true });
-    expect(write).toHaveBeenCalledTimes(1);
+    store.patchTask(bot.id, bot.threadId, { unread: true, lastContextModel: "claude-sonnet-5" });
+    expect(write).not.toHaveBeenCalled();
     expect(changes).toEqual(["bot", "bot", "bot"]);
-    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.unread).toBe(true);
+    store.flushBots();
+    expect(new Store(selection).taskByThread(bot.id, bot.threadId)).toMatchObject({ unread: true, lastContextModel: "claude-sonnet-5" });
+    store.patchTask(bot.id, bot.threadId, { title: "Renamed", unread: false });
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.title).toBe("Renamed");
   });
 });
 
