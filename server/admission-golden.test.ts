@@ -13,6 +13,7 @@ describe("admission golden tables", () => {
     expect(admit("direct-busy", { ...plain, engineCanSteer: false })).toEqual({ action: "queue" });
     expect(admit("direct-busy", { ...plain, waitsForTurn: true })).toEqual({ action: "queue" });
     expect(admit("direct-busy", {})).toEqual({ action: "queue" });
+    expect(admit("direct-busy", { ...plain, queuedAhead: true })).toEqual({ action: "queue" });
   });
 
   it("direct: starts on a free bot, parks behind slots, room turns, and coordination", () => {
