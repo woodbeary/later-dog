@@ -36,7 +36,14 @@ function world() {
   const nodes = new Map<string, string>();
   const redelivered: Array<{ dog: string; clientId: string }> = [];
   const book = {
-    handoffStatus: (id: string) => nodes.get(id) ?? null,
+    delivery: (id: string) => {
+      const status = nodes.get(id);
+      if (status === undefined) return null;
+      if (status === "queued") return "waiting" as const;
+      if (status === "restart") return "lost" as const;
+      if (status === "stopped") return "ended" as const;
+      return "started" as const;
+    },
     redeliver: async (dog: string, letter: StoredLetter) => { redelivered.push({ dog, clientId: letter.clientId }); },
   };
   const home = () => new ObjectInbox({ calls, owned: (dog) => dog === "dog-b", dogs: () => ["dog-a", "dog-b"], book: () => book, now: () => clock.now, wait: async () => {}, log: () => {} });
@@ -88,6 +95,25 @@ describe("dog-to-dog letters through the dog inbox", () => {
     await after.sweep();
     expect(w.redelivered).toEqual([{ dog: "dog-b", clientId: "lost" }]);
     expect(await w.states(["lost", "old"])).toEqual({ lost: "delivered", old: "delivered" });
+  });
+
+  it("delivers once a letter whose queued handoff the restart ended, and not one the person stopped", async () => {
+    const w = world();
+    w.nodes.set("ended", "queued");
+    w.nodes.set("stopped", "queued");
+    await w.home().sent("dog-b", w.letter("ended"));
+    await w.home().sent("dog-b", w.letter("stopped"));
+    w.clock.now += 30_000;
+    const after = w.home();
+    await after.sweep();
+    w.nodes.set("ended", "restart");
+    w.nodes.set("stopped", "stopped");
+    after.changed();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    after.changed();
+    await after.sweep();
+    expect(w.redelivered).toEqual([{ dog: "dog-b", clientId: "ended" }]);
+    expect(await w.states(["ended", "stopped"])).toEqual({ ended: "delivered", stopped: "delivered" });
   });
 
   it("after a restart waits for a handoff that is still queued and acknowledges it when it starts", async () => {

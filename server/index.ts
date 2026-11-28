@@ -1098,7 +1098,7 @@ const objectInbox = dogObjectCalls ? new ObjectInbox({
   owned: inboxInObject,
   dogs: () => store.bots.map((bot) => bot.id),
   book: () => ({
-    handoffStatus: (id) => roomHandoffs.status(id),
+    delivery: (id) => roomHandoffs.delivery(id),
     redeliver: async (dog, letter) => {
       const bot = store.bot(dog);
       if (!bot) return;

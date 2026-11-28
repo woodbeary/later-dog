@@ -4,10 +4,10 @@ import type { DogObjectCalls } from "./object-routines.ts";
 const RETRY_MS = [500, 2_000, 5_000, 15_000, 30_000] as const;
 const POLL_MS = 30_000;
 export const REDELIVER_WITHIN_MS = 6 * 60 * 60_000;
-const WAITING = new Set(["queued", "resume"]);
+export type LetterDelivery = "waiting" | "started" | "lost" | "ended" | null;
 
 export interface InboxBook {
-  handoffStatus(id: string): string | null;
+  delivery(id: string): LetterDelivery;
   redeliver(dog: string, letter: StoredLetter): Promise<void>;
 }
 
@@ -24,6 +24,7 @@ export interface ObjectInboxOptions {
 interface Tracked {
   dog: string;
   stored: boolean;
+  settling?: boolean;
 }
 
 export class ObjectInbox {
@@ -84,14 +85,27 @@ export class ObjectInbox {
   changed(): void {
     const book = this.options.book();
     if (!book) return;
-    const byDog = new Map<string, string[]>();
     for (const [clientId, held] of this.tracked) {
-      if (!held.stored) continue;
-      const status = book.handoffStatus(clientId);
-      if (status !== null && WAITING.has(status)) continue;
-      byDog.set(held.dog, [...(byDog.get(held.dog) ?? []), clientId]);
+      if (!held.stored || held.settling) continue;
+      const delivery = book.delivery(clientId);
+      if (delivery === "waiting") continue;
+      held.settling = true;
+      void this.settle(held.dog, clientId, delivery, book);
     }
-    for (const [dog, clientIds] of byDog) void this.ack(dog, clientIds);
+  }
+
+  private async settle(dog: string, clientId: string, delivery: LetterDelivery, book: InboxBook): Promise<void> {
+    if (delivery === "lost") {
+      const status = await this.options.calls.inbox(dog, DOG_CHAT, { op: "pull", limit: 200 }).catch(() => null);
+      const letter = ((status?.letters ?? []) as StoredLetter[]).find((candidate) => candidate.clientId === clientId);
+      if (letter) {
+        await book.redeliver(dog, letter);
+        this.state.redelivered += 1;
+      }
+    }
+    await this.ack(dog, [clientId]);
+    const held = this.tracked.get(clientId);
+    if (held) held.settling = false;
   }
 
   async sweep(): Promise<void> {
@@ -119,12 +133,13 @@ export class ObjectInbox {
       for (const letter of letters) {
         after = letter.seq;
         if (this.tracked.has(letter.clientId) && !this.tracked.get(letter.clientId)!.stored) continue;
-        const status = book.handoffStatus(letter.clientId);
-        if (status !== null && WAITING.has(status)) {
+        const delivery = book.delivery(letter.clientId);
+        if (delivery === "waiting") {
           this.tracked.set(letter.clientId, { dog, stored: true });
           continue;
         }
-        if (status === null && letter.at >= this.startedAt - REDELIVER_WITHIN_MS && letter.at < this.startedAt) {
+        const lost = delivery === "lost" || (delivery === null && letter.at < this.startedAt);
+        if (lost && letter.at >= this.startedAt - REDELIVER_WITHIN_MS) {
           await book.redeliver(dog, letter);
           this.state.redelivered += 1;
         }
