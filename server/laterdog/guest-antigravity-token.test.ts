@@ -26,17 +26,16 @@ beforeAll(async () => {
 afterAll(() => { vi.unstubAllEnvs(); });
 
 describe("a handed-over Antigravity sign-in on a dog's computer", () => {
-  it("lends the whole sign-in in the layout the home holds, so the computer's engine renews its own access token", async () => {
+  it("lends the current access token in the layout the home holds, without the refresh token", async () => {
     const out = await guestCliCredentials("antigravityAgent", ID, {}, NOW);
     const lent = JSON.parse(out.files.antigravity!);
     expect(lent.token.access_token).toBe("fixture-access");
     expect(lent.token.expiry).toBe("2026-11-28T05:43:00Z");
     expect(lent.auth_method).toBe("consumer");
-    expect(lent.token.refresh_token).toBe("fixture-refresh");
+    expect(out.files.antigravity).not.toContain("fixture-refresh");
   });
 
-  it("still lends a sign-in whose access token has expired, because it carries its refresh token", async () => {
-    const out = await guestCliCredentials("antigravityAgent", ID, {}, Date.parse("2026-11-28T06:00:00Z"));
-    expect(JSON.parse(out.files.antigravity!).token.refresh_token).toBe("fixture-refresh");
+  it("refuses an expired access token", async () => {
+    await expect(guestCliCredentials("antigravityAgent", ID, {}, Date.parse("2026-11-28T06:00:00Z"))).rejects.toThrow("current access token");
   });
 });
