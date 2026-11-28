@@ -729,19 +729,37 @@ export class RoutineManager {
     return removed;
   }
 
+  private runsByThread: { runs: RoutineRun[]; length: number; saves: number; byThread: Map<string, RoutineRun[]> } | null = null;
+  private saves = 0;
+
+  private threadRuns(threadId: string): readonly RoutineRun[] {
+    let index = this.runsByThread;
+    if (!index || index.runs !== this.runs || index.length !== this.runs.length || index.saves !== this.saves) {
+      const byThread = new Map<string, RoutineRun[]>();
+      for (const run of this.runs) {
+        if (run.threadId === undefined) continue;
+        const list = byThread.get(run.threadId);
+        if (list) list.push(run);
+        else byThread.set(run.threadId, [run]);
+      }
+      index = this.runsByThread = { runs: this.runs, length: this.runs.length, saves: this.saves, byThread };
+    }
+    return index.byThread.get(threadId) ?? [];
+  }
+
   isActiveThread(threadId: string): boolean {
-    return this.runs.some(
+    return this.threadRuns(threadId).some(
       (run) => run.threadId === threadId && ["running", "waiting"].includes(run.status),
     );
   }
 
   runForThread(threadId: string): RoutineRun | null {
-    const run = this.runs.findLast((candidate) => candidate.threadId === threadId);
+    const run = this.threadRuns(threadId).findLast((candidate) => candidate.threadId === threadId);
     return run ? cloneRun(run) : null;
   }
 
   activeRunForThread(threadId: string): RoutineRun | null {
-    const run = this.runs.findLast((candidate) => candidate.threadId === threadId);
+    const run = this.threadRuns(threadId).findLast((candidate) => candidate.threadId === threadId);
     return run && (run.status === "running" || run.status === "waiting") ? cloneRun(run) : null;
   }
 
@@ -750,7 +768,7 @@ export class RoutineManager {
   }
 
   runDuring(threadId: string, at: number): RoutineRun | null {
-    const run = this.runs.findLast((candidate) => candidate.threadId === threadId &&
+    const run = this.threadRuns(threadId).findLast((candidate) => candidate.threadId === threadId &&
       (candidate.startedAt ?? candidate.createdAt) <= at &&
       (candidate.finishedAt === undefined || at <= candidate.finishedAt));
     return run ? cloneRun(run) : null;
@@ -1284,7 +1302,7 @@ export class RoutineManager {
   }
 
   private activeRunForTurn(threadId: string): RoutineRun | undefined {
-    const run = this.runs.find((r) => r.threadId === threadId && ["running", "waiting"].includes(r.status));
+    const run = this.threadRuns(threadId).find((r) => r.threadId === threadId && ["running", "waiting"].includes(r.status));
     if (!run || run.target === "room-goal" || !this.options.turnBelongsToRun) return run;
     return this.options.turnBelongsToRun(cloneRun(run)) ? run : undefined;
   }
@@ -1620,6 +1638,7 @@ export class RoutineManager {
   }
 
   private save() {
+    this.saves += 1;
     let excess = this.runs.length - MAX_RUNS;
     for (let index = 0; index < this.runs.length && excess > 0;) {
       if (["queued", "running", "waiting"].includes(this.runs[index]!.status)) {

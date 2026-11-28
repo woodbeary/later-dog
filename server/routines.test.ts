@@ -2909,3 +2909,25 @@ describe("routines that fall due together", () => {
     expect(lone.started).toHaveLength(1);
   });
 });
+
+describe("a chat's routine runs", () => {
+  it("are found without scanning every run, and follow a run as it starts and finishes", async () => {
+    const h = harness();
+    const routine = h.manager.create({ name: "Review queue", prompt: "Review the queue", botId: "dog-2", schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() } });
+    expect(h.manager.activeRunForThread("thread-1")).toBeNull();
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    expect(h.manager.activeRunForThread("thread-1")).toMatchObject({ status: "running", threadId: "thread-1" });
+    const runs = (h.manager as unknown as { runs: unknown[] }).runs;
+    const scans = [vi.spyOn(runs, "find"), vi.spyOn(runs, "findLast"), vi.spyOn(runs, "some")];
+    for (let i = 0; i < 50; i++) {
+      expect(h.manager.activeRunForThread("thread-1")?.status).toBe("running");
+      expect(h.manager.isActiveThread("thread-1")).toBe(true);
+      expect(h.manager.runForThread("thread-2")).toBeNull();
+    }
+    for (const scan of scans) expect(scan).not.toHaveBeenCalled();
+    h.manager.failThread("thread-1", "Stopped");
+    expect(h.manager.activeRunForThread("thread-1")).toBeNull();
+    expect(h.manager.runForThread("thread-1")).toMatchObject({ status: "failed" });
+  });
+});
