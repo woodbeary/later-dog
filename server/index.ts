@@ -335,7 +335,8 @@ import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-inde
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
 import { BOT_BROADCAST_MS, coalescedBroadcasts } from "./laterdog/coalesced-broadcasts.ts";
-import { historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
+import { EdgeArrivals } from "./laterdog/edge-arrivals.ts";
+import { edgeAdmissionDogs, historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
 import { DogObjectCalls, ObjectRoutines } from "./laterdog/object-routines.ts";
 import { turnCapabilitySigner } from "./laterdog/turn-capability-signer.ts";
 import { SkillsPromptCache, skillsPromptWorker } from "./skills-prompt-cache.ts";
@@ -1080,6 +1081,35 @@ const historyWriter = CLOUD_HOME ? new HistoryWriter({
   filled: (threadId) => store.forgetCachedThread(threadId),
   inScope: (threadId) => historyCovers(coordinatorSetting, store.botByThread(threadId)?.id ?? (store.groupByThread(threadId) ? `room-${store.groupByThread(threadId)!.id}` : null)),
   log: (line) => console.log(line),
+}) : null;
+const EDGE_REPLAY_HEADER = "x-laterdog-edge-replay";
+const EDGE_REPLAY_SECRET = randomBytes(24).toString("hex");
+function edgeReplaySession(req: IncomingMessage): SessionRecord | null {
+  const presented = req.headers[EDGE_REPLAY_HEADER];
+  if (typeof presented !== "string" || !presented.startsWith(`${EDGE_REPLAY_SECRET}:`)) return null;
+  const address = req.socket.remoteAddress ?? "";
+  if (address !== "127.0.0.1" && address !== "::1" && address !== "::ffff:127.0.0.1") return null;
+  return sessions.liveSession(presented.slice(EDGE_REPLAY_SECRET.length + 1));
+}
+const edgeArrivals = CLOUD_HOME ? new EdgeArrivals({
+  origin: CLOUD_HOME.publicOrigin,
+  home: CLOUD_HOME.machineId,
+  bootstrapSecret: CLOUD_HOME.bootstrapSecret,
+  sessions: () => sessions.liveSessions(),
+  dogs: () => edgeAdmissionDogs(coordinatorSetting),
+  deliver: async (arrival) => {
+    const response = await fetch(`http://127.0.0.1:${PORT}/api/bots/${encodeURIComponent(arrival.dog)}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", [EDGE_REPLAY_HEADER]: `${EDGE_REPLAY_SECRET}:${arrival.session}` },
+      body: JSON.stringify(arrival.body),
+      signal: AbortSignal.timeout(120_000),
+    });
+    return { status: response.status, body: (await response.json().catch(() => ({}))) as Record<string, unknown> };
+  },
+  undelivered: (arrival, why) => {
+    if (!store.taskByThread(arrival.dog, arrival.chat)) return;
+    store.appendMessage(arrival.chat, { role: "bot", kind: "activity", tool: failedTurnTool(`A message you sent could not be delivered: ${why}`) });
+  },
 }) : null;
 const queuesInObject = (botId: string) => Boolean(objectQueue) && queueModeFor(coordinatorSetting, botId) === "object";
 const dogObjectCalls = CLOUD_HOME ? new DogObjectCalls({ origin: CLOUD_HOME.publicOrigin, home: CLOUD_HOME.machineId, bootstrapSecret: CLOUD_HOME.bootstrapSecret }) : null;
@@ -14409,7 +14439,7 @@ ROUTES.push(createSearchIndexRoutes({
 if (searchIndex) searchIndex.setMode(readSearchIndexMode(DATA_DIR));
 ROUTES.push(createCoordinatorRoutes({
   available: () => Boolean(CLOUD_HOME),
-  read: () => ({ ...coordinatorSetting, routineClient: objectRoutines ? objectRoutines.state : null, historyWriter: historyWriter ? historyWriter.state() : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null }),
+  read: () => ({ ...coordinatorSetting, routineClient: objectRoutines ? objectRoutines.state : null, historyWriter: historyWriter ? historyWriter.state() : null, queueClient: objectQueue ? { pending: objectQueue.pending(), ...objectQueue.state } : null, edgeArrivals: edgeArrivals ? edgeArrivals.state : null }),
   change: async (change) => {
     const before = coordinatorSetting;
     coordinatorSetting = mergeCoordinatorSetting(coordinatorSetting, change);
@@ -14424,6 +14454,7 @@ ROUTES.push(createCoordinatorRoutes({
     saveCoordinatorSetting(DATA_DIR, coordinatorSetting);
     if (change.historyDogs && historyWriter?.mode === coordinatorSetting.history) historyWriter.rescope();
     historyWriter?.setMode(coordinatorSetting.history);
+    edgeArrivals?.refresh();
     return coordinatorSetting;
   },
 }));
@@ -15335,7 +15366,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         serverName: environmentDescriptor({ environmentId: ENVIRONMENT_ID, desktopManaged: DESKTOP_MANAGED }).label,
       });
     }
-    const gate = resolveRequestAuth(req, {
+    const replayed = edgeReplaySession(req);
+    const gate = replayed
+      ? { auth: { kind: "session" as const, session: replayed, via: "bearer" as const, scopes: replayed.scopes }, status: 401 as const, error: "" }
+      : resolveRequestAuth(req, {
       sessions,
       cookieName: SESSION_COOKIE,
       streamPath: "/api/events",
@@ -22838,6 +22872,8 @@ server.listen(PORT, "127.0.0.1", async () => {
   for (const turn of leftoverTurns) if (queuesInObject(turn.botId)) awaitingPickup.add(turn.threadId);
   followupsReady = true;
   historyWriter?.setMode(coordinatorSetting.history);
+  edgeArrivals?.refresh();
+  sessions.onSessionsChanged(() => edgeArrivals?.refresh());
   limitHold.restorePeople();
   drainQueuedSends();
   drainQueuedChannelSends();

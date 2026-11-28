@@ -23,6 +23,7 @@ export type EdgeRoutes = readonly EdgeRouteRow[];
 export interface EdgeEnv {
   HOME_SECRET: string;
   EDGE_ROUTES?: string;
+  EDGE_ADMISSION?: string;
   COORDINATOR?: Pick<Fetcher, "fetch">;
 }
 
