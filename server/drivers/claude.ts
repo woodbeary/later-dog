@@ -13,6 +13,7 @@ import { acceptedEnginePlacement, botFolderPresent, engineOpener, lendableClaude
 import { dogFiles } from "../laterdog/dog-mounts.ts";
 import { claudeSignInRefresh, plainEnvironment } from "../laterdog/claude-sign-in-refresh.ts";
 import { engineWaitEvent } from "../laterdog/engine-waiting.ts";
+import { RELAY_SELF_STOP_MS } from "../laterdog/engine-remote.ts";
 import { createTurnPhases } from "../laterdog/turn-head-start.ts";
 import { keepWarm } from "../laterdog/keep-warm.ts";
 import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
@@ -1593,7 +1594,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       let child: ReturnType<typeof spawnCli>;
       try {
         checkStart();
-        warmEngines.assertVacant(ownershipKey(threadId));
+        await warmEngines.vacated(ownershipKey(threadId), RELAY_SELF_STOP_MS + 4_000);
         const local = () => {
           warmEngines.makeRoom(ENGINE_BYTES);
           return spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
@@ -1620,7 +1621,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         child = remote && "plan" in remote
           ? spawnPlacedEngine(remote.plan, (plan, signal) => opener!.open(botId!, plan, signal), required ? undefined : local, (where, why) =>
             notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`), undefined,
-            { openBudgetMs: opener!.openBudgetMs, onWaiting: (wait) => emit({ ...base(threadId, turnId), ...engineWaitEvent(wait) }) }) as unknown as ReturnType<typeof spawnCli>
+            { openBudgetMs: opener!.openBudgetMs, onWaiting: (wait) => emit({ ...base(threadId, turnId), ...engineWaitEvent(wait) }), onNotice: (message) => emit({ ...base(threadId, turnId), type: "runtime.notice", message }) }) as unknown as ReturnType<typeof spawnCli>
           : local();
       } catch (error) {
         cleanupUnownedLaunch();
