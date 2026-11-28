@@ -336,6 +336,7 @@ import { readSearchIndexMode, saveSearchIndexMode } from "./laterdog/search-inde
 import { createSearchIndexRoutes } from "./routes/search-index.ts";
 import { createCoordinatorRoutes } from "./routes/coordinator.ts";
 import { BOT_BROADCAST_MS, coalescedBroadcasts } from "./laterdog/coalesced-broadcasts.ts";
+import { chatTailMemo } from "./laterdog/chat-tail-memo.ts";
 import { EdgeArrivals } from "./laterdog/edge-arrivals.ts";
 import { edgeAdmissionDogs, historyCovers, readCoordinatorSetting, saveCoordinatorSetting, mergeCoordinatorSetting, queueModeFor, dogPartModeFor, type CoordinatorSetting } from "./laterdog/coordinator-setting.ts";
 import { DogObjectCalls, ObjectRoutines } from "./laterdog/object-routines.ts";
@@ -4277,16 +4278,10 @@ const workSignals = new WorkSignals();
 let exchangeLookup: ExchangeLookup | undefined;
 let waitingOnPerson = (_threadId: string): boolean => false;
 let stallFacts = (_threadId: string): StallFacts => ({});
-const signInAsks = new Map<string, string | undefined>();
-function signInAsk(threadId: string): string | undefined {
-  if (!signInAsks.has(threadId)) signInAsks.set(threadId, deviceApprovalNeedsYou(store.messagesTail(threadId, 60).messages));
-  return signInAsks.get(threadId);
-}
-store.onChange((change) => {
-  if ("threadId" in change) signInAsks.delete(change.threadId);
-});
+const signInAsks = chatTailMemo((threadId) => deviceApprovalNeedsYou(store.messagesTail(threadId, 60).messages));
+store.onChange((change) => signInAsks.changed(change));
 function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
-  const signIn = busy ? undefined : signInAsk(threadId);
+  const signIn = busy ? undefined : signInAsks.get(threadId);
   const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId) || signIn !== undefined;
   const until = limitHold.heldUntil(threadId);
   const usageWait = until !== undefined || (!busy && usageStranded(threadId));
